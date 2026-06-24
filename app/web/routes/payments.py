@@ -1,5 +1,5 @@
 """
-Payments route — current month payments with CRUD, filters, manual add.
+Payments route — payments with CRUD, filters, manual add, and period selector.
 """
 
 import os
@@ -38,16 +38,72 @@ async def _require_admin_user(request: Request, db: AsyncSession):
     return current_user, None
 
 
+def _shift_month(year: int, month: int, offset: int) -> tuple[int, int]:
+    """Shift a year/month pair by N months and return normalized (year, month)."""
+    month_index = year * 12 + (month - 1) + offset
+    return month_index // 12, month_index % 12 + 1
+
+
+def _parse_period(request: Request, today: date) -> tuple[int, int]:
+    """Parse selected year/month from query params with safe fallback."""
+    try:
+        year = int(request.query_params.get("year", today.year))
+    except (TypeError, ValueError):
+        year = today.year
+
+    try:
+        month = int(request.query_params.get("month", today.month))
+    except (TypeError, ValueError):
+        month = today.month
+
+    if year < 2000 or year > 2100:
+        year = today.year
+    if month < 1 or month > 12:
+        month = today.month
+
+    return year, month
+
+
+async def _build_month_options(db: AsyncSession, selected_year: int, selected_month: int, today: date):
+    """Build month selector options from DB plus rolling period."""
+    month_keys = {(selected_year, selected_month)}
+
+    for offset in range(-23, 13):
+        month_keys.add(_shift_month(today.year, today.month, offset))
+
+    result = await db.execute(
+        select(Payment.year, Payment.month)
+        .distinct()
+        .order_by(Payment.year.desc(), Payment.month.desc())
+    )
+    for y, m in result.all():
+        if y and m and 1 <= m <= 12:
+            month_keys.add((int(y), int(m)))
+
+    return [(y, m, month_name(m)) for y, m in sorted(month_keys, reverse=True)]
+
+
+def _period_url(year: int, month: int, status_filter: str = "") -> str:
+    """Return payments URL preserving selected period and optional status filter."""
+    url = f"/payments?year={year}&month={month}"
+    if status_filter and status_filter != "all":
+        url += f"&status_filter={status_filter}"
+    return url
+
+
 async def _page_context(
     request: Request,
     db: AsyncSession,
     current_user,
+    year: int | None = None,
+    month: int | None = None,
     status_filter: str = "",
     extra: dict | None = None,
 ):
-    """Build full payments.html context, including rows and contractors."""
+    """Build full payments.html context, including rows, contractors and period selector."""
     today = date.today()
-    year, month = today.year, today.month
+    if year is None or month is None:
+        year, month = _parse_period(request, today)
 
     query = select(Payment).options(joinedload(Payment.contractor)).where(
         Payment.year == year,
@@ -61,6 +117,7 @@ async def _page_context(
 
     contractors_result = await db.execute(select(Contractor).where(Contractor.is_active == True))
     contractors = contractors_result.scalars().all()
+    month_options = await _build_month_options(db, year, month, today)
 
     ctx = {
         "request": request,
@@ -68,10 +125,13 @@ async def _page_context(
         "user_role": current_user.role,
         "month_name": month_name(month),
         "year": year,
+        "month": month,
         "payments": payments,
         "contractors": contractors,
         "status_filter": status_filter,
+        "month_options": month_options,
         "payment_color_class": payment_color_class,
+        "period_url": _period_url,
         "error": request.query_params.get("error"),
     }
     if extra:
@@ -82,6 +142,10 @@ async def _page_context(
 def _parse_amount(raw: str) -> Decimal:
     value = (raw or "0").replace(",", ".").strip()
     return Decimal(value) if value else Decimal("0")
+
+
+def _redirect_to_period(year: int, month: int, status_filter: str = "") -> RedirectResponse:
+    return RedirectResponse(url=_period_url(year, month, status_filter), status_code=303)
 
 
 @router.get("/payments")
@@ -98,9 +162,12 @@ async def payments_page(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
 
+    today = date.today()
+    year, month = _parse_period(request, today)
+
     return templates.TemplateResponse(
         "payments.html",
-        await _page_context(request, db, current_user, status_filter=status_filter),
+        await _page_context(request, db, current_user, year=year, month=month, status_filter=status_filter),
     )
 
 
@@ -111,6 +178,8 @@ async def add_payment(
     contractor_id: str = Form(...),
     amount: str = Form("0"),
     paid_date_str: str = Form(""),
+    year: int = Form(None),
+    month: int = Form(None),
     receipt: UploadFile = File(None),
 ):
     current_user, redirect = await _require_admin_user(request, db)
@@ -118,67 +187,68 @@ async def add_payment(
         return redirect
 
     today = date.today()
-    year, month = today.year, today.month
+    selected_year = year if year and 2000 <= year <= 2100 else today.year
+    selected_month = month if month and 1 <= month <= 12 else today.month
 
     try:
         paid_amt = _parse_amount(amount)
     except (InvalidOperation, ValueError):
-        ctx = await _page_context(request, db, current_user, extra={"error": "Некорректная сумма"})
+        ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Некорректная сумма"})
         return templates.TemplateResponse("payments.html", ctx)
 
     receipt_path = None
     if receipt and receipt.filename:
         if not is_allowed_file(receipt.filename):
-            ctx = await _page_context(request, db, current_user, extra={"error": "Недопустимый формат файла (PDF, JPG, PNG)"})
+            ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Недопустимый формат файла (PDF, JPG, PNG)"})
             return templates.TemplateResponse("payments.html", ctx)
 
         content = await receipt.read()
         if len(content) > MAX_FILE_SIZE:
-            ctx = await _page_context(request, db, current_user, extra={"error": "Файл слишком большой (макс. 10MB)"})
+            ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Файл слишком большой (макс. 10MB)"})
             return templates.TemplateResponse("payments.html", ctx)
 
-        upload_dir = get_upload_path(year, month, UPLOAD_DIR)
+        upload_dir = get_upload_path(selected_year, selected_month, UPLOAD_DIR)
         ext = os.path.splitext(receipt.filename)[1]
         filename = f"{uuid.uuid4()}{ext}"
         filepath = os.path.join(upload_dir, filename)
         with open(filepath, "wb") as f:
             f.write(content)
-        receipt_path = f"{year}/{month:02d}/{filename}"
+        receipt_path = f"{selected_year}/{selected_month:02d}/{filename}"
 
     paid_date = None
     if paid_date_str:
         try:
             paid_date = date.fromisoformat(paid_date_str)
         except ValueError:
-            ctx = await _page_context(request, db, current_user, extra={"error": "Некорректная дата оплаты"})
+            ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Некорректная дата оплаты"})
             return templates.TemplateResponse("payments.html", ctx)
 
     existing = await db.execute(
         select(Payment).where(
             Payment.contractor_id == contractor_id,
-            Payment.year == year,
-            Payment.month == month,
+            Payment.year == selected_year,
+            Payment.month == selected_month,
         )
     )
     if existing.scalar_one_or_none():
-        ctx = await _page_context(request, db, current_user, extra={"error": "Платеж за этот месяц уже существует"})
+        ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Платеж за этот месяц уже существует"})
         return templates.TemplateResponse("payments.html", ctx)
 
     contractor_result = await db.execute(select(Contractor).where(Contractor.id == contractor_id))
     contractor = contractor_result.scalar_one_or_none()
     if not contractor:
-        ctx = await _page_context(request, db, current_user, extra={"error": "Подрядчик не найден"})
+        ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Подрядчик не найден"})
         return templates.TemplateResponse("payments.html", ctx)
 
     due_day = min(contractor.due_day, 28)
-    due_date = date(year, month, due_day)
+    due_date = date(selected_year, selected_month, due_day)
     status = "paid" if paid_date and paid_amt > 0 else "pending"
 
     payment = Payment(
-        id=f"pay-{year}{month:02d}-{contractor_id}-{uuid.uuid4().hex[:8]}",
+        id=f"pay-{selected_year}{selected_month:02d}-{contractor_id}-{uuid.uuid4().hex[:8]}",
         contractor_id=contractor_id,
-        year=year,
-        month=month,
+        year=selected_year,
+        month=selected_month,
         amount=paid_amt,
         paid_amount=paid_amt if status == "paid" else None,
         due_date=due_date,
@@ -189,7 +259,7 @@ async def add_payment(
     db.add(payment)
     await db.commit()
 
-    return RedirectResponse(url="/payments", status_code=303)
+    return _redirect_to_period(selected_year, selected_month)
 
 
 @router.post("/payments/{payment_id}/edit")
@@ -215,12 +285,12 @@ async def edit_payment(
         try:
             payment.amount = _parse_amount(amount)
         except (InvalidOperation, ValueError):
-            ctx = await _page_context(request, db, current_user, extra={"error": "Некорректная сумма"})
+            ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Некорректная сумма"})
             return templates.TemplateResponse("payments.html", ctx)
 
     if status:
         if status not in {"pending", "paid", "overdue"}:
-            ctx = await _page_context(request, db, current_user, extra={"error": "Некорректный статус"})
+            ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Некорректный статус"})
             return templates.TemplateResponse("payments.html", ctx)
         payment.status = status
 
@@ -228,7 +298,7 @@ async def edit_payment(
         try:
             payment.paid_date = date.fromisoformat(paid_date_str)
         except ValueError:
-            ctx = await _page_context(request, db, current_user, extra={"error": "Некорректная дата оплаты"})
+            ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Некорректная дата оплаты"})
             return templates.TemplateResponse("payments.html", ctx)
         payment.paid_amount = payment.amount
     elif status == "paid":
@@ -237,12 +307,12 @@ async def edit_payment(
 
     if receipt and receipt.filename:
         if not is_allowed_file(receipt.filename):
-            ctx = await _page_context(request, db, current_user, extra={"error": "Недопустимый формат файла (PDF, JPG, PNG)"})
+            ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Недопустимый формат файла (PDF, JPG, PNG)"})
             return templates.TemplateResponse("payments.html", ctx)
         try:
             content = await receipt.read()
             if len(content) > MAX_FILE_SIZE:
-                ctx = await _page_context(request, db, current_user, extra={"error": "Файл слишком большой (макс. 10MB)"})
+                ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Файл слишком большой (макс. 10MB)"})
                 return templates.TemplateResponse("payments.html", ctx)
             upload_dir = get_upload_path(payment.year, payment.month, UPLOAD_DIR)
             ext = os.path.splitext(receipt.filename)[1]
@@ -253,11 +323,11 @@ async def edit_payment(
             payment.receipt_file = f"{payment.year}/{payment.month:02d}/{filename}"
         except Exception as e:
             logger.error("Receipt upload error: %s", e)
-            ctx = await _page_context(request, db, current_user, extra={"error": "Ошибка загрузки файла"})
+            ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Ошибка загрузки файла"})
             return templates.TemplateResponse("payments.html", ctx)
 
     await db.commit()
-    return RedirectResponse(url="/payments", status_code=303)
+    return _redirect_to_period(payment.year, payment.month)
 
 
 @router.post("/payments/{payment_id}/delete")
@@ -273,7 +343,9 @@ async def delete_payment(
     result = await db.execute(select(Payment).where(Payment.id == payment_id))
     payment = result.scalar_one_or_none()
     if payment:
+        year, month = payment.year, payment.month
         await db.delete(payment)
         await db.commit()
+        return _redirect_to_period(year, month)
 
     return RedirectResponse(url="/payments", status_code=303)
