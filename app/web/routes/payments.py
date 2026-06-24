@@ -47,6 +47,18 @@ def _as_decimal(value) -> Decimal:
     return Decimal(str(value))
 
 
+def _requires_amount(payment: Payment) -> bool:
+    """Variable payment exists, but actual bill amount has not been entered yet."""
+    contractor = getattr(payment, "contractor", None)
+    return (
+        contractor is not None
+        and contractor.payment_type == "variable"
+        and payment.amount is None
+        and payment.paid_amount is None
+        and payment.status != "paid"
+    )
+
+
 def _planned_amount(payment: Payment) -> Decimal:
     """Return expected charge using the same fixed-debt rule as dashboard."""
     candidates: list[Decimal] = []
@@ -69,9 +81,13 @@ def _remaining_amount(payment: Payment) -> Decimal:
     return remaining if remaining > 0 else Decimal("0")
 
 
+def _is_open_payment(payment: Payment) -> bool:
+    return _remaining_amount(payment) > 0 or _requires_amount(payment)
+
+
 def _effective_status(payment: Payment) -> str:
     """Return visual/business status, not just raw DB status."""
-    if _remaining_amount(payment) <= 0:
+    if not _is_open_payment(payment):
         return "paid"
     if payment.status == "overdue":
         return "overdue"
@@ -82,6 +98,8 @@ def _effective_status(payment: Payment) -> str:
 
 def _status_label(payment: Payment) -> str:
     status = _effective_status(payment)
+    if _requires_amount(payment):
+        return "ожидает начисления" if status == "pending" else "просрочено, нет суммы"
     if status == "overdue":
         return "просрочено"
     if status == "pending":
@@ -193,6 +211,7 @@ async def _page_context(
         "planned_amount": _planned_amount,
         "paid_amount": _paid_amount,
         "remaining_amount": _remaining_amount,
+        "requires_amount": _requires_amount,
         "effective_status": _effective_status,
         "status_label": _status_label,
         "status_css_class": _status_css_class,
@@ -371,6 +390,9 @@ async def edit_payment(
         payment.status = status
 
     if status == "paid":
+        if payment.amount is None:
+            ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Для оплаты нужно указать сумму начисления"})
+            return templates.TemplateResponse("payments.html", ctx)
         if paid_date_str:
             try:
                 payment.paid_date = date.fromisoformat(paid_date_str)
