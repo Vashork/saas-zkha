@@ -23,15 +23,6 @@ router = APIRouter()
 templates = Jinja2Templates(directory="app/web/templates")
 
 
-def _effective_status(payment: Payment) -> str:
-    """Return the effective status, treating past-due or due-today pending as overdue."""
-    if payment.status == "paid":
-        return "paid"
-    if payment.due_date and payment.due_date <= date.today():
-        return "overdue"
-    return payment.status
-
-
 def _as_decimal(value) -> Decimal:
     """Safely convert nullable numeric DB values to Decimal."""
     if value is None:
@@ -43,20 +34,30 @@ def _as_decimal(value) -> Decimal:
 
 def _planned_amount(payment: Payment) -> Decimal:
     """
-    Return the amount that should be shown as the payment total.
+    Return the amount that should be treated as the expected charge.
 
-    Variable payments may be generated with amount=NULL and later receive only
-    paid_amount from Telegram. In that case paid_amount is still the best known
-    amount for the dashboard. For fixed contractors, fall back to fixed_amount.
+    Business rule:
+    - for fixed contractors, the contractor.fixed_amount is the expected monthly
+      charge and must not be hidden by a smaller bill/paid amount;
+    - if the actual bill is higher than fixed_amount, the higher value wins;
+    - for variable contractors, use payment.amount, then paid_amount.
+
+    Example: contractor fixed amount = 3000, paid/bill amount = 2000.
+    Dashboard should still show 1000 remaining debt.
     """
-    if payment.amount is not None:
-        return _as_decimal(payment.amount)
-    if payment.paid_amount is not None:
-        return _as_decimal(payment.paid_amount)
+    candidates: list[Decimal] = []
+
     contractor = getattr(payment, "contractor", None)
     if contractor and contractor.payment_type == "fixed" and contractor.fixed_amount is not None:
-        return _as_decimal(contractor.fixed_amount)
-    return Decimal("0")
+        candidates.append(_as_decimal(contractor.fixed_amount))
+
+    if payment.amount is not None:
+        candidates.append(_as_decimal(payment.amount))
+
+    if payment.paid_amount is not None:
+        candidates.append(_as_decimal(payment.paid_amount))
+
+    return max(candidates) if candidates else Decimal("0")
 
 
 def _paid_amount(payment: Payment) -> Decimal:
@@ -65,11 +66,41 @@ def _paid_amount(payment: Payment) -> Decimal:
 
 
 def _remaining_amount(payment: Payment) -> Decimal:
-    """Return unpaid remainder, never below zero."""
-    if payment.status == "paid":
-        return Decimal("0")
+    """
+    Return unpaid remainder, never below zero.
+
+    Do not blindly return zero for status='paid': a partial payment can be marked
+    paid while the planned fixed contractor amount is still higher than paid_amount.
+    """
     remaining = _planned_amount(payment) - _paid_amount(payment)
     return remaining if remaining > 0 else Decimal("0")
+
+
+def _effective_status(payment: Payment) -> str:
+    """Return effective status based on remaining debt and due date."""
+    if _remaining_amount(payment) <= 0:
+        return "paid"
+    if payment.due_date and payment.due_date <= date.today():
+        return "overdue"
+    return "pending"
+
+
+def _status_label(payment: Payment) -> str:
+    """Human-readable status label for the dashboard table."""
+    status = _effective_status(payment)
+    if status == "overdue":
+        return "просрочено"
+    if status == "pending":
+        return "к оплате"
+    return "оплачено"
+
+
+def _status_css_class(payment: Payment) -> str:
+    """CSS class for dashboard status badges."""
+    status = _effective_status(payment)
+    if status == "paid":
+        return "paid"
+    return payment_color_class(payment.due_date, status)
 
 
 def _shift_month(year: int, month: int, offset: int) -> tuple[int, int]:
@@ -150,13 +181,13 @@ async def dashboard(
     total = sum((_planned_amount(p) for p in payments), Decimal("0"))
     paid = sum((_paid_amount(p) for p in payments), Decimal("0"))
 
-    # Classify each payment: pending vs overdue based on effective status
+    # Classify each payment by remaining debt and due date.
     pending = []
     overdue = []
     for p in payments:
-        if p.status == "paid":
-            continue
         eff = _effective_status(p)
+        if eff == "paid":
+            continue
         if eff == "overdue":
             overdue.append(p)
         else:
@@ -167,14 +198,14 @@ async def dashboard(
     unpaid_amount = pending_amount + overdue_amount
     unpaid_count = len(pending) + len(overdue)
 
-    # Upcoming: all unpaid payments sorted by due_date (nearest first)
+    # Upcoming: all payments with remaining debt sorted by due_date.
     result_upcoming = await db.execute(
         select(Payment)
         .options(joinedload(Payment.contractor))
-        .where(Payment.status != "paid")
         .order_by(Payment.due_date.asc())
     )
-    all_unpaid = result_upcoming.scalars().all()
+    all_payments = result_upcoming.scalars().all()
+    all_unpaid = [p for p in all_payments if _remaining_amount(p) > 0]
 
     # Show overdue first (sorted by due_date desc), then pending (asc)
     unpaid_overdue = sorted(
@@ -195,7 +226,7 @@ async def dashboard(
         y, m = _shift_month(year, month, offset)
         result = await db.execute(
             select(func.sum(Payment.paid_amount)).where(
-                Payment.year == y, Payment.month == m, Payment.status == "paid"
+                Payment.year == y, Payment.month == m, Payment.paid_amount.is_not(None)
             )
         )
         val = result.scalar() or Decimal("0")
@@ -226,5 +257,9 @@ async def dashboard(
         "today": today,
         "payment_color_class": payment_color_class,
         "planned_amount": _planned_amount,
+        "paid_amount": _paid_amount,
         "remaining_amount": _remaining_amount,
+        "effective_status": _effective_status,
+        "status_label": _status_label,
+        "status_css_class": _status_css_class,
     })
