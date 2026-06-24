@@ -46,7 +46,7 @@
         <div class="stat-card soon">
             <div class="stat-label">Всего к оплате</div>
             <div class="stat-value">{{ "{:,.0f}".format(unpaid_amount) }} ₽</div>
-            <div class="stat-sub">{{ unpaid_count }} неоплаченных платеж(ей), включая просрочку</div>
+            <div class="stat-sub">{{ unpaid_count }} открытых платеж(ей), включая без суммы</div>
         </div>
         <div class="stat-card overdue">
             <div class="stat-label">Из них просрочено</div>
@@ -67,9 +67,9 @@
             {% set remaining = remaining_amount(p) %}
             <tr>
                 <td>{{ p.contractor.name if p.contractor else '—' }}</td>
-                <td>{% if planned > 0 %}{{ "{:,.0f}".format(planned) }} ₽{% else %}<span style="color:var(--text-muted);">не указана</span>{% endif %}</td>
+                <td>{% if planned > 0 %}{{ "{:,.0f}".format(planned) }} ₽{% else %}<span style="color:var(--text-muted);">требуется сумма</span>{% endif %}</td>
                 <td>{% if paid > 0 %}{{ "{:,.0f}".format(paid) }} ₽{% else %}<span style="color:var(--text-muted);">—</span>{% endif %}</td>
-                <td>{% if remaining > 0 %}<strong>{{ "{:,.0f}".format(remaining) }} ₽</strong>{% else %}<span style="color:var(--text-muted);">—</span>{% endif %}</td>
+                <td>{% if remaining > 0 %}<strong>{{ "{:,.0f}".format(remaining) }} ₽</strong>{% elif requires_amount(p) %}<span style="color:var(--accent-warn);">внести начисление</span>{% else %}<span style="color:var(--text-muted);">—</span>{% endif %}</td>
                 <td>{{ p.due_date.strftime('%d.%m.%Y') }}</td>
                 <td><span class="badge-status badge-{{ status_css_class(p) }}">{{ status_label(p) }}</span></td>
             </tr>
