@@ -62,11 +62,13 @@
             {% set paid = paid_amount(p) %}
             {% set remaining = remaining_amount(p) %}
             {% set current_status = effective_status(p) %}
+            {% set needs_amount = requires_amount(p) %}
+            {% set edit_amount = '' if needs_amount else planned %}
             <tr>
                 <td>{{ p.contractor.name if p.contractor else '—' }}</td>
-                <td>{{ "{:,.2f}".format(planned) }} ₽</td>
-                <td>{{ "{:,.2f}".format(paid) }} ₽</td>
-                <td style="color:{% if remaining > 0 %}var(--accent-warn){% else %}var(--text-muted){% endif %}">{{ "{:,.2f}".format(remaining) }} ₽</td>
+                <td>{% if planned > 0 %}{{ "{:,.2f}".format(planned) }} ₽{% else %}<span style="color:var(--text-muted);">требуется сумма</span>{% endif %}</td>
+                <td>{% if paid > 0 %}{{ "{:,.2f}".format(paid) }} ₽{% else %}<span style="color:var(--text-muted);">—</span>{% endif %}</td>
+                <td style="color:{% if remaining > 0 or needs_amount %}var(--accent-warn){% else %}var(--text-muted){% endif %}">{% if remaining > 0 %}{{ "{:,.2f}".format(remaining) }} ₽{% elif needs_amount %}внести начисление{% else %}—{% endif %}</td>
                 <td>{{ p.due_date.strftime('%d.%m.%Y') }}</td>
                 <td><span class="badge-status badge-{{ status_css_class(p) }}">{{ status_label(p) }}</span></td>
                 <td>
@@ -77,7 +79,7 @@
                     {% if current_status == 'paid' %}
                     <button class="btn-icon" title="Загрузить чек" onclick="openReceiptModal('{{ p.id }}')">📤</button>
                     {% endif %}
-                    <button class="btn-icon" title="Редактировать" onclick="openEditModal('{{ p.id }}', '{{ planned }}', '{{ current_status }}', '{{ p.paid_date.isoformat() if p.paid_date else '' }}')">✏️</button>
+                    <button class="btn-icon" title="Редактировать" onclick="openEditModal('{{ p.id }}', '{{ edit_amount }}', '{{ current_status }}', '{{ p.paid_date.isoformat() if p.paid_date else '' }}')">✏️</button>
                     <form method="post" action="/payments/{{ p.id }}/delete" style="display:inline;" onsubmit="return confirm('Удалить платеж?')">
                         <button type="submit" class="btn-icon" title="Удалить">🗑</button>
                     </form>
@@ -203,7 +205,7 @@ function openReceiptModal(paymentId) {
 function openEditModal(paymentId, amount, statusValue, paidDate) {
     const form = document.getElementById('editForm');
     form.action = '/payments/' + paymentId + '/edit';
-    document.getElementById('editAmount').value = amount;
+    document.getElementById('editAmount').value = amount || '';
     const statusSelect = document.getElementById('editStatus');
     statusSelect.value = statusValue || 'pending';
     document.getElementById('editPaidDate').value = paidDate || '';
