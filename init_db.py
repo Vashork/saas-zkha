@@ -46,7 +46,7 @@ def _run_migrations(conn):
     import sqlite3
     conn_raw = conn.connection if hasattr(conn, 'connection') else conn
 
-    # Check if page_permissions column exists in users table
+    # Check if columns exist in users table
     cur = conn_raw.cursor()
     cur.execute("PRAGMA table_info(users)")
     columns = [row[1] for row in cur.fetchall()]
@@ -55,6 +55,11 @@ def _run_migrations(conn):
         cur.execute("ALTER TABLE users ADD COLUMN page_permissions TEXT")
         conn_raw.commit()
         print("Migration: added page_permissions to users")
+
+    if "is_active" not in columns:
+        cur.execute("ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1")
+        conn_raw.commit()
+        print("Migration: added is_active to users")
 
 
 async def seed_data(session: AsyncSession):
