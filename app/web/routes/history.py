@@ -4,7 +4,6 @@ History route — all payments, filters, CSV export.
 
 import csv
 import io
-from datetime import date
 from fastapi import APIRouter, Request, Depends, Query
 from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -15,11 +14,10 @@ from sqlalchemy.orm import joinedload
 from app.database import get_db
 from app.models import Payment, Contractor
 from app.utils import month_name, payment_color_class
-from app.web.routes.auth import _require_page
+from app.web.routes.auth import _require_page, get_current_user
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/web/templates")
-
 
 
 @router.get("/history")
@@ -34,6 +32,10 @@ async def history_page(
     redirect = await _require_page(request, "history")
     if redirect:
         return redirect
+
+    current_user = await get_current_user(request, db)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=303)
 
     query = select(Payment).options(joinedload(Payment.contractor))
 
@@ -51,18 +53,16 @@ async def history_page(
     result = await db.execute(query)
     payments = result.scalars().all()
 
-    # Get contractors for filter dropdown
     contractors_result = await db.execute(select(Contractor))
     contractors = contractors_result.scalars().all()
 
-    # Get distinct years for filter
     years_result = await db.execute(select(Payment.year).distinct().order_by(Payment.year.desc()))
     years = [row[0] for row in years_result.all()]
 
     return templates.TemplateResponse("history.html", {
         "request": request,
-        "username": request.cookies.get("username", "User"),
-        "user_role": request.cookies.get("user_role", "user"),
+        "username": current_user.username,
+        "user_role": current_user.role,
         "payments": payments,
         "contractors": contractors,
         "years": years,
