@@ -61,6 +61,7 @@
             {% set planned = planned_amount(p) %}
             {% set paid = paid_amount(p) %}
             {% set remaining = remaining_amount(p) %}
+            {% set current_status = effective_status(p) %}
             <tr>
                 <td>{{ p.contractor.name if p.contractor else '—' }}</td>
                 <td>{{ "{:,.2f}".format(planned) }} ₽</td>
@@ -73,8 +74,10 @@
                     <a href="/uploads/{{ p.receipt_file }}" download class="btn-icon" title="Скачать чек">📎</a>
                     {% endif %}
                     {% if user_role == 'admin' %}
+                    {% if current_status == 'paid' %}
                     <button class="btn-icon" title="Загрузить чек" onclick="openReceiptModal('{{ p.id }}')">📤</button>
-                    <button class="btn-icon" title="Редактировать" onclick="openEditModal('{{ p.id }}', '{{ planned }}', '{{ effective_status(p) }}', '{{ p.paid_date.isoformat() if p.paid_date else '' }}')">✏️</button>
+                    {% endif %}
+                    <button class="btn-icon" title="Редактировать" onclick="openEditModal('{{ p.id }}', '{{ planned }}', '{{ current_status }}', '{{ p.paid_date.isoformat() if p.paid_date else '' }}')">✏️</button>
                     <form method="post" action="/payments/{{ p.id }}/delete" style="display:inline;" onsubmit="return confirm('Удалить платеж?')">
                         <button type="submit" class="btn-icon" title="Удалить">🗑</button>
                     </form>
@@ -113,19 +116,21 @@
             </div>
             <div class="form-group">
                 <label>Статус при создании</label>
-                <select name="status" class="input-custom" id="addStatus" onchange="toggleAddPaidDate()">
+                <select name="status" class="input-custom" id="addStatus" onchange="toggleAddPaidFields()">
                     <option value="pending" selected>Ожидает оплаты</option>
                     <option value="paid">Оплачено</option>
                     <option value="overdue">Просрочено</option>
                 </select>
             </div>
-            <div class="form-group" id="addPaidDateGroup" style="display:none;">
-                <label>Дата оплаты</label>
-                <input type="date" name="paid_date_str" class="input-custom" id="addPaidDate">
-            </div>
-            <div class="form-group">
-                <label>Чек (PDF, JPG, PNG)</label>
-                <input type="file" name="receipt" class="input-custom" accept=".pdf,.jpg,.jpeg,.png">
+            <div id="addPaidFields" style="display:none;">
+                <div class="form-group">
+                    <label>Дата оплаты</label>
+                    <input type="date" name="paid_date_str" class="input-custom" id="addPaidDate">
+                </div>
+                <div class="form-group">
+                    <label>Чек (PDF, JPG, PNG)</label>
+                    <input type="file" name="receipt" class="input-custom" accept=".pdf,.jpg,.jpeg,.png">
+                </div>
             </div>
             <div style="display:flex;gap:8px;">
                 <button type="submit" class="btn-custom">Сохранить</button>
@@ -161,19 +166,21 @@
                 </div>
                 <div class="form-group">
                     <label>Статус</label>
-                    <select name="status" class="input-custom" id="editStatus" onchange="toggleEditPaidDate()">
+                    <select name="status" class="input-custom" id="editStatus" onchange="toggleEditPaidFields()">
                         <option value="pending">Ожидает</option>
                         <option value="paid">Оплачено</option>
                         <option value="overdue">Просрочено</option>
                     </select>
                 </div>
-                <div class="form-group" id="editPaidDateGroup">
-                    <label>Дата оплаты</label>
-                    <input type="date" name="paid_date_str" class="input-custom" id="editPaidDate">
-                </div>
-                <div class="form-group">
-                    <label>Новый чек (опционально)</label>
-                    <input type="file" name="receipt" class="input-custom" accept=".pdf,.jpg,.jpeg,.png">
+                <div id="editPaidFields">
+                    <div class="form-group">
+                        <label>Дата оплаты</label>
+                        <input type="date" name="paid_date_str" class="input-custom" id="editPaidDate">
+                    </div>
+                    <div class="form-group">
+                        <label>Новый чек (опционально)</label>
+                        <input type="file" name="receipt" class="input-custom" accept=".pdf,.jpg,.jpeg,.png">
+                    </div>
                 </div>
                 <div style="display:flex;gap:8px;">
                     <button type="submit" class="btn-custom">Сохранить</button>
@@ -200,18 +207,18 @@ function openEditModal(paymentId, amount, statusValue, paidDate) {
     const statusSelect = document.getElementById('editStatus');
     statusSelect.value = statusValue || 'pending';
     document.getElementById('editPaidDate').value = paidDate || '';
-    toggleEditPaidDate();
+    toggleEditPaidFields();
     document.getElementById('editModal').style.display = 'flex';
 }
 
-function toggleAddPaidDate() {
+function toggleAddPaidFields() {
     const status = document.getElementById('addStatus').value;
-    document.getElementById('addPaidDateGroup').style.display = status === 'paid' ? 'block' : 'none';
+    document.getElementById('addPaidFields').style.display = status === 'paid' ? 'block' : 'none';
 }
 
-function toggleEditPaidDate() {
+function toggleEditPaidFields() {
     const status = document.getElementById('editStatus').value;
-    document.getElementById('editPaidDateGroup').style.display = status === 'paid' ? 'block' : 'none';
+    document.getElementById('editPaidFields').style.display = status === 'paid' ? 'block' : 'none';
 }
 
 function closeModal(id) {
