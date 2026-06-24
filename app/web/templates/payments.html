@@ -40,7 +40,6 @@
         </div>
     </div>
 
-    <!-- Filters -->
     <div class="toolbar">
         <a href="{{ period_url(year, month, 'all') }}" class="nav-link-custom {% if status_filter == 'all' or status_filter == '' %}active{% endif %}">Все</a>
         <a href="{{ period_url(year, month, 'pending') }}" class="nav-link-custom {% if status_filter == 'pending' %}active{% endif %}">Ожидает</a>
@@ -52,7 +51,6 @@
     <div class="alert-error">{{ error }}</div>
     {% endif %}
 
-    <!-- Payments table -->
     <div class="card-custom">
         <table class="table-custom">
             <thead>
@@ -76,7 +74,7 @@
                     {% endif %}
                     {% if user_role == 'admin' %}
                     <button class="btn-icon" title="Загрузить чек" onclick="openReceiptModal('{{ p.id }}')">📤</button>
-                    <button class="btn-icon" title="Редактировать" onclick="openEditModal('{{ p.id }}', '{{ planned }}', '{{ status_label(p) }}', '{{ p.paid_date.isoformat() if p.paid_date else '' }}')">✏️</button>
+                    <button class="btn-icon" title="Редактировать" onclick="openEditModal('{{ p.id }}', '{{ planned }}', '{{ effective_status(p) }}', '{{ p.paid_date.isoformat() if p.paid_date else '' }}')">✏️</button>
                     <form method="post" action="/payments/{{ p.id }}/delete" style="display:inline;" onsubmit="return confirm('Удалить платеж?')">
                         <button type="submit" class="btn-icon" title="Удалить">🗑</button>
                     </form>
@@ -91,12 +89,10 @@
         </table>
     </div>
 
-    <!-- Bot hint -->
     <div class="card-custom" style="background:var(--accent-bg);">
         <p style="margin:0;">💡 <b>Фиксация через Telegram:</b> перешлите боту чек и напишите <code>#оплачено #[slug] #сумма:X</code></p>
     </div>
 
-    <!-- Add payment form -->
     {% if user_role == 'admin' %}
     <div id="addForm" class="card-custom" style="display:none;">
         <h3 style="margin-bottom:16px;">+ Добавить платеж за {{ month_name }} {{ year }}</h3>
@@ -112,12 +108,20 @@
                 </select>
             </div>
             <div class="form-group">
-                <label>Сумма (₽, используйте точку или запятую: 3200.50)</label>
+                <label>Сумма начисления (₽, используйте точку или запятую: 3200.50)</label>
                 <input type="text" name="amount" class="input-custom" placeholder="3200.50" required>
             </div>
             <div class="form-group">
-                <label>Дата оплаты (оставьте пустым = "ожидает оплаты")</label>
-                <input type="date" name="paid_date_str" class="input-custom">
+                <label>Статус при создании</label>
+                <select name="status" class="input-custom" id="addStatus" onchange="toggleAddPaidDate()">
+                    <option value="pending" selected>Ожидает оплаты</option>
+                    <option value="paid">Оплачено</option>
+                    <option value="overdue">Просрочено</option>
+                </select>
+            </div>
+            <div class="form-group" id="addPaidDateGroup" style="display:none;">
+                <label>Дата оплаты</label>
+                <input type="date" name="paid_date_str" class="input-custom" id="addPaidDate">
             </div>
             <div class="form-group">
                 <label>Чек (PDF, JPG, PNG)</label>
@@ -131,7 +135,6 @@
     </div>
     {% endif %}
 
-    <!-- Receipt upload modal -->
     <div id="receiptModal" class="modal-overlay" style="display:none;">
         <div class="card-custom" style="max-width:400px;width:90%;">
             <h3 style="margin-bottom:16px;">📤 Загрузить чек</h3>
@@ -148,7 +151,6 @@
         </div>
     </div>
 
-    <!-- Edit payment modal -->
     <div id="editModal" class="modal-overlay" style="display:none;">
         <div class="card-custom" style="max-width:400px;width:90%;">
             <h3 style="margin-bottom:16px;">✏️ Редактировать платеж</h3>
@@ -159,13 +161,13 @@
                 </div>
                 <div class="form-group">
                     <label>Статус</label>
-                    <select name="status" class="input-custom" id="editStatus">
+                    <select name="status" class="input-custom" id="editStatus" onchange="toggleEditPaidDate()">
                         <option value="pending">Ожидает</option>
                         <option value="paid">Оплачено</option>
                         <option value="overdue">Просрочено</option>
                     </select>
                 </div>
-                <div class="form-group">
+                <div class="form-group" id="editPaidDateGroup">
                     <label>Дата оплаты</label>
                     <input type="date" name="paid_date_str" class="input-custom" id="editPaidDate">
                 </div>
@@ -191,16 +193,25 @@ function openReceiptModal(paymentId) {
     document.getElementById('receiptModal').style.display = 'flex';
 }
 
-function openEditModal(paymentId, amount, statusLabel, paidDate) {
+function openEditModal(paymentId, amount, statusValue, paidDate) {
     const form = document.getElementById('editForm');
     form.action = '/payments/' + paymentId + '/edit';
     document.getElementById('editAmount').value = amount;
     const statusSelect = document.getElementById('editStatus');
-    if (statusLabel === 'оплачено') statusSelect.value = 'paid';
-    else if (statusLabel === 'просрочено') statusSelect.value = 'overdue';
-    else statusSelect.value = 'pending';
+    statusSelect.value = statusValue || 'pending';
     document.getElementById('editPaidDate').value = paidDate || '';
+    toggleEditPaidDate();
     document.getElementById('editModal').style.display = 'flex';
+}
+
+function toggleAddPaidDate() {
+    const status = document.getElementById('addStatus').value;
+    document.getElementById('addPaidDateGroup').style.display = status === 'paid' ? 'block' : 'none';
+}
+
+function toggleEditPaidDate() {
+    const status = document.getElementById('editStatus').value;
+    document.getElementById('editPaidDateGroup').style.display = status === 'paid' ? 'block' : 'none';
 }
 
 function closeModal(id) {
