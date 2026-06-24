@@ -38,6 +38,14 @@ async def dashboard(
     today = date.today()
     year, month = today.year, today.month
 
+    # Allow month selection via query params
+    view_year = request.query_params.get("year")
+    view_month = request.query_params.get("month")
+    if view_year:
+        year = int(view_year)
+    if view_month:
+        month = int(view_month)
+
     # Current month payments
     result = await db.execute(
         select(Payment)
@@ -51,7 +59,20 @@ async def dashboard(
     pending = [p for p in payments if p.status != "paid"]
     overdue = [p for p in payments if p.status == "overdue"]
 
-    # Last 6 months data for chart
+    # Pending amount (sum of unpaid amounts)
+    pending_amount = sum((p.amount or Decimal("0")) for p in payments if p.status != "paid")
+
+    # Upcoming: next 10 payments across ALL months that are not paid
+    result_upcoming = await db.execute(
+        select(Payment)
+        .options(joinedload(Payment.contractor))
+        .where(Payment.status != "paid")
+        .order_by(Payment.due_date.asc())
+        .limit(10)
+    )
+    upcoming_all = result_upcoming.scalars().all()
+
+    # Last 6 months data for chart (relative to view_month)
     chart_labels = []
     chart_values = []
     for i in range(5, -1, -1):
@@ -69,6 +90,16 @@ async def dashboard(
         chart_labels.append(month_name(m))
         chart_values.append(float(val))
 
+    # Available months for selector (last 12 months from today)
+    month_options = []
+    for i in range(11, -1, -1):
+        m = today.month - i
+        y = today.year
+        if m <= 0:
+            m += 12
+            y -= 1
+        month_options.append((y, m, month_name(m)))
+
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "username": request.cookies.get("username", "User"),
@@ -78,8 +109,11 @@ async def dashboard(
         "total": total,
         "paid": paid,
         "pending_count": len(pending),
+        "pending_amount": pending_amount,
         "overdue_count": len(overdue),
-        "upcoming": sorted(pending, key=lambda p: p.due_date)[:5],
+        "upcoming": upcoming_all,
         "chart_labels": chart_labels,
         "chart_values": chart_values,
+        "month_options": month_options,
+        "today": today,
     })

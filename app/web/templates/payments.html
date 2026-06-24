@@ -10,6 +10,7 @@
         <button class="nav-link-custom" onclick="location.href='/history'">📜 История</button>
         <button class="nav-link-custom" onclick="location.href='/contractors'">🏢 Подрядчики</button>
         <button class="nav-link-custom" onclick="location.href='/analytics'">📈 Аналитика</button>
+        <button class="nav-link-custom" onclick="location.href='/settings'">⚙️ Настройки</button>
     </div>
     <div class="user-badge">{{ username }} <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button></div>
 </nav>
@@ -42,12 +43,19 @@
             {% for p in payments %}
             <tr>
                 <td>{{ p.contractor.name if p.contractor else '—' }}</td>
-                <td>{{ "{:,.0f}".format(p.amount) }} ₽</td>
+                <td>{{ "{:,.2f}".format(p.amount) }} ₽</td>
                 <td>{{ p.due_date.strftime('%d.%m.%Y') }}</td>
                 <td><span class="badge-status badge-{{ payment_color_class(p.due_date, p.status) }}">{{ p.status }}</span></td>
                 <td>
                     {% if p.receipt_file %}
-                    <a href="/static/uploads/{{ p.receipt_file }}" download class="btn-icon" title="Скачать чек">📎</a>
+                    <a href="/uploads/{{ p.receipt_file }}" download class="btn-icon" title="Скачать чек">📎</a>
+                    {% endif %}
+                    {% if user_role == 'admin' %}
+                    <button class="btn-icon" title="Загрузить чек" onclick="openReceiptModal('{{ p.id }}', '{{ p.year }}', '{{ p.month }}')">📤</button>
+                    <button class="btn-icon" title="Редактировать" onclick="openEditModal('{{ p.id }}', '{{ p.amount }}', '{{ p.status }}', '{{ p.paid_date.isoformat() if p.paid_date else '' }}')">✏️</button>
+                    <form method="post" action="/payments/{{ p.id }}/delete" style="display:inline;" onsubmit="return confirm('Удалить платеж?')">
+                        <button type="submit" class="btn-icon" title="Удалить">🗑</button>
+                    </form>
                     {% endif %}
                 </td>
             </tr>
@@ -77,11 +85,11 @@
                 </select>
             </div>
             <div class="form-group">
-                <label>Сумма (₽)</label>
-                <input type="number" name="amount" class="input-custom" step="0.01" required>
+                <label>Сумма (₽, используйте точку или запятую: 3200.50)</label>
+                <input type="text" name="amount" class="input-custom" placeholder="3200.50" required>
             </div>
             <div class="form-group">
-                <label>Дата оплаты</label>
+                <label>Дата оплаты (оставьте пустым = "ожидает оплаты")</label>
                 <input type="date" name="paid_date_str" class="input-custom">
             </div>
             <div class="form-group">
@@ -93,6 +101,56 @@
                 <button type="button" class="btn-secondary-custom" onclick="document.getElementById('addForm').style.display='none'">Отмена</button>
             </div>
         </form>
+    </div>
+
+    <!-- Receipt upload modal -->
+    <div id="receiptModal" class="modal-overlay" style="display:none;">
+        <div class="card-custom" style="max-width:400px;width:90%;">
+            <h3 style="margin-bottom:16px;">📤 Загрузить чек</h3>
+            <form id="receiptForm" method="post" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label>Чек (PDF, JPG, PNG)</label>
+                    <input type="file" name="receipt" class="input-custom" accept=".pdf,.jpg,.jpeg,.png" required>
+                </div>
+                <div style="display:flex;gap:8px;">
+                    <button type="submit" class="btn-custom">Загрузить</button>
+                    <button type="button" class="btn-secondary-custom" onclick="closeModal('receiptModal')">Отмена</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit payment modal -->
+    <div id="editModal" class="modal-overlay" style="display:none;">
+        <div class="card-custom" style="max-width:400px;width:90%;">
+            <h3 style="margin-bottom:16px;">✏️ Редактировать платеж</h3>
+            <form id="editForm" method="post" enctype="multipart/form-data">
+                <div class="form-group">
+                    <label>Сумма (₽)</label>
+                    <input type="text" name="amount" class="input-custom" id="editAmount" required>
+                </div>
+                <div class="form-group">
+                    <label>Статус</label>
+                    <select name="status" class="input-custom" id="editStatus">
+                        <option value="pending">Ожидает</option>
+                        <option value="paid">Оплачено</option>
+                        <option value="overdue">Просрочено</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Дата оплаты</label>
+                    <input type="date" name="paid_date_str" class="input-custom" id="editPaidDate">
+                </div>
+                <div class="form-group">
+                    <label>Новый чек (опционально)</label>
+                    <input type="file" name="receipt" class="input-custom" accept=".pdf,.jpg,.jpeg,.png">
+                </div>
+                <div style="display:flex;gap:8px;">
+                    <button type="submit" class="btn-custom">Сохранить</button>
+                    <button type="button" class="btn-secondary-custom" onclick="closeModal('editModal')">Отмена</button>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 {% endblock %}

@@ -10,6 +10,7 @@
         <button class="nav-link-custom" onclick="location.href='/history'">📜 История</button>
         <button class="nav-link-custom active" onclick="location.href='/contractors'">🏢 Подрядчики</button>
         <button class="nav-link-custom" onclick="location.href='/analytics'">📈 Аналитика</button>
+        <button class="nav-link-custom" onclick="location.href='/settings'">⚙️ Настройки</button>
     </div>
     <div class="user-badge">{{ username }} <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button></div>
 </nav>
@@ -42,6 +43,7 @@
                     <form method="post" action="/contractors/{{ c.id }}/toggle" style="display:inline;">
                         <button type="submit" class="btn-icon" title="{{ 'Деактивировать' if c.is_active else 'Активировать' }}">{{ '⏸' if c.is_active else '▶' }}</button>
                     </form>
+                    <button class="btn-icon" title="Редактировать" onclick="openContractorEdit('{{ c.id }}', '{{ c.name }}', '{{ c.payment_type }}', '{{ c.fixed_amount or '' }}', '{{ c.due_day }}', '{{ c.account_number or '' }}', '{{ c.description or '' }}')">✏️</button>
                     <form method="post" action="/contractors/{{ c.id }}/delete" style="display:inline;" onsubmit="return confirm('Удалить подрядчика?')">
                         <button type="submit" class="btn-icon" title="Удалить">🗑</button>
                     </form>
@@ -99,5 +101,58 @@
             </form>
         </div>
     </div>
+
+    <!-- Edit contractor modal -->
+    <div id="editContractorModal" class="modal-overlay">
+        <div class="card-custom" style="max-width:500px;width:90%;">
+            <h3 style="margin-bottom:16px;">✏️ Редактировать подрядчика</h3>
+            <form id="editContractorForm" method="post">
+                <div class="form-group">
+                    <label>Название</label>
+                    <input type="text" name="name" class="input-custom" id="editCName" required>
+                </div>
+                <div class="form-group">
+                    <label>Тип оплаты</label>
+                    <select name="payment_type" class="input-custom" id="editCType" required>
+                        <option value="fixed">Фиксированная сумма</option>
+                        <option value="variable">По чеку</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Фиксированная сумма (₽)</label>
+                    <input type="text" name="fixed_amount" class="input-custom" id="editCAmount" step="0.01" value="0">
+                </div>
+                <div class="form-group">
+                    <label>День оплаты (1-31)</label>
+                    <input type="number" name="due_day" class="input-custom" id="editCDueDay" min="1" max="31" required>
+                </div>
+                <div class="form-group">
+                    <label>Лицевой счет</label>
+                    <input type="text" name="account_number" class="input-custom" id="editCAccount">
+                </div>
+                <div class="form-group">
+                    <label>Описание</label>
+                    <textarea name="description" class="input-custom" rows="2" id="editCDesc"></textarea>
+                </div>
+                <div style="display:flex;gap:8px;">
+                    <button type="submit" class="btn-custom">Сохранить</button>
+                    <button type="button" class="btn-secondary-custom" onclick="closeModal('editContractorModal')">Отмена</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+    function openContractorEdit(id, name, type, amount, dueDay, account, desc) {
+        document.getElementById('editContractorForm').action = `/contractors/${id}/edit`;
+        document.getElementById('editCName').value = name;
+        document.getElementById('editCType').value = type;
+        document.getElementById('editCAmount').value = amount;
+        document.getElementById('editCDueDay').value = dueDay;
+        document.getElementById('editCAccount').value = account;
+        document.getElementById('editCDesc').value = desc;
+        document.getElementById('editContractorModal').style.display = 'flex';
+    }
+    </script>
 </div>
 {% endblock %}

@@ -19,3 +19,32 @@ document.addEventListener('click', (e) => {
         }
     });
 });
+
+// Modal helpers
+function closeModal(id) {
+    document.getElementById(id).style.display = 'none';
+}
+
+function openReceiptModal(paymentId, year, month) {
+    const form = document.getElementById('receiptForm');
+    form.action = `/payments/${paymentId}/edit`;
+    document.getElementById('receiptModal').style.display = 'flex';
+}
+
+function openEditModal(paymentId, amount, status, paidDate) {
+    const form = document.getElementById('editForm');
+    form.action = `/payments/${paymentId}/edit`;
+    document.getElementById('editAmount').value = amount;
+    document.getElementById('editStatus').value = status;
+    document.getElementById('editPaidDate').value = paidDate;
+    document.getElementById('editModal').style.display = 'flex';
+}
+
+// Month selector (dashboard)
+const monthSelect = document.getElementById('monthSelect');
+if (monthSelect) {
+    monthSelect.onchange = function() {
+        const opt = this.options[this.selectedIndex];
+        window.location.href = '/?year=' + opt.dataset.y + '&month=' + opt.dataset.m;
+    };
+}

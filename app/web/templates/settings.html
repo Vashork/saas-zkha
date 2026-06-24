@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}⚙️ Настройки — Мой Дом{% endblock %}
+
+{% block content %}
+<nav class="navbar-custom">
+    <div class="brand">🏠 Мой Дом</div>
+    <div class="nav-links">
+        <button class="nav-link-custom" onclick="location.href='/'">📊 Дашборд</button>
+        <button class="nav-link-custom" onclick="location.href='/payments'">💳 Платежи</button>
+        <button class="nav-link-custom" onclick="location.href='/history'">📜 История</button>
+        <button class="nav-link-custom" onclick="location.href='/contractors'">🏢 Подрядчики</button>
+        <button class="nav-link-custom" onclick="location.href='/analytics'">📈 Аналитика</button>
+        <button class="nav-link-custom active" onclick="location.href='/settings'">⚙️ Настройки</button>
+    </div>
+    <div class="user-badge">{{ username }} <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button></div>
+</nav>
+
+<div class="container-main">
+    <h1 class="page-title">⚙️ Настройки</h1>
+
+    {% if error %}
+    <div class="alert-error">{{ error }}</div>
+    {% endif %}
+    {% if request.cookies.get('flash_success') %}
+    <div style="background:var(--paid-bg);color:var(--paid);padding:12px;border-radius:12px;margin-bottom:16px;font-size:14px;">
+        ✅ Изменения сохранены
+    </div>
+    {% endif %}
+
+    <!-- Change username -->
+    <div class="card-custom">
+        <h3 style="margin-bottom:16px;">👤 Сменить имя пользователя</h3>
+        <form method="post" action="/settings/change-username">
+            <div class="form-group">
+                <label>Текущее имя</label>
+                <input type="text" class="input-custom" value="{{ username }}" disabled>
+            </div>
+            <div class="form-group">
+                <label>Новое имя пользователя</label>
+                <input type="text" name="username" class="input-custom" placeholder="Новое имя" required>
+            </div>
+            <div class="form-group">
+                <label>Текущий пароль (для подтверждения)</label>
+                <input type="password" name="current_password" class="input-custom" required>
+            </div>
+            <button type="submit" class="btn-custom">Сменить имя</button>
+        </form>
+    </div>
+
+    <!-- Change password -->
+    <div class="card-custom">
+        <h3 style="margin-bottom:16px;">🔒 Сменить пароль</h3>
+        <form method="post" action="/settings/change-password">
+            <div class="form-group">
+                <label>Текущий пароль</label>
+                <input type="password" name="current_password" class="input-custom" required>
+            </div>
+            <div class="form-group">
+                <label>Новый пароль</label>
+                <input type="password" name="new_password" class="input-custom" required>
+            </div>
+            <div class="form-group">
+                <label>Подтвердите новый пароль</label>
+                <input type="password" name="confirm_password" class="input-custom" required>
+            </div>
+            <button type="submit" class="btn-custom">Сменить пароль</button>
+        </form>
+    </div>
+
+    <!-- Users list (admin only) -->
+    {% if user_role == 'admin' %}
+    <div class="card-custom">
+        <h3 style="margin-bottom:16px;">👥 Пользователи</h3>
+        <table class="table-custom">
+            <thead>
+                <tr><th>Имя</th><th>Роль</th><th>TG ID</th><th>Создан</th></tr>
+            </thead>
+            <tbody>
+            {% for u in users %}
+            <tr>
+                <td>{{ u.username }}</td>
+                <td><span class="badge-status badge-{{ 'paid' if u.role == 'admin' else 'pending' }}">{{ '👑 Админ' if u.role == 'admin' else '👤 Пользователь' }}</span></td>
+                <td>{{ u.telegram_user_id or '—' }}</td>
+                <td>{{ u.created_at.strftime('%d.%m.%Y') if u.created_at else '—' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

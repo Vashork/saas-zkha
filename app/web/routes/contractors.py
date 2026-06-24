@@ -110,3 +110,35 @@ async def delete_contractor(
         await db.commit()
 
     return RedirectResponse(url="/contractors", status_code=303)
+
+
+@router.post("/contractors/{contractor_id}/edit")
+async def edit_contractor(
+    contractor_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    name: str = Form(...),
+    payment_type: str = Form(...),
+    fixed_amount: str = Form("0"),
+    due_day: str = Form("1"),
+    account_number: str = Form(""),
+    description: str = Form(""),
+):
+    redirect = await _require_auth(request)
+    if redirect:
+        return redirect
+
+    result = await db.execute(select(Contractor).where(Contractor.id == contractor_id))
+    contractor = result.scalar_one_or_none()
+    if not contractor:
+        return RedirectResponse(url="/contractors", status_code=303)
+
+    contractor.name = name
+    contractor.payment_type = payment_type
+    contractor.fixed_amount = float(fixed_amount.replace(",", ".").strip()) if fixed_amount else None
+    contractor.due_day = int(due_day)
+    contractor.account_number = account_number or None
+    contractor.description = description or None
+
+    await db.commit()
+    return RedirectResponse(url="/contractors", status_code=303)

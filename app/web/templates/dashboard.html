@@ -10,17 +10,28 @@
         <button class="nav-link-custom" onclick="location.href='/history'">📜 История</button>
         <button class="nav-link-custom" onclick="location.href='/contractors'">🏢 Подрядчики</button>
         <button class="nav-link-custom" onclick="location.href='/analytics'">📈 Аналитика</button>
+        <button class="nav-link-custom" onclick="location.href='/settings'">⚙️ Настройки</button>
     </div>
     <div class="user-badge">{{ username }} <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button></div>
 </nav>
 
 <div class="container-main">
-    <h1 class="page-title">Добро пожаловать, {{ username }}!</h1>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:24px;">
+        <h1 class="page-title" style="margin-bottom:0;">Добро пожаловать, {{ username }}!</h1>
+        <div style="display:flex;gap:8px;align-items:center;">
+            <label style="color:var(--text-muted);font-size:13px;">Месяц:</label>
+            <select class="select-custom" id="monthSelect" onchange="window.location.href='/?year='+this.dataset.y+'&month='+this.dataset.m">
+                {% for y, m, name in month_options %}
+                <option value="{{ m }}" data-y="{{ y }}" data-m="{{ m }}" {% if y == year and m == month %}selected{% endif %}>{{ name }} {{ y }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
 
     <!-- Stats -->
     <div class="stat-grid">
         <div class="stat-card primary">
-            <div class="stat-label">Всего за {{ month_name }}</div>
+            <div class="stat-label">Всего за {{ month_name }} {{ year }}</div>
             <div class="stat-value">{{ "{:,.0f}".format(total) }} ₽</div>
         </div>
         <div class="stat-card paid">
@@ -29,7 +40,8 @@
         </div>
         <div class="stat-card soon">
             <div class="stat-label">Ожидает оплаты</div>
-            <div class="stat-value">{{ pending_count }}</div>
+            <div class="stat-value">{{ "{:,.0f}".format(pending_amount) }} ₽</div>
+            <div class="stat-sub">{{ pending_count }} платеж(ей)</div>
         </div>
         <div class="stat-card overdue">
             <div class="stat-label">Просрочено</div>
