@@ -11,7 +11,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload
 
 from app.database import get_db
 from app.models import Payment, Contractor
@@ -42,7 +42,7 @@ async def payments_page(
     today = date.today()
     year, month = today.year, today.month
 
-    query = select(Payment).options(selectinload(Payment)).where(
+    query = select(Payment).options(joinedload(Payment.contractor)).where(
         Payment.year == year, Payment.month == month
     )
     if status_filter and status_filter != "all":
@@ -118,6 +118,6 @@ async def add_payment(
         receipt_file=receipt_path,
     )
     db.add(payment)
-    await db.flush()
+    await db.commit()
 
     return RedirectResponse(url="/payments", status_code=303)

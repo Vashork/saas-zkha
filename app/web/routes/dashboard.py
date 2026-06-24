@@ -8,7 +8,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload
 from decimal import Decimal
 
 from app.database import get_db
@@ -41,7 +41,7 @@ async def dashboard(
     # Current month payments
     result = await db.execute(
         select(Payment)
-        .options(selectinload(Payment))
+        .options(joinedload(Payment.contractor))
         .where(Payment.year == year, Payment.month == month)
     )
     payments = result.scalars().all()

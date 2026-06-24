@@ -7,7 +7,7 @@ from datetime import datetime, date
 from decimal import Decimal
 
 from sqlalchemy import (
-    Column, Integer, String, Text, Boolean, DateTime, Date, Numeric, ForeignKey, CheckConstraint, UniqueConstraint
+    Column, Integer, String, Text, Boolean, DateTime, Date, Numeric, ForeignKey, CheckConstraint, UniqueConstraint, relationship
 )
 from sqlalchemy.sql import func
 
@@ -43,6 +43,8 @@ class Contractor(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
+    payments = relationship("Payment", back_populates="contractor")
+
     __table_args__ = (
         CheckConstraint("payment_type IN ('fixed', 'variable')", name="ck_payment_type"),
         CheckConstraint("due_day BETWEEN 1 AND 31", name="ck_due_day"),
@@ -68,6 +70,8 @@ class Payment(Base):
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    contractor = relationship("Contractor", back_populates="payments")
 
     __table_args__ = (
         UniqueConstraint("contractor_id", "year", "month", name="uq_contractor_period"),

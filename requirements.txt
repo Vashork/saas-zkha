@@ -8,4 +8,4 @@ python-multipart==0.0.20
 apscheduler==3.11.0
 bcrypt==4.3.0
 pydantic==2.10.6
-python-socketio==5.12.1
+python-dotenv==1.0.1

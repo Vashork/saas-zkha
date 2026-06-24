@@ -8,7 +8,7 @@ from decimal import Decimal
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload
 
 from app.config import get_settings
 from app.database import async_session_factory
@@ -85,7 +85,7 @@ async def check_notifications():
         # Get pending payments due soon
         result = await session.execute(
             select(Payment)
-            .options(selectinload(Payment))
+            .options(joinedload(Payment.contractor))
             .where(Payment.status == "pending")
         )
         payments = result.scalars().all()

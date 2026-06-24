@@ -5,15 +5,13 @@ Run once on first startup.
 
 import asyncio
 import os
-from datetime import date
-from decimal import Decimal
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import Base, engine
+from app.database import Base, engine, async_session_factory
 from app.models import User, Setting, Contractor
-from app.utils import hash_password, generate_uuid
+from app.utils import hash_password
 
 DEFAULT_SETTINGS = [
     ("notification_days_before_1", "5", "Первое уведомление за N дней"),
@@ -37,22 +35,20 @@ DEFAULT_SETTINGS = [
 
 async def seed_data(session: AsyncSession):
     """Insert default users and settings if they don't exist."""
-    # Default users
     for username, password, role in [
         ("admin", os.getenv("ADMIN_PASSWORD", "admin"), "admin"),
         ("user", os.getenv("USER_PASSWORD", "user"), "user"),
     ]:
-        from sqlalchemy import select
-        from app.models import User
         result = await session.execute(select(User).where(User.username == username))
         if not result.scalar_one_or_none():
-            session.add(User(
-                username=username,
-                password_hash=hash_password(password),
-                role=role,
-            ))
+            session.add(
+                User(
+                    username=username,
+                    password_hash=hash_password(password),
+                    role=role,
+                )
+            )
 
-    # Default settings
     for key, value, desc in DEFAULT_SETTINGS:
         result = await session.execute(select(Setting).where(Setting.key == key))
         if not result.scalar_one_or_none():
@@ -65,8 +61,7 @@ async def main():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with async_session() as session:
+    async with async_session_factory() as session:
         await seed_data(session)
         await session.commit()
 

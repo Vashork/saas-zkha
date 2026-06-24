@@ -33,7 +33,7 @@
                 <td>{{ c.name }}</td>
                 <td><code>#[{{ c.slug }}]</code></td>
                 <td>{{ 'фикс.' if c.payment_type == 'fixed' else 'по чеку' }}</td>
-                <td>{{ "{:,.0f}".format(c.fixed_amount) }} ₽" if c.fixed_amount else '—' }}</td>
+                <td>{% if c.fixed_amount %}{{ "{:,.0f}".format(c.fixed_amount) }} ₽{% else %}—{% endif %}</td>
                 <td>{{ c.due_day }}-е число</td>
                 <td>{{ c.account_number or '—' }}</td>
                 <td><span class="badge-status badge-{{ 'paid' if c.is_active else 'overdue' }}">{{ 'Активен' if c.is_active else 'Неактивен' }}</span></td>

@@ -10,7 +10,7 @@ from fastapi.responses import RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload
 
 from app.database import get_db
 from app.models import Payment, Contractor
@@ -39,7 +39,7 @@ async def history_page(
     if redirect:
         return redirect
 
-    query = select(Payment).options(selectinload(Payment))
+    query = select(Payment).options(joinedload(Payment.contractor))
 
     if year:
         query = query.where(Payment.year == year)
@@ -90,7 +90,7 @@ async def export_csv(
     if redirect:
         return redirect
 
-    query = select(Payment).options(selectinload(Payment))
+    query = select(Payment).options(joinedload(Payment.contractor))
     if year:
         query = query.where(Payment.year == year)
     if month:

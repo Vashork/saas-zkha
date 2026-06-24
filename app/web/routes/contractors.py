@@ -70,7 +70,7 @@ async def add_contractor(
         is_active=True,
     )
     db.add(contractor)
-    await db.flush()
+    await db.commit()
 
     return RedirectResponse(url="/contractors", status_code=303)
 
@@ -84,7 +84,7 @@ async def toggle_contractor(
     contractor = result.scalar_one_or_none()
     if contractor:
         contractor.is_active = not contractor.is_active
-        await db.flush()
+        await db.commit()
 
     return RedirectResponse(url="/contractors", status_code=303)
 
@@ -107,6 +107,6 @@ async def delete_contractor(
     contractor = result.scalar_one_or_none()
     if contractor:
         await db.delete(contractor)
-        await db.flush()
+        await db.commit()
 
     return RedirectResponse(url="/contractors", status_code=303)
