@@ -77,8 +77,32 @@ async def logout(request: Request):
 
 
 async def _require_auth(request: Request):
+    """Check that user is logged in."""
     if not request.cookies.get("user_id"):
         return RedirectResponse(url="/login", status_code=303)
+    return None
+
+
+async def _require_page(request: Request, page_slug: str):
+    """Check that user is logged in AND has permission to view the given page.
+    Admins always have access to all pages.
+    """
+    if not request.cookies.get("user_id"):
+        return RedirectResponse(url="/login", status_code=303)
+
+    user_role = request.cookies.get("user_role", "user")
+    if user_role == "admin":
+        return None
+
+    perms_cookie = request.cookies.get("page_permissions", "")
+    if not perms_cookie:
+        # No permissions set means full access (legacy users)
+        return None
+
+    allowed = [p.strip() for p in perms_cookie.split(",") if p.strip()]
+    if page_slug not in allowed:
+        return RedirectResponse(url="/?denied=1", status_code=303)
+
     return None
 
 
@@ -179,6 +203,12 @@ async def create_user(
     username: str = Form(""),
     password: str = Form(""),
     role: str = Form("user"),
+    page_dashboard: str = Form("off"),
+    page_payments: str = Form("off"),
+    page_history: str = Form("off"),
+    page_contractors: str = Form("off"),
+    page_analytics: str = Form("off"),
+    page_settings: str = Form("off"),
 ):
     redirect = await _require_auth(request)
     if redirect:
@@ -197,12 +227,16 @@ async def create_user(
     if existing.scalar_one_or_none():
         return RedirectResponse(url="/settings?error=Имя уже занято", status_code=303)
 
-    # Build page permissions from form data
-    allowed_pages = []
-    for slug in ["dashboard", "payments", "history", "contractors", "analytics", "settings"]:
-        if request.form.get(f"page_{slug}") == "on":
-            allowed_pages.append(slug)
-
+    # Build page permissions from explicit Form parameters
+    perms_map = {
+        "dashboard": page_dashboard,
+        "payments": page_payments,
+        "history": page_history,
+        "contractors": page_contractors,
+        "analytics": page_analytics,
+        "settings": page_settings,
+    }
+    allowed_pages = [slug for slug, val in perms_map.items() if val == "on"]
     perms_str = ",".join(allowed_pages)
 
     new_user = User(

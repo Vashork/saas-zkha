@@ -17,6 +17,7 @@ from sqlalchemy.orm import joinedload
 from app.database import get_db
 from app.models import Payment, Contractor
 from app.utils import month_name, payment_color_class, is_allowed_file, get_upload_path, ALLOWED_EXTENSIONS, MAX_FILE_SIZE
+from app.web.routes.auth import _require_page
 
 logger = logging.getLogger("zhkh.payments")
 
@@ -25,11 +26,6 @@ templates = Jinja2Templates(directory="app/web/templates")
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./data/uploads")
 
-
-async def _require_auth(request: Request):
-    if not request.cookies.get("user_id"):
-        return RedirectResponse(url="/login", status_code=303)
-    return None
 
 
 def _context(request, extra=None):
@@ -56,7 +52,7 @@ async def payments_page(
     db: AsyncSession = Depends(get_db),
     status_filter: str = "",
 ):
-    redirect = await _require_auth(request)
+    redirect = await _require_page(request, "payments")
     if redirect:
         return redirect
 
@@ -97,7 +93,7 @@ async def add_payment(
     paid_date_str: str = Form(""),
     receipt: UploadFile = File(None),
 ):
-    redirect = await _require_auth(request)
+    redirect = await _require_page(request, "payments")
     if redirect:
         return redirect
 
@@ -186,7 +182,7 @@ async def edit_payment(
     paid_date_str: str = Form(""),
     receipt: UploadFile = File(None),
 ):
-    redirect = await _require_auth(request)
+    redirect = await _require_page(request, "payments")
     if redirect:
         return redirect
 
@@ -246,7 +242,7 @@ async def delete_payment(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    redirect = await _require_auth(request)
+    redirect = await _require_page(request, "payments")
     if redirect:
         return redirect
 

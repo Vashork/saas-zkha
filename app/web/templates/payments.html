@@ -41,15 +41,17 @@
     <div class="card-custom">
         <table class="table-custom">
             <thead>
-                <tr><th>Подрядчик</th><th>Сумма</th><th>Срок</th><th>Статус</th><th>Действия</th></tr>
+                <tr><th>Подрядчик</th><th>Сумма</th><th>Оплачено</th><th>Остаток</th><th>Срок</th><th>Статус</th><th>Действия</th></tr>
             </thead>
             <tbody>
             {% for p in payments %}
             <tr>
                 <td>{{ p.contractor.name if p.contractor else '—' }}</td>
                 <td>{{ "{:,.2f}".format(p.amount or 0) }} ₽</td>
+                <td>{{ "{:,.2f}".format(p.paid_amount or 0) }} ₽</td>
+                <td style="color:{% if (p.amount or 0) - (p.paid_amount or 0) > 0 %}var(--accent-warn){% else %}var(--text-muted){% endif %}">{{ "{:,.2f}".format(max((p.amount or 0) - (p.paid_amount or 0), 0)) }} ₽</td>
                 <td>{{ p.due_date.strftime('%d.%m.%Y') }}</td>
-                <td><span class="badge-status badge-{{ payment_color_class(p.due_date, p.status) }}">{{ p.status }}</span></td>
+                <td><span class="badge-status badge-{{ payment_color_class(p.due_date, p.status) }}">{{ 'просрочено' if payment_color_class(p.due_date, p.status) == 'overdue' else p.status }}</span></td>
                 <td>
                     {% if p.receipt_file %}
                     <a href="/uploads/{{ p.receipt_file }}" download class="btn-icon" title="Скачать чек">📎</a>

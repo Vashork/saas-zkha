@@ -13,15 +13,11 @@ from app.models import Contractor
 from sqlalchemy.exc import IntegrityError
 
 from app.utils import generate_uuid
+from app.web.routes.auth import _require_page
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/web/templates")
 
-
-async def _require_auth(request: Request):
-    if not request.cookies.get("user_id"):
-        return RedirectResponse(url="/login", status_code=303)
-    return None
 
 
 @router.get("/contractors")
@@ -29,7 +25,7 @@ async def contractors_page(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    redirect = await _require_auth(request)
+    redirect = await _require_page(request, "contractors")
     if redirect:
         return redirect
 
@@ -56,7 +52,7 @@ async def add_contractor(
     account_number: str = Form(""),
     description: str = Form(""),
 ):
-    redirect = await _require_auth(request)
+    redirect = await _require_page(request, "contractors")
     if redirect:
         return redirect
 
@@ -109,7 +105,7 @@ async def delete_contractor(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    redirect = await _require_auth(request)
+    redirect = await _require_page(request, "contractors")
     if redirect:
         return redirect
 
@@ -138,7 +134,7 @@ async def edit_contractor(
     account_number: str = Form(""),
     description: str = Form(""),
 ):
-    redirect = await _require_auth(request)
+    redirect = await _require_page(request, "contractors")
     if redirect:
         return redirect
 

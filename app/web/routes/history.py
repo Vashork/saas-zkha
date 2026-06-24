@@ -15,15 +15,11 @@ from sqlalchemy.orm import joinedload
 from app.database import get_db
 from app.models import Payment, Contractor
 from app.utils import month_name, payment_color_class
+from app.web.routes.auth import _require_page
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/web/templates")
 
-
-async def _require_auth(request: Request):
-    if not request.cookies.get("user_id"):
-        return RedirectResponse(url="/login", status_code=303)
-    return None
 
 
 @router.get("/history")
@@ -35,7 +31,7 @@ async def history_page(
     contractor_id: str = Query(""),
     status_filter: str = Query(""),
 ):
-    redirect = await _require_auth(request)
+    redirect = await _require_page(request, "history")
     if redirect:
         return redirect
 
@@ -86,7 +82,7 @@ async def export_csv(
     year: int = Query(None),
     month: int = Query(None),
 ):
-    redirect = await _require_auth(request)
+    redirect = await _require_page(request, "history")
     if redirect:
         return redirect
 

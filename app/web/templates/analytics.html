@@ -22,12 +22,18 @@
 <div class="container-main">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:0;">
         <h1 class="page-title" style="margin-bottom:0;">📈 Аналитика</h1>
-        <div style="display:flex;gap:8px;align-items:center;">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <label style="color:var(--text-muted);font-size:13px;">Год:</label>
-            <select class="select-custom" onchange="window.location.href='/analytics?year='+this.value">
-                <option value="">Текущий</option>
+            <select class="select-custom" id="yearSelect" onchange="updateAnalytics()">
                 {% for y in [year, year-1, year-2, year-3, year-4] %}
                 <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+                {% endfor %}
+            </select>
+            <label style="color:var(--text-muted);font-size:13px;">Месяц:</label>
+            <select class="select-custom" id="monthSelect" onchange="updateAnalytics()">
+                <option value="" {% if not month %}selected{% endif %}>Весь год</option>
+                {% for m in range(1, 13) %}
+                <option value="{{ m }}" {% if month and month == m %}selected{% endif %}>{{ month_name(m) }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -36,7 +42,7 @@
     <!-- YoY summary -->
     <div class="stat-grid">
         <div class="stat-card primary">
-            <div class="stat-label">Всего за {{ year }}</div>
+            <div class="stat-label">{% if month %}{{ month_name(month) }} {{ year }}{% else %}Всего за {{ year }}{% endif %}</div>
             <div class="stat-value">{{ "{:,.0f}".format(current_total) }} ₽</div>
         </div>
         <div class="stat-card {{ 'paid' if yoy_pct < 0 else 'overdue' }}">
@@ -68,6 +74,16 @@
 
 {% block scripts %}
 <script>
+function updateAnalytics() {
+    const year = document.getElementById('yearSelect').value;
+    const month = document.getElementById('monthSelect').value;
+    let url = '/analytics?year=' + year;
+    if (month) url += '&month=' + month;
+    window.location.href = url;
+}
+
+const isMonthView = {{ 'true' if month else 'false' }};
+
 // Monthly comparison bar chart
 new Chart(document.getElementById('monthlyChart'), {
     type: 'bar',
@@ -113,7 +129,7 @@ const colors = ['#93c5fd','#c4b5fd','#a7f3d0','#fde68a','#fca5a5','#fcd34d','#67
 new Chart(document.getElementById('trendChart'), {
     type: 'line',
     data: {
-        labels: ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'],
+        labels: isMonthView && trends[0] && trends[0].labels ? trends[0].labels : ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'],
         datasets: trends.map((t, i) => ({
             label: t.name,
             data: t.values,

@@ -15,17 +15,13 @@ from sqlalchemy.orm import joinedload
 from app.database import get_db
 from app.models import Payment, Contractor
 from app.utils import month_name, payment_color_class
+from app.web.routes.auth import _require_page
 
 logger = logging.getLogger("zhkh.dashboard")
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/web/templates")
 
-
-async def _require_auth(request: Request):
-    if not request.cookies.get("user_id"):
-        return RedirectResponse(url="/login", status_code=303)
-    return None
 
 
 def _effective_status(payment: Payment) -> str:
@@ -42,7 +38,7 @@ async def dashboard(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    redirect = await _require_auth(request)
+    redirect = await _require_page(request, "dashboard")
     if redirect:
         return redirect
 
@@ -68,8 +64,17 @@ async def dashboard(
     total = sum((p.amount or Decimal("0")) for p in payments)
     paid = sum((p.paid_amount or Decimal("0")) for p in payments if p.status == "paid")
 
-    pending = [p for p in payments if p.status != "paid" and _effective_status(p) != "overdue"]
-    overdue = [p for p in payments if _effective_status(p) == "overdue"]
+    # Classify each payment: pending vs overdue based on effective status
+    pending = []
+    overdue = []
+    for p in payments:
+        if p.status == "paid":
+            continue
+        eff = _effective_status(p)
+        if eff == "overdue":
+            overdue.append(p)
+        else:
+            pending.append(p)
 
     pending_amount = sum((p.amount or Decimal("0")) for p in pending)
     overdue_amount = sum((p.amount or Decimal("0")) for p in overdue)
@@ -84,15 +89,15 @@ async def dashboard(
     )
     all_unpaid = result_upcoming.scalars().all()
 
-    # Show overdue first (sorted by due_date desc within overdue), then pending
+    # Show overdue first (sorted by due_date desc), then pending (asc)
     unpaid_overdue = sorted(
         [p for p in all_unpaid if _effective_status(p) == "overdue"],
-        key=lambda p: p.due_date,
+        key=lambda p: p.due_date or date.max,
         reverse=True,
     )
     unpaid_pending = sorted(
         [p for p in all_unpaid if _effective_status(p) != "overdue"],
-        key=lambda p: p.due_date,
+        key=lambda p: p.due_date or date.max,
     )
     upcoming_all = (unpaid_overdue + unpaid_pending)[:15]
 
@@ -114,9 +119,9 @@ async def dashboard(
         chart_labels.append(month_name(m))
         chart_values.append(float(val))
 
-    # Available months for selector
+    # Available months for selector: 24 months centered around today
     month_options = []
-    for i in range(11, -1, -1):
+    for i in range(23, -1, -1):
         m = today.month - i
         y = today.year
         if m <= 0:
@@ -135,6 +140,7 @@ async def dashboard(
         "pending_count": len(pending),
         "pending_amount": pending_amount,
         "overdue_count": len(overdue),
+        "overdue_amount": overdue_amount,
         "upcoming": upcoming_all,
         "chart_labels": chart_labels,
         "chart_values": chart_values,
