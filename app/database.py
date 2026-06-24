@@ -2,6 +2,7 @@
 Async database engine and session management (SQLite + aiosqlite).
 """
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
@@ -40,11 +41,10 @@ async def init_db():
 
 def _run_migrations(conn):
     """Apply incremental migrations to an existing database."""
-    cur = conn.cursor()
-    cur.execute("PRAGMA table_info(users)")
-    columns = [row[1] for row in cur.fetchall()]
+    result = conn.execute(text("PRAGMA table_info(users)"))
+    columns = [row[1] for row in result.fetchall()]
 
     if "page_permissions" not in columns:
-        cur.execute("ALTER TABLE users ADD COLUMN page_permissions TEXT")
+        conn.execute(text("ALTER TABLE users ADD COLUMN page_permissions TEXT"))
         conn.commit()
         print("Migration: added page_permissions to users")
