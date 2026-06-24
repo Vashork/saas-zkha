@@ -49,7 +49,8 @@
                 <td>{{ p.contractor.name if p.contractor else '—' }}</td>
                 <td>{{ "{:,.2f}".format(p.amount or 0) }} ₽</td>
                 <td>{{ "{:,.2f}".format(p.paid_amount or 0) }} ₽</td>
-                <td style="color:{% if (p.amount or 0) - (p.paid_amount or 0) > 0 %}var(--accent-warn){% else %}var(--text-muted){% endif %}">{{ "{:,.2f}".format(max((p.amount or 0) - (p.paid_amount or 0), 0)) }} ₽</td>
+                {% set remaining = (p.amount or 0) - (p.paid_amount or 0) %}
+<td style="color:{% if remaining > 0 %}var(--accent-warn){% else %}var(--text-muted){% endif %}">{{ "{:,.2f}".format(remaining if remaining > 0 else 0) }} ₽</td>
                 <td>{{ p.due_date.strftime('%d.%m.%Y') }}</td>
                 <td><span class="badge-status badge-{{ payment_color_class(p.due_date, p.status) }}">{{ 'просрочено' if payment_color_class(p.due_date, p.status) == 'overdue' else p.status }}</span></td>
                 <td>
