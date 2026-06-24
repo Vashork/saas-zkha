@@ -7,8 +7,9 @@ from datetime import datetime, date
 from decimal import Decimal
 
 from sqlalchemy import (
-    Column, Integer, String, Text, Boolean, DateTime, Date, Numeric, ForeignKey, CheckConstraint, UniqueConstraint, relationship
+    Column, Integer, String, Text, Boolean, DateTime, Date, Numeric, ForeignKey, CheckConstraint, UniqueConstraint
 )
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
