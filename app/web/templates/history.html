@@ -63,12 +63,13 @@
             {% set paid = paid_amount(p) %}
             {% set remaining = remaining_amount(p) %}
             {% set current_status = effective_status(p) %}
+            {% set needs_amount = requires_amount(p) %}
             <tr>
                 <td>{{ p.contractor.name if p.contractor else '—' }}</td>
                 <td>{{ month_name(p.month) }} {{ p.year }}</td>
-                <td>{{ "{:,.0f}".format(planned) if planned else '—' }} ₽</td>
+                <td>{% if planned %}{{ "{:,.0f}".format(planned) }} ₽{% elif needs_amount %}<span style="color:var(--text-muted);">требуется сумма</span>{% else %}— ₽{% endif %}</td>
                 <td>{{ "{:,.0f}".format(paid) if paid else '—' }} ₽</td>
-                <td>{{ "{:,.0f}".format(remaining) if remaining else '—' }} ₽</td>
+                <td>{% if remaining %}{{ "{:,.0f}".format(remaining) }} ₽{% elif needs_amount %}<span style="color:var(--accent-warn);">внести начисление</span>{% else %}— ₽{% endif %}</td>
                 <td>{{ p.due_date.strftime('%d.%m.%Y') }}</td>
                 <td><span class="badge-status badge-{{ status_css_class(p) }}">{{ status_label(p) }}</span></td>
                 <td>
