@@ -24,6 +24,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("zhkh.bot")
 
 
+def _message_text(message) -> str:
+    return message.text or message.caption or ""
+
+
 async def main():
     settings = get_settings()
     token = settings.TELEGRAM_BOT_TOKEN
@@ -48,11 +52,11 @@ async def main():
 
     dp.message.register(
         paid_handler,
-        lambda m: m.text and "#оплачено" in m.text.lower(),
+        lambda m: "#оплачено" in _message_text(m).lower(),
     )
     dp.message.register(
         receipt_start_handler,
-        lambda m: (m.document or m.photo) and not (m.text and "#оплачено" in m.text.lower()),
+        lambda m: (m.document or m.photo) and "#оплачено" not in _message_text(m).lower(),
     )
 
     logger.info("Starting bot polling...")
