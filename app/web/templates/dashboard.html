@@ -59,17 +59,19 @@
         <h3 style="margin-bottom:16px;">⏰ Неоплаченные и ближайшие платежи</h3>
         {% if upcoming %}
         <table class="table-custom">
-            <thead><tr><th>Подрядчик</th><th>Начислено</th><th>Остаток</th><th>Срок</th><th>Статус</th></tr></thead>
+            <thead><tr><th>Подрядчик</th><th>Начислено</th><th>Оплачено</th><th>Остаток</th><th>Срок</th><th>Статус</th></tr></thead>
             <tbody>
             {% for p in upcoming %}
             {% set planned = planned_amount(p) %}
+            {% set paid = paid_amount(p) %}
             {% set remaining = remaining_amount(p) %}
             <tr>
                 <td>{{ p.contractor.name if p.contractor else '—' }}</td>
                 <td>{% if planned > 0 %}{{ "{:,.0f}".format(planned) }} ₽{% else %}<span style="color:var(--text-muted);">не указана</span>{% endif %}</td>
+                <td>{% if paid > 0 %}{{ "{:,.0f}".format(paid) }} ₽{% else %}<span style="color:var(--text-muted);">—</span>{% endif %}</td>
                 <td>{% if remaining > 0 %}<strong>{{ "{:,.0f}".format(remaining) }} ₽</strong>{% else %}<span style="color:var(--text-muted);">—</span>{% endif %}</td>
                 <td>{{ p.due_date.strftime('%d.%m.%Y') }}</td>
-                <td><span class="badge-status badge-{{ payment_color_class(p.due_date, p.status) }}">{{ 'просрочено' if payment_color_class(p.due_date, p.status) == 'overdue' else p.status }}</span></td>
+                <td><span class="badge-status badge-{{ status_css_class(p) }}">{{ status_label(p) }}</span></td>
             </tr>
             {% endfor %}
             </tbody>
