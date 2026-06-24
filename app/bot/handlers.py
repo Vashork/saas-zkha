@@ -18,18 +18,26 @@ from app.utils import month_name, get_upload_path, is_allowed_file
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./data/uploads")
 
 
+def _message_text(message: Message) -> str:
+    """Return text or media caption for Telegram messages."""
+    return message.text or message.caption or ""
+
+
 async def start_handler(message: Message):
     """Handle /start command."""
     await message.answer(
         "🏠 Добро пожаловать в систему учета ЖКХ!\n\n"
         "💡 Как зафиксировать оплату:\n"
-        "Перешлите чек и напишите:\n"
+        "Перешлите чек и напишите в сообщении или подписи к чеку:\n"
         "<code>#оплачено #мосэнергосбыт #сумма:3200</code>\n\n"
         "Для старого долга добавьте период:\n"
         "<code>#оплачено #мосэнергосбыт #сумма:1000 #период:2026-06</code>\n\n"
+        "Можно просто прислать чек без тегов — я спрошу подрядчика, сумму и период.\n\n"
         "📋 Команды:\n"
         "/contractors — список подрядчиков\n"
-        "/start — это сообщение"
+        "/cancel — отменить ввод\n"
+        "/start — это сообщение",
+        parse_mode="HTML",
     )
 
 
@@ -58,12 +66,13 @@ async def contractors_handler(message: Message):
 
     lines.append("\n💡 Для оплаты текущего месяца: <code>#оплачено #[slug] #сумма:X</code>")
     lines.append("💡 Для старого долга: <code>#оплачено #[slug] #сумма:X #период:2026-06</code>")
+    lines.append("💡 Или просто пришлите чек без тегов — бот задаст вопросы.")
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 async def paid_handler(message: Message):
     """Handle payment confirmation message: #оплачено #slug #сумма:X [#период:YYYY-MM]"""
-    parsed = parse_payment_message(message.text)
+    parsed = parse_payment_message(_message_text(message))
     if not parsed:
         await message.answer(
             "❌ Неверный формат. Используйте: "
