@@ -6,6 +6,7 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Request, Depends
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -13,7 +14,7 @@ from sqlalchemy import select, func
 from app.database import get_db
 from app.models import Payment, Contractor
 from app.utils import month_name
-from app.web.routes.auth import _require_page
+from app.web.routes.auth import _require_page, get_current_user
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/web/templates")
@@ -21,10 +22,31 @@ templates = Jinja2Templates(directory="app/web/templates")
 
 def _month_conditions(year_val, month_val=None):
     """Return a list of WHERE conditions for year (+ optional month)."""
-    conditions = [Payment.year == year_val, Payment.status == "paid"]
+    conditions = [Payment.year == year_val, Payment.paid_amount.is_not(None)]
     if month_val:
         conditions.append(Payment.month == month_val)
     return conditions
+
+
+async def _sum_paid(db: AsyncSession, year_val: int, month_val: int | None = None) -> float:
+    """Return paid sum for a year or a concrete month."""
+    result = await db.execute(
+        select(func.sum(Payment.paid_amount)).where(*_month_conditions(year_val, month_val))
+    )
+    return float(result.scalar() or Decimal("0"))
+
+
+async def _build_year_options(db: AsyncSession, selected_year: int) -> list[int]:
+    """Build stable year selector options from DB + current/selected years."""
+    current_year = date.today().year
+    years = {selected_year, current_year, current_year - 1, current_year - 2, current_year - 3, current_year - 4}
+
+    result = await db.execute(select(Payment.year).distinct().order_by(Payment.year.desc()))
+    for row in result.all():
+        if row[0]:
+            years.add(int(row[0]))
+
+    return sorted(years, reverse=True)
 
 
 @router.get("/analytics")
@@ -38,33 +60,27 @@ async def analytics_page(
     if redirect:
         return redirect
 
-    target_year = year or date.today().year
-    target_month = month  # None = all year
+    current_user = await get_current_user(request, db)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    today = date.today()
+    target_year = year or today.year
+    if target_year < 2000 or target_year > 2100:
+        target_year = today.year
+
+    target_month = month if month and 1 <= month <= 12 else None
     prev_year = target_year - 1
+    year_options = await _build_year_options(db, target_year)
 
     if target_month:
-        # --- Single-month mode: compare this month year-over-year ---
+        # Single-month mode: compare one selected month year-over-year.
         monthly_labels = [month_name(target_month)]
-        vals_prev = []
-        vals_curr = []
-        for yv in [prev_year, target_year]:
-            result = await db.execute(
-                select(func.sum(Payment.paid_amount)).where(
-                    *_month_conditions(yv, target_month)
-                )
-            )
-            vals_prev.append(float(result.scalar() or Decimal("0")))
+        previous_value = await _sum_paid(db, prev_year, target_month)
+        current_value = await _sum_paid(db, target_year, target_month)
+        monthly_previous = [previous_value]
+        monthly_current = [current_value]
 
-        monthly_previous = vals_prev  # [prev_year_val]
-        monthly_current = [float(
-            (await db.execute(
-                select(func.sum(Payment.paid_amount)).where(
-                    *_month_conditions(target_year, target_month)
-                )
-            )).scalar() or Decimal("0")
-        )]
-
-        # Contractor totals for this month
         result = await db.execute(
             select(Contractor.name, func.sum(Payment.paid_amount))
             .join(Payment, Payment.contractor_id == Contractor.id)
@@ -77,11 +93,8 @@ async def analytics_page(
             for row in result.all()[:5]
         ]
 
-        # Trends for selected month across past 5 years
         trends = []
-        contractors_result = await db.execute(
-            select(Contractor).where(Contractor.is_active == True)
-        )
+        contractors_result = await db.execute(select(Contractor).where(Contractor.is_active == True))
         for c in contractors_result.scalars().all():
             years_vals = []
             yr_labels = []
@@ -92,33 +105,26 @@ async def analytics_page(
                         Payment.contractor_id == c.id,
                         Payment.year == yr,
                         Payment.month == target_month,
-                        Payment.status == "paid",
+                        Payment.paid_amount.is_not(None),
                     )
                 )
                 years_vals.append(float(result.scalar() or Decimal("0")))
                 yr_labels.append(str(yr))
             trends.append({"name": c.name, "values": years_vals, "labels": yr_labels})
 
-        # YoY for this month
-        current_total = monthly_current[0]
-        prev_total = monthly_previous[0]
+        current_total = current_value
+        prev_total = previous_value
 
     else:
-        # --- Full-year mode: 12 months, current vs previous year ---
+        # Full-year mode: 12 months, current vs previous year.
         monthly_labels = []
         monthly_current = []
         monthly_previous = []
         for m in range(1, 13):
             monthly_labels.append(month_name(m))
-            for yv, vals in [(prev_year, monthly_previous), (target_year, monthly_current)]:
-                result = await db.execute(
-                    select(func.sum(Payment.paid_amount)).where(
-                        *_month_conditions(yv, m)
-                    )
-                )
-                vals.append(float(result.scalar() or Decimal("0")))
+            monthly_previous.append(await _sum_paid(db, prev_year, m))
+            monthly_current.append(await _sum_paid(db, target_year, m))
 
-        # Contractor totals for the year
         result = await db.execute(
             select(Contractor.name, func.sum(Payment.paid_amount))
             .join(Payment, Payment.contractor_id == Contractor.id)
@@ -131,11 +137,8 @@ async def analytics_page(
             for row in result.all()[:5]
         ]
 
-        # Per-contractor monthly trend
         trends = []
-        contractors_result = await db.execute(
-            select(Contractor).where(Contractor.is_active == True)
-        )
+        contractors_result = await db.execute(select(Contractor).where(Contractor.is_active == True))
         for c in contractors_result.scalars().all():
             months_vals = []
             for m in range(1, 13):
@@ -144,35 +147,23 @@ async def analytics_page(
                         Payment.contractor_id == c.id,
                         Payment.year == target_year,
                         Payment.month == m,
-                        Payment.status == "paid",
+                        Payment.paid_amount.is_not(None),
                     )
                 )
                 months_vals.append(float(result.scalar() or Decimal("0")))
             trends.append({"name": c.name, "values": months_vals})
 
-        # YoY for the year
-        current_total = float(
-            (await db.execute(
-                select(func.sum(Payment.paid_amount)).where(
-                    *_month_conditions(target_year)
-                )
-            )).scalar() or Decimal("0")
-        )
-        prev_total = float(
-            (await db.execute(
-                select(func.sum(Payment.paid_amount)).where(
-                    *_month_conditions(prev_year)
-                )
-            )).scalar() or Decimal("0")
-        )
+        current_total = await _sum_paid(db, target_year)
+        prev_total = await _sum_paid(db, prev_year)
 
     yoy_pct = ((current_total - prev_total) / prev_total * 100) if prev_total > 0 else 0
 
     return templates.TemplateResponse("analytics.html", {
         "request": request,
-        "username": request.cookies.get("username", "User"),
-        "user_role": request.cookies.get("user_role", "user"),
+        "username": current_user.username,
+        "user_role": current_user.role,
         "year": target_year,
+        "year_options": year_options,
         "prev_year": prev_year,
         "month": target_month,
         "monthly_labels": monthly_labels,
