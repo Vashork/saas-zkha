@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}📈 Аналитика — Мой Дом{% endblock %}
+
+{% block content %}
+<nav class="navbar-custom">
+    <div class="brand">🏠 Мой Дом</div>
+    <div class="nav-links">
+        <button class="nav-link-custom" onclick="location.href='/'">📊 Дашборд</button>
+        <button class="nav-link-custom" onclick="location.href='/payments'">💳 Платежи</button>
+        <button class="nav-link-custom" onclick="location.href='/history'">📜 История</button>
+        <button class="nav-link-custom" onclick="location.href='/contractors'">🏢 Подрядчики</button>
+        <button class="nav-link-custom active" onclick="location.href='/analytics'">📈 Аналитика</button>
+    </div>
+    <div class="user-badge">{{ username }} <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button></div>
+</nav>
+
+<div class="container-main">
+    <h1 class="page-title">📈 Аналитика</h1>
+
+    <!-- YoY summary -->
+    <div class="stat-grid">
+        <div class="stat-card primary">
+            <div class="stat-label">Всего за {{ year }}</div>
+            <div class="stat-value">{{ "{:,.0f}".format(current_total) }} ₽</div>
+        </div>
+        <div class="stat-card {{ 'paid' if yoy_pct < 0 else 'overdue' }}">
+            <div class="stat-label">Против {{ prev_year }}</div>
+            <div class="stat-value">{{ yoy_pct|abs }}%</div>
+            <div class="stat-sub">{{ '↓' if yoy_pct < 0 else '↑' }} {{ "{:,.0f}".format(prev_total) }} ₽ в {{ prev_year }}</div>
+        </div>
+    </div>
+
+    <!-- Monthly comparison chart -->
+    <div class="card-custom">
+        <h3 style="margin-bottom:16px;">📊 Расходы по месяцам</h3>
+        <canvas id="monthlyChart" height="200"></canvas>
+    </div>
+
+    <!-- Top contractors -->
+    <div class="card-custom">
+        <h3 style="margin-bottom:16px;">🏆 Топ-5 подрядчиков</h3>
+        <canvas id="topChart" height="150"></canvas>
+    </div>
+
+    <!-- Trend lines -->
+    <div class="card-custom">
+        <h3 style="margin-bottom:16px;">📉 Динамика по подрядчикам</h3>
+        <canvas id="trendChart" height="200"></canvas>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Monthly comparison bar chart
+new Chart(document.getElementById('monthlyChart'), {
+    type: 'bar',
+    data: {
+        labels: {{ monthly_labels | tojson }},
+        datasets: [
+            { label: '{{ year }}', data: {{ monthly_current | tojson }}, backgroundColor: 'rgba(147, 197, 253, 0.6)', borderRadius: 4 },
+            { label: '{{ prev_year }}', data: {{ monthly_previous | tojson }}, backgroundColor: 'rgba(196, 181, 253, 0.4)', borderRadius: 4 },
+        ]
+    },
+    options: {
+        responsive: true,
+        plugins: { legend: { labels: { color: '#e8e6e3' } } },
+        scales: {
+            y: { beginAtZero: true, ticks: { color: '#9ca3af' }, grid: { color: '#2d313a' } },
+            x: { ticks: { color: '#9ca3af' }, grid: { display: false } }
+        }
+    }
+});
+
+// Top contractors horizontal bar
+const top5 = {{ top5_contractors | tojson }};
+new Chart(document.getElementById('topChart'), {
+    type: 'bar',
+    data: {
+        labels: top5.map(c => c.name),
+        datasets: [{ label: 'Расходы (₽)', data: top5.map(c => c.total), backgroundColor: 'rgba(167, 243, 208, 0.6)', borderRadius: 4 }]
+    },
+    options: {
+        indexAxis: 'y',
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { beginAtZero: true, ticks: { color: '#9ca3af' }, grid: { color: '#2d313a' } },
+            y: { ticks: { color: '#e8e6e3' }, grid: { display: false } }
+        }
+    }
+});
+
+// Trend line chart
+const trends = {{ trends | tojson }};
+const colors = ['#93c5fd','#c4b5fd','#a7f3d0','#fde68a','#fca5a5','#fcd34d','#67e8f9','#f9a8d4'];
+new Chart(document.getElementById('trendChart'), {
+    type: 'line',
+    data: {
+        labels: ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'],
+        datasets: trends.map((t, i) => ({
+            label: t.name,
+            data: t.values,
+            borderColor: colors[i % colors.length],
+            backgroundColor: 'transparent',
+            tension: 0.3,
+            pointRadius: 3,
+        }))
+    },
+    options: {
+        responsive: true,
+        plugins: { legend: { labels: { color: '#e8e6e3' } } },
+        scales: {
+            y: { beginAtZero: true, ticks: { color: '#9ca3af' }, grid: { color: '#2d313a' } },
+            x: { ticks: { color: '#9ca3af' }, grid: { display: false } }
+        }
+    }
+});
+</script>
+{% endblock %}

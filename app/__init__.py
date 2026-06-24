@@ -1,0 +1,1 @@
+"""zhkh-bot application package."""

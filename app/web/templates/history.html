@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}📜 История — Мой Дом{% endblock %}
+
+{% block content %}
+<nav class="navbar-custom">
+    <div class="brand">🏠 Мой Дом</div>
+    <div class="nav-links">
+        <button class="nav-link-custom" onclick="location.href='/'">📊 Дашборд</button>
+        <button class="nav-link-custom" onclick="location.href='/payments'">💳 Платежи</button>
+        <button class="nav-link-custom active" onclick="location.href='/history'">📜 История</button>
+        <button class="nav-link-custom" onclick="location.href='/contractors'">🏢 Подрядчики</button>
+        <button class="nav-link-custom" onclick="location.href='/analytics'">📈 Аналитика</button>
+    </div>
+    <div class="user-badge">{{ username }} <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button></div>
+</nav>
+
+<div class="container-main">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+        <h1 class="page-title" style="margin-bottom:0;">📜 История платежей</h1>
+        <a href="/history/export.csv?{% if selected_year %}year={{ selected_year }}{% endif %}{% if selected_month %}&month={{ selected_month }}{% endif %}" class="btn-custom">📥 CSV</a>
+    </div>
+
+    <!-- Filters -->
+    <div class="toolbar">
+        <select class="select-custom" onchange="location.href='/history?year=' + this.value">
+            <option value="">Все годы</option>
+            {% for y in years %}
+            <option value="{{ y }}" {% if selected_year == y %}selected{% endif %}>{{ y }}</option>
+            {% endfor %}
+        </select>
+        <select class="select-custom" onchange="location.href='/history?year={% if selected_year %}{{ selected_year }}{% else %}{% endif %}&month=' + this.value">
+            <option value="">Все месяцы</option>
+            {% for m in range(1, 13) %}
+            <option value="{{ m }}" {% if selected_month == m %}selected{% endif %}>{{ month_name(m) }}</option>
+            {% endfor %}
+        </select>
+        <select class="select-custom" onchange="location.href='/history?contractor_id=' + this.value">
+            <option value="">Все подрядчики</option>
+            {% for c in contractors %}
+            <option value="{{ c.id }}" {% if selected_contractor == c.id %}selected{% endif %}>{{ c.name }}</option>
+            {% endfor %}
+        </select>
+        <select class="select-custom" onchange="location.href='/history?status_filter=' + this.value">
+            <option value="all">Все статусы</option>
+            <option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>Ожидает</option>
+            <option value="paid" {% if status_filter == 'paid' %}selected{% endif %}>Оплачено</option>
+            <option value="overdue" {% if status_filter == 'overdue' %}selected{% endif %}>Просрочено</option>
+        </select>
+    </div>
+
+    <div class="card-custom">
+        <table class="table-custom">
+            <thead>
+                <tr><th>Подрядчик</th><th>Период</th><th>Сумма</th><th>Оплачено</th><th>Срок</th><th>Статус</th><th>Чек</th></tr>
+            </thead>
+            <tbody>
+            {% for p in payments %}
+            <tr>
+                <td>{{ p.contractor.name if p.contractor else '—' }}</td>
+                <td>{{ month_name(p.month) }} {{ p.year }}</td>
+                <td>{{ "{:,.0f}".format(p.amount) if p.amount else '—' }} ₽</td>
+                <td>{{ "{:,.0f}".format(p.paid_amount) if p.paid_amount else '—' }} ₽</td>
+                <td>{{ p.due_date.strftime('%d.%m.%Y') }}</td>
+                <td><span class="badge-status badge-{{ payment_color_class(p.due_date, p.status) }}">{{ p.status }}</span></td>
+                <td>
+                    {% if p.receipt_file %}
+                    <a href="/static/uploads/{{ p.receipt_file }}" download class="btn-icon" style="width:auto;padding:0 8px;" title="Скачать чек">📎</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not payments %}
+            <tr><td colspan="7" style="text-align:center;color:var(--text-muted);">Нет записей</td></tr>
+            {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

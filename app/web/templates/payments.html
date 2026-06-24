@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}💳 Платежи — Мой Дом{% endblock %}
+
+{% block content %}
+<nav class="navbar-custom">
+    <div class="brand">🏠 Мой Дом</div>
+    <div class="nav-links">
+        <button class="nav-link-custom" onclick="location.href='/'">📊 Дашборд</button>
+        <button class="nav-link-custom active" onclick="location.href='/payments'">💳 Платежи</button>
+        <button class="nav-link-custom" onclick="location.href='/history'">📜 История</button>
+        <button class="nav-link-custom" onclick="location.href='/contractors'">🏢 Подрядчики</button>
+        <button class="nav-link-custom" onclick="location.href='/analytics'">📈 Аналитика</button>
+    </div>
+    <div class="user-badge">{{ username }} <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button></div>
+</nav>
+
+<div class="container-main">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+        <h1 class="page-title" style="margin-bottom:0;">💳 Платежи — {{ month_name }} {{ year }}</h1>
+        <button class="btn-custom" onclick="document.getElementById('addForm').style.display='block'">+ Добавить платеж</button>
+    </div>
+
+    <!-- Filters -->
+    <div class="toolbar">
+        <a href="/payments?status_filter=all" class="nav-link-custom {% if status_filter == 'all' or status_filter == '' %}active{% endif %}">Все</a>
+        <a href="/payments?status_filter=pending" class="nav-link-custom {% if status_filter == 'pending' %}active{% endif %}">Ожидает</a>
+        <a href="/payments?status_filter=paid" class="nav-link-custom {% if status_filter == 'paid' %}active{% endif %}">Оплачено</a>
+        <a href="/payments?status_filter=overdue" class="nav-link-custom {% if status_filter == 'overdue' %}active{% endif %}">Просрочено</a>
+    </div>
+
+    {% if error %}
+    <div class="alert-error">{{ error }}</div>
+    {% endif %}
+
+    <!-- Payments table -->
+    <div class="card-custom">
+        <table class="table-custom">
+            <thead>
+                <tr><th>Подрядчик</th><th>Сумма</th><th>Срок</th><th>Статус</th><th>Действия</th></tr>
+            </thead>
+            <tbody>
+            {% for p in payments %}
+            <tr>
+                <td>{{ p.contractor.name if p.contractor else '—' }}</td>
+                <td>{{ "{:,.0f}".format(p.amount) }} ₽</td>
+                <td>{{ p.due_date.strftime('%d.%m.%Y') }}</td>
+                <td><span class="badge-status badge-{{ payment_color_class(p.due_date, p.status) }}">{{ p.status }}</span></td>
+                <td>
+                    {% if p.receipt_file %}
+                    <a href="/static/uploads/{{ p.receipt_file }}" download class="btn-icon" title="Скачать чек">📎</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            {% if not payments %}
+            <tr><td colspan="5" style="text-align:center;color:var(--text-muted);">Нет платежей за этот месяц</td></tr>
+            {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Bot hint -->
+    <div class="card-custom" style="background:var(--accent-bg);">
+        <p style="margin:0;">💡 <b>Фиксация через Telegram:</b> перешлите боту чек и напишите <code>#оплачено #[slug] #сумма:X</code></p>
+    </div>
+
+    <!-- Add payment form -->
+    <div id="addForm" class="card-custom" style="display:none;">
+        <h3 style="margin-bottom:16px;">+ Добавить платеж вручную</h3>
+        <form method="post" action="/payments/add" enctype="multipart/form-data">
+            <div class="form-group">
+                <label>Подрядчик</label>
+                <select name="contractor_id" class="input-custom" required>
+                    {% for c in contractors %}
+                    <option value="{{ c.id }}">{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Сумма (₽)</label>
+                <input type="number" name="amount" class="input-custom" step="0.01" required>
+            </div>
+            <div class="form-group">
+                <label>Дата оплаты</label>
+                <input type="date" name="paid_date_str" class="input-custom">
+            </div>
+            <div class="form-group">
+                <label>Чек (PDF, JPG, PNG)</label>
+                <input type="file" name="receipt" class="input-custom" accept=".pdf,.jpg,.jpeg,.png">
+            </div>
+            <div style="display:flex;gap:8px;">
+                <button type="submit" class="btn-custom">Сохранить</button>
+                <button type="button" class="btn-secondary-custom" onclick="document.getElementById('addForm').style.display='none'">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
