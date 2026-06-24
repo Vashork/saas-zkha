@@ -36,10 +36,18 @@ async def _sum_paid(db: AsyncSession, year_val: int, month_val: int | None = Non
     return float(result.scalar() or Decimal("0"))
 
 
-async def _build_year_options(db: AsyncSession, selected_year: int) -> list[int]:
-    """Build stable year selector options from DB + current/selected years."""
+async def _build_year_options(db: AsyncSession, selected_year: int, compare_year: int) -> list[int]:
+    """Build stable year selector options from DB + current/selected/compare years."""
     current_year = date.today().year
-    years = {selected_year, current_year, current_year - 1, current_year - 2, current_year - 3, current_year - 4}
+    years = {
+        selected_year,
+        compare_year,
+        current_year,
+        current_year - 1,
+        current_year - 2,
+        current_year - 3,
+        current_year - 4,
+    }
 
     result = await db.execute(select(Payment.year).distinct().order_by(Payment.year.desc()))
     for row in result.all():
@@ -49,11 +57,18 @@ async def _build_year_options(db: AsyncSession, selected_year: int) -> list[int]
     return sorted(years, reverse=True)
 
 
+def _safe_year(value: int | None, fallback: int) -> int:
+    if value and 2000 <= value <= 2100:
+        return value
+    return fallback
+
+
 @router.get("/analytics")
 async def analytics_page(
     request: Request,
     db: AsyncSession = Depends(get_db),
     year: int = None,
+    compare_year: int = None,
     month: int = None,
 ):
     redirect = await _require_page(request, "analytics")
@@ -65,20 +80,15 @@ async def analytics_page(
         return RedirectResponse(url="/login", status_code=303)
 
     today = date.today()
-    target_year = year or today.year
-    if target_year < 2000 or target_year > 2100:
-        target_year = today.year
-
+    target_year = _safe_year(year, today.year)
+    target_compare_year = _safe_year(compare_year, target_year - 1)
     target_month = month if month and 1 <= month <= 12 else None
-    prev_year = target_year - 1
-    year_options = await _build_year_options(db, target_year)
+    year_options = await _build_year_options(db, target_year, target_compare_year)
 
     if target_month:
-        # Single-month mode: compare one selected month year-over-year.
+        # Single-month mode: selected month for selected year, compared against selected comparison year in summary cards.
         monthly_labels = [month_name(target_month)]
-        previous_value = await _sum_paid(db, prev_year, target_month)
         current_value = await _sum_paid(db, target_year, target_month)
-        monthly_previous = [previous_value]
         monthly_current = [current_value]
 
         result = await db.execute(
@@ -113,16 +123,14 @@ async def analytics_page(
             trends.append({"name": c.name, "values": years_vals, "labels": yr_labels})
 
         current_total = current_value
-        prev_total = previous_value
+        compare_total = await _sum_paid(db, target_compare_year, target_month)
 
     else:
-        # Full-year mode: 12 months, current vs previous year.
+        # Full-year mode: 12 months of selected year only.
         monthly_labels = []
         monthly_current = []
-        monthly_previous = []
         for m in range(1, 13):
             monthly_labels.append(month_name(m))
-            monthly_previous.append(await _sum_paid(db, prev_year, m))
             monthly_current.append(await _sum_paid(db, target_year, m))
 
         result = await db.execute(
@@ -154,25 +162,25 @@ async def analytics_page(
             trends.append({"name": c.name, "values": months_vals})
 
         current_total = await _sum_paid(db, target_year)
-        prev_total = await _sum_paid(db, prev_year)
+        compare_total = await _sum_paid(db, target_compare_year)
 
-    yoy_pct = ((current_total - prev_total) / prev_total * 100) if prev_total > 0 else 0
+    yoy_pct = ((current_total - compare_total) / compare_total * 100) if compare_total > 0 else 0
 
     return templates.TemplateResponse("analytics.html", {
         "request": request,
         "username": current_user.username,
         "user_role": current_user.role,
         "year": target_year,
+        "compare_year": target_compare_year,
         "year_options": year_options,
-        "prev_year": prev_year,
+        "prev_year": target_compare_year,
         "month": target_month,
         "monthly_labels": monthly_labels,
         "monthly_current": monthly_current,
-        "monthly_previous": monthly_previous,
         "top5_contractors": top5_contractors,
         "trends": trends,
         "current_total": current_total,
-        "prev_total": prev_total,
+        "prev_total": compare_total,
         "yoy_pct": round(yoy_pct, 1),
         "month_name": month_name,
     })
