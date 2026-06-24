@@ -48,3 +48,8 @@ def _run_migrations(conn):
         conn.execute(text("ALTER TABLE users ADD COLUMN page_permissions TEXT"))
         conn.commit()
         print("Migration: added page_permissions to users")
+
+    if "is_active" not in columns:
+        conn.execute(text("ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1"))
+        conn.commit()
+        print("Migration: added is_active to users")

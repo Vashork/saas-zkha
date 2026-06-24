@@ -204,9 +204,11 @@ async def edit_payment(
     if paid_date_str:
         payment.paid_date = date.fromisoformat(paid_date_str)
         payment.paid_amount = payment.amount
-    elif not paid_date_str and status != "paid":
-        payment.paid_date = None
-        payment.paid_amount = None
+    elif status == "paid":
+        # If status was explicitly set to paid, ensure paid_amount is set
+        payment.paid_date = date.today()
+        payment.paid_amount = payment.amount
+    # Don't reset paid_amount/paid_date if only uploading a receipt
 
     # Handle receipt upload
     if receipt and receipt.filename:

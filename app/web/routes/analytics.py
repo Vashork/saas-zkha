@@ -76,7 +76,7 @@ async def analytics_page(
     )
     contractor_totals = result.all()
     top5_contractors = [
-        {"name": row[0], "total": float(row[1])} for row in contractor_totals[:5]
+        {"name": row[0], "total": float(row[1] or Decimal("0"))} for row in contractor_totals[:5]
     ]
 
     # Per-contractor monthly trend (line chart) — for each contractor

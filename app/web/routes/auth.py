@@ -7,7 +7,7 @@ from fastapi import APIRouter, Request, Form, Depends
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.database import get_db
 from app.models import User
@@ -91,6 +91,11 @@ async def settings_page(request: Request, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).order_by(User.id))
     users = result.scalars().all()
 
+    # Get system settings
+    from app.models import Setting as SettingModel
+    settings_result = await db.execute(select(SettingModel))
+    settings_dict = {s.key: s.value for s in settings_result.scalars().all()}
+
     return templates.TemplateResponse("settings.html", {
         "request": request,
         "username": request.cookies.get("username", "User"),
@@ -99,6 +104,7 @@ async def settings_page(request: Request, db: AsyncSession = Depends(get_db)):
         "pages": PAGES,
         "error": request.query_params.get("error"),
         "success": request.query_params.get("success"),
+        "settings": settings_dict,
     })
 
 
@@ -169,17 +175,9 @@ async def change_password(
 async def create_user(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    username: str = Form(...),
-    password: str = Form(...),
+    username: str = Form(""),
+    password: str = Form(""),
     role: str = Form("user"),
-    page_dashboard: str = Form("off"),
-    page_payments: str = Form("off"),
-    page_history: str = Form("off"),
-    page_contractors: str = Form("off"),
-    page_analytics: str = Form("off"),
-    page_settings: str = Form("off"),
-    edit_payments: str = Form("off"),
-    edit_contractors: str = Form("off"),
 ):
     redirect = await _require_auth(request)
     if redirect:
@@ -187,17 +185,16 @@ async def create_user(
 
     user_role = request.cookies.get("user_role", "user")
     if user_role != "admin":
-        return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
+        return RedirectResponse(url="/settings?error=Только для админа", status_code=303)
 
-    # Validate input
     if not username.strip():
-        return RedirectResponse(url="/settings?error=Имя+не+может+быть+пустым", status_code=303)
+        return RedirectResponse(url="/settings?error=Имя не может быть пустым", status_code=303)
     if len(password) < 4:
-        return RedirectResponse(url="/settings?error=Минимум+4+символа", status_code=303)
+        return RedirectResponse(url="/settings?error=Минимум 4 символа", status_code=303)
 
     existing = await db.execute(select(User).where(User.username == username))
     if existing.scalar_one_or_none():
-        return RedirectResponse(url="/settings?error=Имя+уже+занято", status_code=303)
+        return RedirectResponse(url="/settings?error=Имя уже занято", status_code=303)
 
     # Build page permissions from form data
     allowed_pages = []
@@ -205,10 +202,6 @@ async def create_user(
         if request.form.get(f"page_{slug}") == "on":
             allowed_pages.append(slug)
 
-    can_edit_payments = request.form.get("edit_payments") == "on"
-    can_edit_contractors = request.form.get("edit_contractors") == "on"
-
-    # Store as JSON-like string: pages:d,p;edit:p,c
     perms_str = ",".join(allowed_pages)
 
     new_user = User(
@@ -216,40 +209,54 @@ async def create_user(
         password_hash=hash_password(password),
         role=role,
         page_permissions=perms_str,
+        is_active=True,
     )
     db.add(new_user)
     await db.commit()
 
-    return RedirectResponse(url="/settings?success=Пользователь+создан", status_code=303)
+    return RedirectResponse(url="/settings?success=Пользователь создан", status_code=303)
 
 
-@router.post("/settings/users/{user_id}/delete")
-async def delete_user(
+@router.post("/settings/users/{user_id}/toggle-active")
+async def toggle_user_active(
     user_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
+    """Deactivate or reactivate a user (soft delete)."""
     redirect = await _require_auth(request)
     if redirect:
         return redirect
 
     user_role = request.cookies.get("user_role", "user")
     if user_role != "admin":
-        return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
+        return RedirectResponse(url="/settings?error=Только для админа", status_code=303)
 
     my_id = int(request.cookies.get("user_id", 0))
     if my_id == user_id:
-        return RedirectResponse(url="/settings?error=Нельзя+удалить+себя", status_code=303)
+        return RedirectResponse(url="/settings?error=Нельзя деактивировать себя", status_code=303)
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
-        return RedirectResponse(url="/settings?success=Пользователь+удалён", status_code=303)
+        return RedirectResponse(url="/settings?error=Пользователь не найден", status_code=303)
 
-    await db.delete(user)
+    # Cannot deactivate the last active admin
+    if user.role == "admin" and user.is_active:
+        admin_count = await db.execute(
+            select(func.count(User.id)).where(
+                User.role == "admin",
+                User.is_active == True,
+            )
+        )
+        if admin_count.scalar() <= 1:
+            return RedirectResponse(url="/settings?error=Нельзя деактивировать последнего админа", status_code=303)
+
+    user.is_active = not user.is_active
     await db.commit()
 
-    return RedirectResponse(url="/settings?success=Пользователь+удалён", status_code=303)
+    action = "деактивирован" if not user.is_active else "активирован"
+    return RedirectResponse(url=f"/settings?success=Пользователь {action}", status_code=303)
 
 
 @router.post("/settings/users/{user_id}/update")
@@ -292,3 +299,33 @@ async def update_user(
 
     await db.commit()
     return RedirectResponse(url="/settings?success=Пользователь+обновлён", status_code=303)
+
+
+@router.post("/settings/save")
+async def save_settings(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    default_due_day: str = Form("15"),
+    notifications_enabled: str = Form("off"),
+    theme: str = Form("dark"),
+):
+    redirect = await _require_auth(request)
+    if redirect:
+        return redirect
+
+    from app.models import Setting as SettingModel
+
+    async def _upsert(key: str, value: str, description: str):
+        result = await db.execute(select(SettingModel).where(SettingModel.key == key))
+        setting = result.scalar_one_or_none()
+        if setting:
+            setting.value = value
+        else:
+            db.add(SettingModel(key=key, value=value, description=description))
+
+    await _upsert("default_due_day", default_due_day, "День платежа по умолчанию (1-28)")
+    await _upsert("notifications_enabled", "on" if notifications_enabled == "on" else "off", "Включить уведомления")
+    await _upsert("theme", theme, "Тема оформления: dark / light")
+
+    await db.commit()
+    return RedirectResponse(url="/settings?success=Настройки+сохранены", status_code=303)
