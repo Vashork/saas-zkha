@@ -5,7 +5,6 @@ Telegram bot handlers — command and message handlers.
 import os
 import uuid
 from datetime import date
-from decimal import Decimal
 
 from aiogram.types import Message
 from sqlalchemy import select
@@ -72,7 +71,6 @@ async def paid_handler(message: Message):
     today = date.today()
 
     async with async_session_factory() as session:
-        # Find contractor by slug
         result = await session.execute(
             select(Contractor).where(Contractor.slug == parsed.slug)
         )
@@ -85,7 +83,6 @@ async def paid_handler(message: Message):
             )
             return
 
-        # Determine amount
         amount = parsed.amount
         if contractor.payment_type == "fixed" and not amount:
             amount = contractor.fixed_amount
@@ -100,13 +97,12 @@ async def paid_handler(message: Message):
             await message.answer("❌ Не удалось определить сумму.")
             return
 
-        # Find pending payment for current month
         result = await session.execute(
             select(Payment).where(
                 Payment.contractor_id == contractor.id,
                 Payment.year == today.year,
                 Payment.month == today.month,
-                Payment.status == "pending",
+                Payment.status.in_(["pending", "overdue"]),
             )
         )
         payment = result.scalar_one_or_none()
@@ -118,18 +114,22 @@ async def paid_handler(message: Message):
             )
             return
 
-        # Save receipt file if attached
         receipt_path = None
         if message.document or message.photo:
             receipt_path = await _download_receipt(
                 message, session, today.year, today.month
             )
+            if message.document and receipt_path is None:
+                await message.answer("❌ Недопустимый формат файла. Пришлите PDF, JPG или PNG.")
+                return
 
-        # Update payment
+        if payment.amount is None:
+            payment.amount = amount
         payment.paid_amount = amount
         payment.paid_date = today
         payment.status = "paid"
-        payment.receipt_file = receipt_path
+        if receipt_path:
+            payment.receipt_file = receipt_path
         await session.commit()
 
     await message.answer(
@@ -150,16 +150,15 @@ async def _download_receipt(
     """Download attached photo or document as a receipt file."""
     try:
         file_obj = message.document or message.photo[-1]
-        file = await message.bot.get_file(file_obj.file_id)
 
         ext = ".jpg"
         if message.document:
-            mime = message.document.mime_type or ""
-            if mime == "application/pdf":
-                ext = ".pdf"
-            elif mime.startswith("image/"):
-                ext = "." + mime.split("/")[1]
+            original_name = message.document.file_name or ""
+            if not is_allowed_file(original_name):
+                return None
+            ext = os.path.splitext(original_name)[1].lower()
 
+        file = await message.bot.get_file(file_obj.file_id)
         upload_dir = get_upload_path(year, month, UPLOAD_DIR)
         filename = f"{uuid.uuid4()}{ext}"
         filepath = os.path.join(upload_dir, filename)
