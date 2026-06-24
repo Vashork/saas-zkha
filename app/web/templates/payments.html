@@ -70,7 +70,7 @@
                 <td>{{ p.due_date.strftime('%d.%m.%Y') }}</td>
                 <td><span class="badge-status badge-{{ status_css_class(p) }}">{{ status_label(p) }}</span></td>
                 <td>
-                    {% if p.receipt_file %}
+                    {% if current_status == 'paid' and p.receipt_file %}
                     <a href="/uploads/{{ p.receipt_file }}" download class="btn-icon" title="Скачать чек">📎</a>
                     {% endif %}
                     {% if user_role == 'admin' %}
