@@ -38,6 +38,61 @@ async def _require_admin_user(request: Request, db: AsyncSession):
     return current_user, None
 
 
+def _as_decimal(value) -> Decimal:
+    """Safely convert nullable numeric DB values to Decimal."""
+    if value is None:
+        return Decimal("0")
+    if isinstance(value, Decimal):
+        return value
+    return Decimal(str(value))
+
+
+def _planned_amount(payment: Payment) -> Decimal:
+    """Return expected charge using the same fixed-debt rule as dashboard."""
+    candidates: list[Decimal] = []
+    contractor = getattr(payment, "contractor", None)
+    if contractor and contractor.payment_type == "fixed" and contractor.fixed_amount is not None:
+        candidates.append(_as_decimal(contractor.fixed_amount))
+    if payment.amount is not None:
+        candidates.append(_as_decimal(payment.amount))
+    if payment.paid_amount is not None:
+        candidates.append(_as_decimal(payment.paid_amount))
+    return max(candidates) if candidates else Decimal("0")
+
+
+def _paid_amount(payment: Payment) -> Decimal:
+    return _as_decimal(payment.paid_amount)
+
+
+def _remaining_amount(payment: Payment) -> Decimal:
+    remaining = _planned_amount(payment) - _paid_amount(payment)
+    return remaining if remaining > 0 else Decimal("0")
+
+
+def _effective_status(payment: Payment) -> str:
+    if _remaining_amount(payment) <= 0:
+        return "paid"
+    if payment.due_date and payment.due_date <= date.today():
+        return "overdue"
+    return "pending"
+
+
+def _status_label(payment: Payment) -> str:
+    status = _effective_status(payment)
+    if status == "overdue":
+        return "просрочено"
+    if status == "pending":
+        return "к оплате"
+    return "оплачено"
+
+
+def _status_css_class(payment: Payment) -> str:
+    status = _effective_status(payment)
+    if status == "paid":
+        return "paid"
+    return payment_color_class(payment.due_date, status)
+
+
 def _shift_month(year: int, month: int, offset: int) -> tuple[int, int]:
     """Shift a year/month pair by N months and return normalized (year, month)."""
     month_index = year * 12 + (month - 1) + offset
@@ -132,6 +187,11 @@ async def _page_context(
         "month_options": month_options,
         "payment_color_class": payment_color_class,
         "period_url": _period_url,
+        "planned_amount": _planned_amount,
+        "paid_amount": _paid_amount,
+        "remaining_amount": _remaining_amount,
+        "status_label": _status_label,
+        "status_css_class": _status_css_class,
         "error": request.query_params.get("error"),
     }
     if extra:
