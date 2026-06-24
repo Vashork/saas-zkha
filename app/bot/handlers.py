@@ -25,6 +25,8 @@ async def start_handler(message: Message):
         "💡 Как зафиксировать оплату:\n"
         "Перешлите чек и напишите:\n"
         "<code>#оплачено #мосэнергосбыт #сумма:3200</code>\n\n"
+        "Для старого долга добавьте период:\n"
+        "<code>#оплачено #мосэнергосбыт #сумма:1000 #период:2026-06</code>\n\n"
         "📋 Команды:\n"
         "/contractors — список подрядчиков\n"
         "/start — это сообщение"
@@ -54,21 +56,26 @@ async def contractors_handler(message: Message):
             f"срок: {c.due_day}-е число"
         )
 
-    lines.append("\n💡 Для оплаты: <code>#оплачено #[slug] #сумма:X</code>")
+    lines.append("\n💡 Для оплаты текущего месяца: <code>#оплачено #[slug] #сумма:X</code>")
+    lines.append("💡 Для старого долга: <code>#оплачено #[slug] #сумма:X #период:2026-06</code>")
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 async def paid_handler(message: Message):
-    """Handle payment confirmation message: #оплачено #slug #сумма:X"""
+    """Handle payment confirmation message: #оплачено #slug #сумма:X [#период:YYYY-MM]"""
     parsed = parse_payment_message(message.text)
     if not parsed:
         await message.answer(
-            "❌ Неверный формат. Используйте: <code>#оплачено #[slug] #сумма:X</code>",
+            "❌ Неверный формат. Используйте: "
+            "<code>#оплачено #[slug] #сумма:X</code> или "
+            "<code>#оплачено #[slug] #сумма:X #период:2026-06</code>",
             parse_mode="HTML",
         )
         return
 
     today = date.today()
+    target_year = parsed.year or today.year
+    target_month = parsed.month or today.month
 
     async with async_session_factory() as session:
         result = await session.execute(
@@ -100,24 +107,24 @@ async def paid_handler(message: Message):
         result = await session.execute(
             select(Payment).where(
                 Payment.contractor_id == contractor.id,
-                Payment.year == today.year,
-                Payment.month == today.month,
-                Payment.status.in_(["pending", "overdue"]),
+                Payment.year == target_year,
+                Payment.month == target_month,
             )
         )
         payment = result.scalar_one_or_none()
 
         if not payment:
             await message.answer(
-                f"❌ Не найдена неоплаченная запись за {contractor.name} "
-                f"за {month_name(today.month)} {today.year}"
+                f"❌ Не найдена запись за {contractor.name} "
+                f"за {month_name(target_month)} {target_year}.\n"
+                f"Создайте платеж в веб-интерфейсе или дождитесь генерации scheduler."
             )
             return
 
         receipt_path = None
         if message.document or message.photo:
             receipt_path = await _download_receipt(
-                message, session, today.year, today.month
+                message, session, target_year, target_month
             )
             if message.document and receipt_path is None:
                 await message.answer("❌ Недопустимый формат файла. Пришлите PDF, JPG или PNG.")
@@ -135,7 +142,7 @@ async def paid_handler(message: Message):
     await message.answer(
         f"✅ Оплата <b>{contractor.name}</b> зафиксирована!\n"
         f"💰 Сумма: {amount} ₽\n"
-        f"📅 {month_name(today.month)} {today.year}"
+        f"📅 Период: {month_name(target_month)} {target_year}"
         + ("\n📎 Чек сохранён" if receipt_path else ""),
         parse_mode="HTML",
     )
