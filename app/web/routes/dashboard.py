@@ -162,6 +162,12 @@ async def _build_month_options(db: AsyncSession, selected_year: int, selected_mo
     return [(y, m, month_name(m)) for y, m in sorted(month_keys, reverse=True)]
 
 
+def _subtext_with_missing(total_count: int, missing_count: int, label: str) -> str:
+    if missing_count:
+        return f"{total_count} {label}, включая {missing_count} без суммы"
+    return f"{total_count} {label}"
+
+
 @router.get("/")
 async def dashboard(
     request: Request,
@@ -203,6 +209,10 @@ async def dashboard(
     overdue_amount = sum((_remaining_amount(p) for p in overdue), Decimal("0"))
     unpaid_amount = pending_amount + overdue_amount
     unpaid_count = len(pending) + len(overdue)
+    unpaid_missing_amount_count = sum(1 for p in pending + overdue if _requires_amount(p))
+    overdue_missing_amount_count = sum(1 for p in overdue if _requires_amount(p))
+    unpaid_subtext = _subtext_with_missing(unpaid_count, unpaid_missing_amount_count, "открытых платеж(ей)")
+    overdue_subtext = _subtext_with_missing(overdue_count := len(overdue), overdue_missing_amount_count, "просроченных платеж(ей)")
 
     result_upcoming = await db.execute(
         select(Payment)
@@ -249,10 +259,12 @@ async def dashboard(
         "paid": paid,
         "pending_count": len(pending),
         "pending_amount": pending_amount,
-        "overdue_count": len(overdue),
+        "overdue_count": overdue_count,
         "overdue_amount": overdue_amount,
         "unpaid_count": unpaid_count,
         "unpaid_amount": unpaid_amount,
+        "unpaid_subtext": unpaid_subtext,
+        "overdue_subtext": overdue_subtext,
         "upcoming": upcoming_all,
         "chart_labels": chart_labels,
         "chart_values": chart_values,
