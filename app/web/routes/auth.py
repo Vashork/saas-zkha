@@ -6,8 +6,8 @@ import base64
 import hashlib
 import hmac
 import logging
+import secrets
 from typing import Optional
-from urllib.parse import quote
 
 from fastapi import APIRouter, Request, Form, Depends, Body
 from fastapi.responses import RedirectResponse, JSONResponse
@@ -27,6 +27,7 @@ templates = Jinja2Templates(directory="app/web/templates")
 
 SESSION_COOKIE = "session"
 LEGACY_COOKIES = ("user_id", "username", "user_role", "page_permissions")
+SESSION_BOOT_ID = secrets.token_urlsafe(32)
 
 PAGES = [
     ("dashboard", "📊 Дашборд"),
@@ -39,7 +40,9 @@ PAGES = [
 
 
 def _session_secret() -> bytes:
-    return get_settings().SECRET_KEY.encode("utf-8")
+    """Session secret includes a per-process boot id, so restart invalidates sessions."""
+    base_secret = get_settings().SECRET_KEY
+    return f"{base_secret}:{SESSION_BOOT_ID}".encode("utf-8")
 
 
 def _sign_user_id(user_id: int) -> str:
@@ -65,31 +68,9 @@ def _verify_session_cookie(value: str | None) -> Optional[int]:
         return None
 
 
-def _safe_next_url(value: str | None) -> str:
-    """Allow only local relative redirects."""
-    if not value:
-        return "/"
-    if not value.startswith("/") or value.startswith("//"):
-        return "/"
-    if "\n" in value or "\r" in value:
-        return "/"
-    if value.startswith("/login"):
-        return "/"
-    return value
-
-
-def _current_path_with_query(request: Request) -> str:
-    """Return current path with query string for post-login return."""
-    path = request.url.path or "/"
-    if request.url.query:
-        path = f"{path}?{request.url.query}"
-    return _safe_next_url(path)
-
-
 def _login_redirect(request: Request) -> RedirectResponse:
-    """Redirect to login and preserve the requested page."""
-    next_url = quote(_current_path_with_query(request), safe="")
-    return RedirectResponse(url=f"/login?next={next_url}", status_code=303)
+    """Redirect unauthenticated users to login. Login always returns to dashboard."""
+    return RedirectResponse(url="/login", status_code=303)
 
 
 def _set_session_cookies(response: RedirectResponse, user: User) -> None:
@@ -181,11 +162,10 @@ async def _require_page(request: Request, page_slug: str):
 
 @router.get("/login")
 async def login_page(request: Request):
-    next_url = _safe_next_url(request.query_params.get("next"))
     user = await _load_current_user(request)
     if user:
-        return RedirectResponse(url=next_url, status_code=303)
-    return templates.TemplateResponse("login.html", {"request": request, "next_url": next_url})
+        return RedirectResponse(url="/", status_code=303)
+    return templates.TemplateResponse("login.html", {"request": request})
 
 
 @router.post("/login")
@@ -193,22 +173,19 @@ async def login(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
-    next_url: str = Form("/"),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(User).where(User.username == username, User.is_active == True))
     user = result.scalar_one_or_none()
-    next_url = _safe_next_url(next_url)
 
     if user and verify_password(password, user.password_hash):
-        response = RedirectResponse(url=next_url, status_code=303)
+        response = RedirectResponse(url="/", status_code=303)
         _set_session_cookies(response, user)
         return response
 
     return templates.TemplateResponse("login.html", {
         "request": request,
         "error": "Неверный логин или пароль",
-        "next_url": next_url,
     })
 
 
