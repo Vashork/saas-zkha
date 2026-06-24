@@ -31,6 +31,17 @@ def _as_decimal(value) -> Decimal:
     return Decimal(str(value))
 
 
+def _requires_amount(payment: Payment) -> bool:
+    contractor = getattr(payment, "contractor", None)
+    return (
+        contractor is not None
+        and contractor.payment_type == "variable"
+        and payment.amount is None
+        and payment.paid_amount is None
+        and payment.status != "paid"
+    )
+
+
 def _planned_amount(payment: Payment) -> Decimal:
     candidates: list[Decimal] = []
     contractor = getattr(payment, "contractor", None)
@@ -52,8 +63,12 @@ def _remaining_amount(payment: Payment) -> Decimal:
     return remaining if remaining > 0 else Decimal("0")
 
 
+def _is_open_payment(payment: Payment) -> bool:
+    return _remaining_amount(payment) > 0 or _requires_amount(payment)
+
+
 def _effective_status(payment: Payment) -> str:
-    if _remaining_amount(payment) <= 0:
+    if not _is_open_payment(payment):
         return "paid"
     if payment.status == "overdue":
         return "overdue"
@@ -64,6 +79,8 @@ def _effective_status(payment: Payment) -> str:
 
 def _status_label(payment: Payment) -> str:
     status = _effective_status(payment)
+    if _requires_amount(payment):
+        return "ожидает начисления" if status == "pending" else "просрочено, нет суммы"
     if status == "overdue":
         return "просрочено"
     if status == "pending":
@@ -133,6 +150,7 @@ async def history_page(
         "planned_amount": _planned_amount,
         "paid_amount": _paid_amount,
         "remaining_amount": _remaining_amount,
+        "requires_amount": _requires_amount,
         "effective_status": _effective_status,
         "status_label": _status_label,
         "status_css_class": _status_css_class,
@@ -169,9 +187,9 @@ async def export_csv(
             p.contractor.name if p.contractor else "",
             p.year,
             month_name(p.month),
-            str(_planned_amount(p)) if _planned_amount(p) else "",
+            str(_planned_amount(p)) if _planned_amount(p) else "требуется сумма" if _requires_amount(p) else "",
             str(_paid_amount(p)) if _paid_amount(p) else "",
-            str(_remaining_amount(p)) if _remaining_amount(p) else "",
+            str(_remaining_amount(p)) if _remaining_amount(p) else "требуется начисление" if _requires_amount(p) else "",
             str(p.due_date),
             _effective_status(p),
             str(p.paid_date) if p.paid_date else "",
