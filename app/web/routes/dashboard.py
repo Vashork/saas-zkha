@@ -7,6 +7,7 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Request, Depends
+from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +16,7 @@ from sqlalchemy.orm import joinedload
 from app.database import get_db
 from app.models import Payment
 from app.utils import month_name, payment_color_class
-from app.web.routes.auth import _require_page
+from app.web.routes.auth import _require_page, get_current_user
 
 logger = logging.getLogger("zhkh.dashboard")
 
@@ -133,14 +134,7 @@ def _parse_selected_period(request: Request, today: date) -> tuple[int, int]:
 
 
 async def _build_month_options(db: AsyncSession, selected_year: int, selected_month: int, today: date):
-    """
-    Build robust selector options.
-
-    Includes:
-    - all months already present in payments;
-    - rolling range from 24 months back to 12 months forward;
-    - selected month, even if it has no records yet.
-    """
+    """Build robust selector options."""
     month_keys = {(selected_year, selected_month)}
 
     for offset in range(-23, 13):
@@ -167,10 +161,13 @@ async def dashboard(
     if redirect:
         return redirect
 
+    current_user = await get_current_user(request, db)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=303)
+
     today = date.today()
     year, month = _parse_selected_period(request, today)
 
-    # Selected month payments
     result = await db.execute(
         select(Payment)
         .options(joinedload(Payment.contractor))
@@ -181,7 +178,6 @@ async def dashboard(
     total = sum((_planned_amount(p) for p in payments), Decimal("0"))
     paid = sum((_paid_amount(p) for p in payments), Decimal("0"))
 
-    # Classify each payment by remaining debt and due date.
     pending = []
     overdue = []
     for p in payments:
@@ -198,7 +194,6 @@ async def dashboard(
     unpaid_amount = pending_amount + overdue_amount
     unpaid_count = len(pending) + len(overdue)
 
-    # Upcoming: all payments with remaining debt sorted by due_date.
     result_upcoming = await db.execute(
         select(Payment)
         .options(joinedload(Payment.contractor))
@@ -207,7 +202,6 @@ async def dashboard(
     all_payments = result_upcoming.scalars().all()
     all_unpaid = [p for p in all_payments if _remaining_amount(p) > 0]
 
-    # Show overdue first (sorted by due_date desc), then pending (asc)
     unpaid_overdue = sorted(
         [p for p in all_unpaid if _effective_status(p) == "overdue"],
         key=lambda p: p.due_date or date.max,
@@ -219,7 +213,6 @@ async def dashboard(
     )
     upcoming_all = (unpaid_overdue + unpaid_pending)[:15]
 
-    # Last 6 months data for chart relative to the selected period
     chart_labels = []
     chart_values = []
     for offset in range(-5, 1):
@@ -237,8 +230,8 @@ async def dashboard(
 
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
-        "username": request.cookies.get("username", "User"),
-        "user_role": request.cookies.get("user_role", "user"),
+        "username": current_user.username,
+        "user_role": current_user.role,
         "month_name": month_name(month),
         "year": year,
         "month": month,
