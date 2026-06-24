@@ -6,7 +6,7 @@ import logging
 from datetime import date
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
 from app.config import get_settings
@@ -27,7 +27,13 @@ def _month_name(month: int) -> str:
 
 
 async def generate_monthly_payments():
-    """Create pending payments for all active contractors for the current month."""
+    """
+    Create pending payments for all active contractors for the current month.
+
+    The generation must be idempotent per contractor, not per month. If one
+    payment already exists for the month, the scheduler still has to create
+    missing rows for other active contractors.
+    """
     settings = get_settings()
     if not settings.GENERATION_ENABLED:
         return
@@ -36,20 +42,23 @@ async def generate_monthly_payments():
     year, month = today.year, today.month
 
     async with async_session_factory() as session:
-        count = await session.scalar(
-            select(func.count(Payment.id)).where(
-                Payment.year == year, Payment.month == month
-            )
-        )
-        if count and count > 0:
-            logger.info("Payments for %s %s already exist, skipping.", _month_name(month), year)
-            return
-
         result = await session.execute(select(Contractor).where(Contractor.is_active == True))
         contractors = result.scalars().all()
 
         created = 0
+        skipped = 0
         for contractor in contractors:
+            existing_payment_id = await session.scalar(
+                select(Payment.id).where(
+                    Payment.contractor_id == contractor.id,
+                    Payment.year == year,
+                    Payment.month == month,
+                )
+            )
+            if existing_payment_id:
+                skipped += 1
+                continue
+
             due_day = min(contractor.due_day, 28)
             due_date = date(year, month, due_day)
             amount = contractor.fixed_amount if contractor.payment_type == "fixed" else None
@@ -67,7 +76,13 @@ async def generate_monthly_payments():
             created += 1
 
         await session.commit()
-        logger.info("Created %s payments for %s %s", created, _month_name(month), year)
+        logger.info(
+            "Monthly payment generation for %s %s: created %s, skipped %s existing rows",
+            _month_name(month),
+            year,
+            created,
+            skipped,
+        )
 
 
 async def check_notifications():
@@ -100,6 +115,15 @@ def start_scheduler():
 
     gen_hour, gen_min = map(int, settings.GENERATION_TIME.split(":"))
     notif_hour, notif_min = map(int, settings.NOTIFICATION_TIME.split(":"))
+
+    # Run once on application startup as an idempotent repair step for missing
+    # current-month payments. The function itself skips existing contractor rows.
+    scheduler.add_job(
+        generate_monthly_payments,
+        "date",
+        id="generate_payments_on_start",
+        replace_existing=True,
+    )
 
     scheduler.add_job(
         generate_monthly_payments,
@@ -134,6 +158,6 @@ def start_scheduler():
 
 
 def stop_scheduler():
-    """Stop the APScheduler."""
+    """Stop the scheduler."""
     if scheduler.running:
         scheduler.shutdown()
