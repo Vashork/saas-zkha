@@ -6,35 +6,28 @@ PR: `#1`
 
 Этот файл является единым самари по моей работе в ветке. Он заменяет отдельные файлы `AGENT_FIX_LOG.md` и `SECOND_PASS_REVIEW.md`.
 
-## 1. Что было сделано в этой ветке
+## 1. Что исправлено
 
 ### Dashboard
 
-Исправлены проблемы дашборда:
+Исправлено:
 
-- некорректный список месяцев;
-- выбранный месяц не подсвечивался;
-- backend не передавал `month`, хотя шаблон его использовал;
-- долг и неоплаченные счета считались неправильно;
-- для variable-платежей добавлена безопасная логика отображения сумм;
-- таблица дашборда показывает начислено, оплачено и остаток;
-- частичная оплата теперь не скрывает долг.
+- список месяцев;
+- подсветка выбранного месяца;
+- передача `month` в шаблон;
+- расчёт начислено / оплачено / остаток / просрочено;
+- отображение variable-платежей;
+- отображение частичной оплаты как долга;
+- таблица дашборда теперь показывает `Начислено`, `Оплачено`, `Остаток`, `Срок`, `Статус`.
 
 Файлы:
 
 - `app/web/routes/dashboard.py`
 - `app/web/templates/dashboard.html`
 
-#### Новое бизнес-правило по долгу
+#### Бизнес-правило по долгу
 
-Если у подрядчика фиксированный платеж 3000 ₽, а оплачено или внесено по счету 2000 ₽, то на дашборде должен отображаться остаток 1000 ₽.
-
-Для fixed-подрядчиков ожидаемая сумма считается так:
-
-- берем `Contractor.fixed_amount` как базовый план;
-- если `Payment.amount` больше фиксированной суммы, используем большее значение;
-- если `Payment.paid_amount` больше обоих значений, используем его;
-- остаток считается как `planned_amount - paid_amount`, но не меньше нуля.
+Если у fixed-подрядчика плановый платёж 3000 ₽, а оплачено или внесено по счёту 2000 ₽, на дашборде должен отображаться долг 1000 ₽.
 
 Пример:
 
@@ -45,37 +38,35 @@ Payment.paid_amount = 2000
 Остаток = 1000
 ```
 
-Важно: статус `paid` больше не обнуляет долг автоматически. Если платеж помечен `paid`, но `paid_amount` меньше плановой суммы, такой платеж все равно остается в списке долгов.
+Правило расчёта:
+
+- для fixed-подрядчика `Contractor.fixed_amount` считается базовым планом;
+- если `Payment.amount` больше fixed amount, используется большее значение;
+- если `Payment.paid_amount` больше обоих значений, используется оно;
+- остаток = `planned_amount - paid_amount`, но не меньше нуля;
+- `status='paid'` больше не обнуляет долг автоматически, если есть остаток.
 
 ### Scheduler / monthly payment generation
 
-Исправлена логика генерации платежей за месяц.
+Исправлено:
 
-Раньше scheduler работал неправильно:
+- генерация платежей больше не останавливается, если за месяц уже есть хотя бы один `Payment`;
+- генерация стала идемпотентной по каждому подрядчику;
+- при старте приложения добавлен одноразовый запуск генерации, чтобы дозаполнить текущий месяц.
+
+Раньше:
 
 ```text
 если за месяц есть хотя бы один Payment — генерация полностью пропускалась
 ```
 
-Из-за этого могла появиться ситуация:
-
-```text
-10 активных подрядчиков
-1 payment уже есть
-scheduler видит count > 0
-scheduler пропускает генерацию
-9 подрядчиков не попадают на dashboard
-```
-
-Теперь генерация идемпотентная по каждому подрядчику:
+Теперь:
 
 ```text
 для каждого активного подрядчика:
     если Payment за текущий год/месяц уже есть — пропустить только этого подрядчика
     если Payment нет — создать pending Payment
 ```
-
-Также добавлен одноразовый запуск генерации при старте приложения. После перезапуска контейнера текущий месяц должен дозаполниться недостающими строками платежей.
 
 Файл:
 
@@ -103,13 +94,13 @@ python -m app.bot.main
 
 ### Auth / settings
 
-Улучшена авторизация:
+Исправлено:
 
 - добавлен подписанный cookie `session`;
 - пользователь загружается из БД;
 - проверяется `User.is_active`;
-- `user_role` и `page_permissions` в cookies больше не должны использоваться для принятия решений доступа;
-- деактивированный пользователь больше не проходит login/session guard;
+- access guards больше не доверяют `user_role` / `page_permissions` из cookies;
+- деактивированный пользователь не проходит login/session guard;
 - исправлена путаница `theme` / `ui_theme`;
 - исправлена форма смены имени;
 - исправлена форма смены пароля, добавлено поле `confirm_password`.
@@ -119,29 +110,82 @@ python -m app.bot.main
 - `app/web/routes/auth.py`
 - `app/web/templates/settings.html`
 
-### History
+### Contractors security
 
-Исправлен URL скачивания чеков.
+Исправлено:
 
-Было смешение путей:
-
-- `/static/uploads/...`
-- `/uploads/...`
-
-Теперь history использует `/uploads/{{ p.receipt_file }}`.
+- `add_contractor`, `edit_contractor`, `delete_contractor`, `toggle_contractor` закрыты DB-backed admin check;
+- `toggle_contractor` теперь принимает `Request`;
+- решения доступа больше не принимаются по `request.cookies.get('user_role')`;
+- UI context для страницы подрядчиков берётся из пользователя БД, а не из display cookies.
 
 Файл:
 
+- `app/web/routes/contractors.py`
+
+### Payments security and error context
+
+Исправлено:
+
+- `add_payment`, `edit_payment`, `delete_payment` закрыты DB-backed admin check;
+- убран неиспользуемый `ALLOWED_EXTENSIONS` import;
+- ошибки формы больше не рендерят пустой контекст без payments/contractors;
+- суммы и даты валидируются аккуратнее;
+- UI context страницы платежей берётся из пользователя БД, а не из display cookies.
+
+Файл:
+
+- `app/web/routes/payments.py`
+
+### History
+
+Исправлено:
+
+- URL чеков переведён на `/uploads/{{ p.receipt_file }}`;
+- UI context страницы истории берётся из пользователя БД, а не из display cookies.
+
+Файлы:
+
 - `app/web/templates/history.html`
+- `app/web/routes/history.py`
+
+### Analytics
+
+Исправлено:
+
+- годовой selector больше не строится как `[year, year-1, year-2, year-3, year-4]` от выбранного года;
+- после выбора 2024 в списке теперь не пропадает 2026;
+- backend отдаёт стабильный `year_options`: текущий год, выбранный год, последние годы и годы, которые есть в платежах;
+- исправлена single-month логика: previous/current считаются отдельно, без мёртвой переменной `vals_curr`;
+- UI context страницы аналитики берётся из пользователя БД, а не из display cookies.
+
+Файлы:
+
+- `app/web/routes/analytics.py`
+- `app/web/templates/analytics.html`
+
+### Telegram bot handlers
+
+Исправлено:
+
+- удалён неиспользуемый `Decimal` import;
+- Telegram document теперь валидируется через `is_allowed_file`;
+- variable-платёж теперь заполняет `Payment.amount`, если он был пустой;
+- `receipt_file` больше не затирается `None`, если чек не был приложен;
+- бот ищет pending и overdue платежи.
+
+Файл:
+
+- `app/bot/handlers.py`
 
 ## 2. Ошибки агента, которые были найдены
 
-1. В dashboard была неправильная работа с месяцами.
+1. Dashboard неправильно работал с месяцами.
 2. Backend не передавал `month`, хотя шаблон его использовал.
 3. Долг считался только по `Payment.amount`, что ломало variable-платежи и частичные оплаты.
 4. Fixed-подрядчик с планом 3000 ₽ и оплатой 2000 ₽ мог выглядеть как полностью закрытый.
 5. Dashboard слепо доверял `status='paid'` и мог скрывать остаток.
-6. Scheduler создавал платежи по принципу `если за месяц есть хоть один платеж — ничего не делать`, из-за чего пропадали платежи остальных подрядчиков.
+6. Scheduler пропускал генерацию остальных подрядчиков, если за месяц уже был один платёж.
 7. Bot container запускался через неправильный module entrypoint.
 8. Auth доверял клиентским cookies.
 9. Login не проверял `User.is_active`.
@@ -149,185 +193,67 @@ python -m app.bot.main
 11. Form field смены имени не совпадал с backend.
 12. Form field смены пароля не совпадал с backend.
 13. History использовал неправильный путь к uploaded receipts.
-14. Scheduler содержал мертвую переменную с потенциальным багом даты.
+14. Contractors write routes были защищены слабо или не защищены.
+15. Payments write routes были защищены только доступом к странице.
+16. Analytics терял 2026 после выбора 2024.
+17. Analytics single-month branch содержал мёртвую переменную и неверный current/previous dataset.
+18. Bot handlers не валидировали Telegram document и не заполняли `Payment.amount` для variable-платежей.
 
-## 3. Второй проход ревью по моей же ветке
+## 3. Что всё ещё осталось как технический долг
 
-После первого пакета правок был выполнен повторный проход по ветке `audit-dashboard-fixes`.
+### CSRF
 
-Вывод: ветка стала лучше, но пока не готова к merge без дополнительных исправлений.
+Во всех POST-формах пока нет CSRF-token.
 
-## 4. Что еще осталось исправить агенту
-
-### P0 / P1 security blockers
-
-#### 4.1. Contractors write routes
-
-Файл:
-
-- `app/web/routes/contractors.py`
-
-Проблемы:
-
-- `toggle_contractor` не принимает `Request`;
-- `toggle_contractor` не вызывает `_require_page`;
-- `toggle_contractor` не проверяет admin;
-- `delete_contractor` проверяет admin через `request.cookies.get('user_role')`;
-- `add_contractor` и `edit_contractor` проверяют только доступ к странице, но не admin.
-
-Что сделать:
-
-- все write-действия подрядчиков закрыть через DB-backed admin check;
-- использовать `get_current_user(request, db)`;
-- не использовать display cookies для решений доступа.
-
-#### 4.2. Payments write routes
-
-Файл:
-
-- `app/web/routes/payments.py`
-
-Проблема:
-
-`add_payment`, `edit_payment`, `delete_payment` проверяют только доступ к странице `payments`. Если обычному пользователю разрешен просмотр страницы, backend позволяет write-действия.
-
-Что сделать:
-
-- добавить отдельную backend-проверку admin или право `edit_payments`;
-- не полагаться на скрытие кнопок в HTML.
-
-#### 4.3. UI context still reads display cookies
-
-Файлы:
-
-- `app/web/routes/dashboard.py`
-- `app/web/routes/payments.py`
-- `app/web/routes/history.py`
-- `app/web/routes/analytics.py`
-- `app/web/routes/contractors.py`
-
-Проблема:
-
-После перехода на signed session часть route-файлов все еще передает в шаблоны `username` и `user_role` из cookies.
-
-Это не главный bypass доступа, но UI может показывать неверную роль.
-
-Что сделать:
-
-- после `_require_page` получать пользователя из БД через `get_current_user(request, db)`;
-- передавать в шаблон `current_user.username` и `current_user.role`.
-
-#### 4.4. CSRF
-
-Проблема:
-
-Во всех POST-формах нет CSRF-token.
-
-Что сделать:
+Что нужно сделать следующим этапом:
 
 - добавить CSRF-token для HTML-форм;
 - проверять token на POST;
 - минимум: double-submit cookie или server-side session token.
 
-#### 4.5. Session cookie secure flag
-
-Файл:
-
-- `app/web/routes/auth.py`
-
-Проблема:
+### Session cookie secure flag
 
 Session cookie выставляется с `httponly=True` и `samesite='lax'`, но без `secure=True`.
 
-Что сделать:
+Для localhost это допустимо, для production надо добавить настройку:
 
-- добавить setting `COOKIE_SECURE`;
-- включать `secure=True` в production.
-
-### P2 / code quality
-
-#### 4.6. Analytics single-month logic
-
-Файл:
-
-- `app/web/routes/analytics.py`
-
-Проблемы:
-
-- `vals_curr` создается, но не используется;
-- в single-month режиме массив previous/current формируется некорректно.
-
-Что сделать:
-
-- убрать `vals_curr`;
-- считать previous и current отдельно;
-- для одного выбранного месяца должен быть один label и одно значение в каждом dataset.
-
-#### 4.7. Payments `_context()`
-
-Файл:
-
-- `app/web/routes/payments.py`
-
-Проблема:
-
-При ошибке `_context()` возвращает пустые `payments` и `contractors`, из-за чего страница может потерять таблицу и список подрядчиков.
-
-Что сделать:
-
-- заменить на async helper, который реально загружает payments/contractors.
-
-#### 4.8. Bot handlers
-
-Файл:
-
-- `app/bot/handlers.py`
-
-Проблемы:
-
-- `Decimal` импортируется, но не используется;
-- `is_allowed_file` импортирован, но не применяется для Telegram document;
-- variable-платеж получает `paid_amount`, но если `amount` пустой, он не заполняется.
-
-Что сделать:
-
-```python
-if payment.amount is None:
-    payment.amount = amount
+```text
+COOKIE_SECURE=true/false
 ```
 
-И добавить проверку `message.document.file_name` через `is_allowed_file`.
+И включать `secure=True` в production.
 
-#### 4.9. Database migrations
+### Database migrations
 
-Файл:
+Миграции всё ещё идут вручную через `PRAGMA table_info` и `ALTER TABLE`.
 
-- `app/database.py`
+Нужно вынести schema changes в Alembic.
 
-Проблема:
+### Tests
 
-Миграции идут вручную через `PRAGMA table_info` и `ALTER TABLE`.
+Нужны тесты на:
 
-Что сделать:
+- dashboard debt logic;
+- fixed 3000 / paid 2000 / remaining 1000;
+- scheduler per-contractor generation;
+- auth/session guards;
+- contractors admin-only writes;
+- payments admin-only writes;
+- analytics year selector.
 
-- подключить Alembic;
-- перенести schema changes в нормальные миграции.
+## 4. Рекомендуемый порядок проверки
 
-## 5. Рекомендуемый порядок следующих правок
+1. `git pull origin audit-dashboard-fixes`.
+2. `docker compose up -d --build`.
+3. Проверить dashboard за текущий месяц.
+4. Проверить кейс fixed 3000 ₽ / оплачено 2000 ₽ / остаток 1000 ₽.
+5. Проверить, что scheduler после старта дозаполняет недостающие payments.
+6. Проверить, что обычный user не может POST add/edit/delete для contractors/payments.
+7. Проверить analytics: выбрать 2024, затем убедиться, что 2026 остаётся в списке годов.
+8. Проверить Telegram payment для variable-подрядчика.
 
-1. Проверить после перезапуска контейнера, что scheduler дозаполнил текущий месяц недостающими `Payment`-строками.
-2. Проверить кейс: fixed contractor 3000 ₽, оплачено 2000 ₽, на dashboard отображается остаток 1000 ₽.
-3. Закрыть `contractors.py` write routes.
-4. Закрыть `payments.py` write routes.
-5. Убрать UI-зависимость от display cookies.
-6. Добавить CSRF.
-7. Исправить bot handlers.
-8. Исправить analytics single-month chart.
-9. Добавить тесты на dashboard/auth/settings/scheduler.
-10. Потом уже думать про merge.
+## 5. Статус PR
 
-## 6. Статус PR
+PR стал заметно ближе к рабочему состоянию: dashboard, scheduler, auth, contractors, payments, analytics и bot handlers получили исправления.
 
-PR `#1` пока лучше считать рабочим PR, а не готовым к merge.
-
-Dashboard и scheduler стали заметно ближе к правильной бизнес-логике по долгам, но в проекте еще остаются backend security blockers в `contractors.py` и `payments.py`.
+Перед merge в main я бы ещё добавил CSRF, production secure-cookie setting, Alembic и тесты.
