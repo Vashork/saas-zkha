@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import logging
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Request, Form, Depends, Body
 from fastapi.responses import RedirectResponse, JSONResponse
@@ -64,6 +65,33 @@ def _verify_session_cookie(value: str | None) -> Optional[int]:
         return None
 
 
+def _safe_next_url(value: str | None) -> str:
+    """Allow only local relative redirects."""
+    if not value:
+        return "/"
+    if not value.startswith("/") or value.startswith("//"):
+        return "/"
+    if "\n" in value or "\r" in value:
+        return "/"
+    if value.startswith("/login"):
+        return "/"
+    return value
+
+
+def _current_path_with_query(request: Request) -> str:
+    """Return current path with query string for post-login return."""
+    path = request.url.path or "/"
+    if request.url.query:
+        path = f"{path}?{request.url.query}"
+    return _safe_next_url(path)
+
+
+def _login_redirect(request: Request) -> RedirectResponse:
+    """Redirect to login and preserve the requested page."""
+    next_url = quote(_current_path_with_query(request), safe="")
+    return RedirectResponse(url=f"/login?next={next_url}", status_code=303)
+
+
 def _set_session_cookies(response: RedirectResponse, user: User) -> None:
     max_age = 7 * 24 * 60 * 60
     response.set_cookie(
@@ -111,7 +139,7 @@ async def _require_auth(request: Request):
     """Check that an active user is logged in."""
     user = await _load_current_user(request)
     if not user:
-        return RedirectResponse(url="/login", status_code=303)
+        return _login_redirect(request)
     return None
 
 
@@ -119,7 +147,7 @@ async def _require_admin(request: Request):
     """Check that an active admin is logged in."""
     user = await _load_current_user(request)
     if not user:
-        return RedirectResponse(url="/login", status_code=303)
+        return _login_redirect(request)
     if user.role != "admin":
         return RedirectResponse(url="/?denied=1", status_code=303)
     return None
@@ -135,7 +163,7 @@ async def _require_page(request: Request, page_slug: str):
     """
     user = await _load_current_user(request)
     if not user:
-        return RedirectResponse(url="/login", status_code=303)
+        return _login_redirect(request)
 
     if user.role == "admin":
         return None
@@ -153,10 +181,11 @@ async def _require_page(request: Request, page_slug: str):
 
 @router.get("/login")
 async def login_page(request: Request):
+    next_url = _safe_next_url(request.query_params.get("next"))
     user = await _load_current_user(request)
     if user:
-        return RedirectResponse(url="/", status_code=303)
-    return templates.TemplateResponse("login.html", {"request": request})
+        return RedirectResponse(url=next_url, status_code=303)
+    return templates.TemplateResponse("login.html", {"request": request, "next_url": next_url})
 
 
 @router.post("/login")
@@ -164,19 +193,22 @@ async def login(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
+    next_url: str = Form("/"),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(select(User).where(User.username == username, User.is_active == True))
     user = result.scalar_one_or_none()
+    next_url = _safe_next_url(next_url)
 
     if user and verify_password(password, user.password_hash):
-        response = RedirectResponse(url="/", status_code=303)
+        response = RedirectResponse(url=next_url, status_code=303)
         _set_session_cookies(response, user)
         return response
 
     return templates.TemplateResponse("login.html", {
         "request": request,
         "error": "Неверный логин или пароль",
+        "next_url": next_url,
     })
 
 
@@ -191,7 +223,7 @@ async def logout(request: Request):
 async def settings_page(request: Request, db: AsyncSession = Depends(get_db)):
     current_user = await get_current_user(request, db)
     if not current_user:
-        return RedirectResponse(url="/login", status_code=303)
+        return _login_redirect(request)
 
     result = await db.execute(select(User).order_by(User.id))
     users = result.scalars().all()
@@ -225,7 +257,7 @@ async def change_username(
 ):
     current_user = await get_current_user(request, db)
     if not current_user:
-        return RedirectResponse(url="/login", status_code=303)
+        return _login_redirect(request)
 
     username = new_username.strip()
     if not username:
@@ -256,7 +288,7 @@ async def change_password(
 ):
     current_user = await get_current_user(request, db)
     if not current_user:
-        return RedirectResponse(url="/login", status_code=303)
+        return _login_redirect(request)
 
     if not verify_password(current_password, current_user.password_hash):
         return RedirectResponse(url="/settings?error=Неверный+текущий+пароль", status_code=303)
@@ -287,7 +319,7 @@ async def create_user(
 ):
     current_user = await get_current_user(request, db)
     if not current_user:
-        return RedirectResponse(url="/login", status_code=303)
+        return _login_redirect(request)
     if current_user.role != "admin":
         return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
 
@@ -334,7 +366,7 @@ async def toggle_user_active(
 ):
     current_user = await get_current_user(request, db)
     if not current_user:
-        return RedirectResponse(url="/login", status_code=303)
+        return _login_redirect(request)
     if current_user.role != "admin":
         return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
     if current_user.id == user_id:
@@ -365,7 +397,7 @@ async def delete_user(
 ):
     current_user = await get_current_user(request, db)
     if not current_user:
-        return RedirectResponse(url="/login", status_code=303)
+        return _login_redirect(request)
     if current_user.role != "admin":
         return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
     if current_user.id == user_id:
@@ -401,7 +433,7 @@ async def update_user(
 ):
     current_user = await get_current_user(request, db)
     if not current_user:
-        return RedirectResponse(url="/login", status_code=303)
+        return _login_redirect(request)
     if current_user.role != "admin":
         return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
 
@@ -442,7 +474,7 @@ async def save_settings(
 ):
     current_user = await get_current_user(request, db)
     if not current_user:
-        return RedirectResponse(url="/login", status_code=303)
+        return _login_redirect(request)
     if current_user.role != "admin":
         return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
 
@@ -497,7 +529,7 @@ async def change_user_password(
 ):
     current_user = await get_current_user(request, db)
     if not current_user:
-        return RedirectResponse(url="/login", status_code=303)
+        return _login_redirect(request)
     if current_user.role != "admin":
         return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
     if len(new_password) < 4:
