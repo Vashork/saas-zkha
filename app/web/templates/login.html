@@ -19,7 +19,6 @@
         {% endif %}
 
         <form method="post" action="/login">
-            <input type="hidden" name="next_url" value="{{ next_url or '/' }}">
             <div class="form-group">
                 <label>Логин</label>
                 <input type="text" name="username" class="input-custom" placeholder="Логин" required autofocus>
