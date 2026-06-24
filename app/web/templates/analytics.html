@@ -58,7 +58,10 @@
     </div>
 
     <div class="card-custom">
-        <h3 style="margin-bottom:16px;">📊 Расходы по месяцам — {{ year }}</h3>
+        <h3 style="margin-bottom:16px;">{% if month %}📊 Расходы: {{ month_name(month) }} {{ year }}{% else %}📊 Расходы по месяцам — {{ year }}{% endif %}</h3>
+        {% if month %}
+        <p style="margin-top:-8px;margin-bottom:16px;color:var(--text-muted);font-size:13px;">Сравнение с {{ month_name(month) }} {{ compare_year }} показано в верхней карточке. Этот график показывает выбранный месяц основного года.</p>
+        {% endif %}
         <canvas id="monthlyChart" height="200"></canvas>
     </div>
 
@@ -68,7 +71,7 @@
     </div>
 
     <div class="card-custom">
-        <h3 style="margin-bottom:16px;">📉 Динамика по подрядчикам{% if month %} — {{ month_name(month) }}{% else %} — {{ year }}{% endif %}</h3>
+        <h3 style="margin-bottom:16px;">📉 Динамика по подрядчикам{% if month %} — {{ month_name(month) }}, последние годы{% else %} — {{ year }}{% endif %}</h3>
         <canvas id="trendChart" height="200"></canvas>
     </div>
 </div>
@@ -92,7 +95,7 @@ new Chart(document.getElementById('monthlyChart'), {
     data: {
         labels: {{ monthly_labels | tojson }},
         datasets: [
-            { label: 'Расходы {{ year }}', data: {{ monthly_current | tojson }}, backgroundColor: 'rgba(147, 197, 253, 0.6)', borderRadius: 4 },
+            { label: '{{ month_name(month) if month else "Расходы" }} {{ year }}', data: {{ monthly_current | tojson }}, backgroundColor: 'rgba(147, 197, 253, 0.6)', borderRadius: 4 },
         ]
     },
     options: {
