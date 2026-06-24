@@ -32,9 +32,20 @@ DEFAULT_SETTINGS = [
     ("ui_language", "ru", "Язык интерфейса"),
 ]
 
+DEFAULT_CONTRACTORS = [
+    ("Мосэнергосбыт", "мосэнергосбыт", "fixed", 3200, 10, "1001001001"),
+    ("Мосводоканал", "мосводоканал", "fixed", 2800, 15, "2002002002"),
+    ("Мосгаз", "мосгаз", "variable", None, 20, None),
+    ("УК Наш Дом", "ук_наш_дом", "fixed", 4500, 25, None),
+    ("Интернет Ростелеком", "интернет", "fixed", 750, 5, None),
+]
+
 
 async def seed_data(session: AsyncSession):
-    """Insert default users and settings if they don't exist."""
+    """Insert default users, contractors, and settings if they don't exist."""
+    from app.utils import generate_uuid
+
+    # Default users
     for username, password, role in [
         ("admin", os.getenv("ADMIN_PASSWORD", "admin"), "admin"),
         ("user", os.getenv("USER_PASSWORD", "user"), "user"),
@@ -49,6 +60,24 @@ async def seed_data(session: AsyncSession):
                 )
             )
 
+    # Default contractors
+    for name, slug, ptype, fixed_amt, due_day, acct in DEFAULT_CONTRACTORS:
+        result = await session.execute(select(Contractor).where(Contractor.slug == slug))
+        if not result.scalar_one_or_none():
+            session.add(
+                Contractor(
+                    id=generate_uuid(),
+                    name=name,
+                    slug=slug,
+                    payment_type=ptype,
+                    fixed_amount=fixed_amt,
+                    due_day=due_day,
+                    account_number=acct,
+                    is_active=True,
+                )
+            )
+
+    # Default settings
     for key, value, desc in DEFAULT_SETTINGS:
         result = await session.execute(select(Setting).where(Setting.key == key))
         if not result.scalar_one_or_none():
