@@ -9,10 +9,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
 
-RUN useradd -m -u 1000 zhkh-bot && \
-    mkdir -p /app/data/uploads /var/log/zhkh-bot && \
-    chown -R zhkh-bot:zhkh-bot /app /var/log/zhkh-bot
-
-USER zhkh-bot
-
-CMD ["python", "-m", "app.bot"]
+CMD ["sh", "-c", "mkdir -p /app/data/uploads /var/log/zhkh-bot && python -m app.bot"]

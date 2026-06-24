@@ -10,10 +10,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ ./app/
 COPY init_db.py .
 
-RUN useradd -m -u 1000 zhkh-bot && \
-    mkdir -p /app/data/uploads /var/log/zhkh-bot && \
-    chown -R zhkh-bot:zhkh-bot /app /var/log/zhkh-bot
-
-USER zhkh-bot
-
-CMD ["sh", "-c", "python init_db.py && uvicorn app.web.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "mkdir -p /app/data/uploads /var/log/zhkh-bot && python init_db.py && uvicorn app.web.main:app --host 0.0.0.0 --port 8000"]

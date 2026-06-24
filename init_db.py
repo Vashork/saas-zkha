@@ -86,6 +86,11 @@ async def seed_data(session: AsyncSession):
 
 async def main():
     """Create tables and seed default data."""
+    # Ensure the data directory exists (volume mount may have wrong perms)
+    data_dir = os.path.dirname(os.path.abspath("/app/data/zhkh.db"))
+    os.makedirs(data_dir, exist_ok=True)
+    print(f"Ensuring data directory exists: {data_dir}")
+
     print("Creating database tables...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
