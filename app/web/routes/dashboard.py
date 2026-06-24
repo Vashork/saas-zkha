@@ -33,18 +33,24 @@ def _as_decimal(value) -> Decimal:
     return Decimal(str(value))
 
 
+def _requires_amount(payment: Payment) -> bool:
+    """Variable payment exists, but the actual bill amount has not been entered yet."""
+    contractor = getattr(payment, "contractor", None)
+    return (
+        contractor is not None
+        and contractor.payment_type == "variable"
+        and payment.amount is None
+        and payment.paid_amount is None
+        and payment.status != "paid"
+    )
+
+
 def _planned_amount(payment: Payment) -> Decimal:
     """
     Return the amount that should be treated as the expected charge.
 
-    Business rule:
-    - for fixed contractors, the contractor.fixed_amount is the expected monthly
-      charge and must not be hidden by a smaller bill/paid amount;
-    - if the actual bill is higher than fixed_amount, the higher value wins;
-    - for variable contractors, use payment.amount, then paid_amount.
-
-    Example: contractor fixed amount = 3000, paid/bill amount = 2000.
-    Dashboard should still show 1000 remaining debt.
+    For variable contractors without an entered bill amount this intentionally
+    returns 0; such payments are still tracked by _requires_amount().
     """
     candidates: list[Decimal] = []
 
@@ -67,20 +73,22 @@ def _paid_amount(payment: Payment) -> Decimal:
 
 
 def _remaining_amount(payment: Payment) -> Decimal:
-    """
-    Return unpaid remainder, never below zero.
-
-    Do not blindly return zero for status='paid': a partial payment can be marked
-    paid while the planned fixed contractor amount is still higher than paid_amount.
-    """
+    """Return unpaid remainder, never below zero."""
     remaining = _planned_amount(payment) - _paid_amount(payment)
     return remaining if remaining > 0 else Decimal("0")
 
 
+def _is_open_payment(payment: Payment) -> bool:
+    """Open means real debt exists or a variable bill amount still needs to be entered."""
+    return _remaining_amount(payment) > 0 or _requires_amount(payment)
+
+
 def _effective_status(payment: Payment) -> str:
-    """Return effective status based on remaining debt and due date."""
-    if _remaining_amount(payment) <= 0:
+    """Return effective status based on remaining debt, missing variable amount and due date."""
+    if not _is_open_payment(payment):
         return "paid"
+    if payment.status == "overdue":
+        return "overdue"
     if payment.due_date and payment.due_date <= date.today():
         return "overdue"
     return "pending"
@@ -89,6 +97,8 @@ def _effective_status(payment: Payment) -> str:
 def _status_label(payment: Payment) -> str:
     """Human-readable status label for the dashboard table."""
     status = _effective_status(payment)
+    if _requires_amount(payment):
+        return "ожидает начисления" if status == "pending" else "просрочено, нет суммы"
     if status == "overdue":
         return "просрочено"
     if status == "pending":
@@ -200,7 +210,7 @@ async def dashboard(
         .order_by(Payment.due_date.asc())
     )
     all_payments = result_upcoming.scalars().all()
-    all_unpaid = [p for p in all_payments if _remaining_amount(p) > 0]
+    all_unpaid = [p for p in all_payments if _is_open_payment(p)]
 
     unpaid_overdue = sorted(
         [p for p in all_unpaid if _effective_status(p) == "overdue"],
@@ -252,6 +262,7 @@ async def dashboard(
         "planned_amount": _planned_amount,
         "paid_amount": _paid_amount,
         "remaining_amount": _remaining_amount,
+        "requires_amount": _requires_amount,
         "effective_status": _effective_status,
         "status_label": _status_label,
         "status_css_class": _status_css_class,
