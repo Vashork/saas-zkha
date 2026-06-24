@@ -59,25 +59,30 @@
         </form>
     </div>
 
-    <div class="card-custom" style="margin-bottom:24px;">
-        <h3 style="margin-bottom:16px;">➕ Создать пользователя</h3>
-        <form method="post" action="/settings/users/create">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-                <div class="form-group"><label>Имя пользователя</label><input type="text" name="username" class="input-custom" required></div>
-                <div class="form-group"><label>Пароль</label><input type="password" name="password" class="input-custom" required></div>
-                <div class="form-group"><label>Роль</label><select name="role" class="input-custom"><option value="user">Пользователь</option><option value="admin">Администратор</option></select></div>
-            </div>
-            <div style="margin-top:12px;">
-                <label style="font-weight:600;margin-bottom:8px;display:block;">Доступ к страницам:</label>
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-                    {% for slug, label in pages %}
-                    <label style="display:flex;align-items:center;gap:6px;font-weight:normal;"><input type="checkbox" name="page_{{ slug }}" value="on" checked> {{ label }}</label>
-                    {% endfor %}
+    <details class="card-custom" style="margin-bottom:24px;">
+        <summary style="cursor:pointer;font-size:18px;font-weight:700;list-style:none;display:flex;justify-content:space-between;align-items:center;">
+            <span>➕ Создать пользователя</span>
+            <span style="font-size:13px;color:var(--text-muted);font-weight:400;">раскрыть</span>
+        </summary>
+        <div style="margin-top:16px;">
+            <form method="post" action="/settings/users/create">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div class="form-group"><label>Имя пользователя</label><input type="text" name="username" class="input-custom" required></div>
+                    <div class="form-group"><label>Пароль</label><input type="password" name="password" class="input-custom" required></div>
+                    <div class="form-group"><label>Роль</label><select name="role" class="input-custom"><option value="user">Пользователь</option><option value="admin">Администратор</option></select></div>
                 </div>
-            </div>
-            <div style="margin-top:16px;"><button type="submit" class="btn-custom">➕ Создать</button></div>
-        </form>
-    </div>
+                <div style="margin-top:12px;">
+                    <label style="font-weight:600;margin-bottom:8px;display:block;">Доступ к страницам:</label>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+                        {% for slug, label in pages %}
+                        <label style="display:flex;align-items:center;gap:6px;font-weight:normal;"><input type="checkbox" name="page_{{ slug }}" value="on" checked> {{ label }}</label>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div style="margin-top:16px;"><button type="submit" class="btn-custom">➕ Создать</button></div>
+            </form>
+        </div>
+    </details>
 
     <div class="card-custom">
         <h3 style="margin-bottom:16px;">👥 Пользователи</h3>
@@ -142,7 +147,7 @@
                     <label style="font-weight:600;margin-bottom:8px;display:block;">Доступ к страницам:</label>
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
                         {% for slug, label in pages %}
-                        <label style="display:flex;align-items:center;gap:6px;font-weight:normal;"><input type="checkbox" name="page_{{ slug }}" value="on" class="edit-user-page-cb" data-slug="{{ slug }}">{{ label }}</label>
+                        <label style="display:flex;align-items:center;gap:6px;font-weight:normal;"><input type="checkbox" name="page_{{ slug }}" value="on" class="edit-user-page-cb" data-slug="{{ slug }}"> {{ label }}</label>
                         {% endfor %}
                     </div>
                 </div>
