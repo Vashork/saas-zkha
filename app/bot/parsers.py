@@ -29,12 +29,17 @@ def parse_payment_message(text: str) -> Optional[ParsedPayment]:
     if "#оплачено" not in text_lower:
         return None
 
-    # Extract contractor slug: #slug
-    slug_match = re.search(r"#([а-яa-z0-9_-]{2,50})", text_lower)
-    if not slug_match:
-        return None
+    # Extract contractor slug: first hashtag that is NOT a reserved word
+    reserved = {"оплачено", "сумма"}
+    all_tags = re.findall(r"#([а-яa-z0-9_-]{2,50})", text_lower)
+    slug = None
+    for tag in all_tags:
+        if tag not in reserved:
+            slug = tag
+            break
 
-    slug = slug_match.group(1)
+    if not slug:
+        return None
 
     # Extract amount: #сумма:X
     amount_match = re.search(r"#сумма[:\s]*([\d_.,]+)", text_lower)
