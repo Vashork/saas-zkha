@@ -88,19 +88,40 @@ async def add_payment(
     receipt_path = None
     if receipt and receipt.filename:
         if is_allowed_file(receipt.filename):
+            content = await receipt.read()
+            if len(content) > MAX_FILE_SIZE:
+                return templates.TemplateResponse("payments.html", {
+                    "request": request,
+                    "username": request.cookies.get("username", "User"),
+                    "user_role": request.cookies.get("user_role", "user"),
+                    "month_name": month_name(month),
+                    "year": year,
+                    "payments": [],
+                    "contractors": [],
+                    "status_filter": "",
+                    "payment_color_class": payment_color_class,
+                    "error": "Файл слишком большой (макс. 10MB)",
+                })
             upload_dir = get_upload_path(year, month, UPLOAD_DIR)
             ext = os.path.splitext(receipt.filename)[1]
             filename = f"{uuid.uuid4()}{ext}"
             filepath = os.path.join(upload_dir, filename)
             with open(filepath, "wb") as f:
-                content = await receipt.read()
-                if len(content) > MAX_FILE_SIZE:
-                    return templates.TemplateResponse("payments.html", {
-                        "request": request,
-                        "error": "Файл слишком большой (макс. 10MB)",
-                    })
                 f.write(content)
             receipt_path = f"{year}/{month:02d}/{filename}"
+        else:
+            return templates.TemplateResponse("payments.html", {
+                "request": request,
+                "username": request.cookies.get("username", "User"),
+                "user_role": request.cookies.get("user_role", "user"),
+                "month_name": month_name(month),
+                "year": year,
+                "payments": [],
+                "contractors": [],
+                "status_filter": "",
+                "payment_color_class": payment_color_class,
+                "error": "Недопустимый формат файла (PDF, JPG, PNG)",
+            })
 
     paid_date = date.fromisoformat(paid_date_str) if paid_date_str else today
     paid_amt = Decimal(amount.replace(",", ".").strip()) if amount else Decimal("0")
@@ -193,17 +214,17 @@ async def edit_payment(
     # Handle receipt upload
     if receipt and receipt.filename:
         if is_allowed_file(receipt.filename):
+            content = await receipt.read()
+            if len(content) > MAX_FILE_SIZE:
+                return templates.TemplateResponse("payments.html", {
+                    "request": request,
+                    "error": "Файл слишком большой (макс. 10MB)",
+                })
             upload_dir = get_upload_path(payment.year, payment.month, UPLOAD_DIR)
             ext = os.path.splitext(receipt.filename)[1]
             filename = f"{uuid.uuid4()}{ext}"
             filepath = os.path.join(upload_dir, filename)
             with open(filepath, "wb") as f:
-                content = await receipt.read()
-                if len(content) > MAX_FILE_SIZE:
-                    return templates.TemplateResponse("payments.html", {
-                        "request": request,
-                        "error": "Файл слишком большой (макс. 10MB)",
-                    })
                 f.write(content)
             payment.receipt_file = f"{payment.year}/{payment.month:02d}/{filename}"
 

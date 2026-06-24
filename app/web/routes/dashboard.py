@@ -63,10 +63,11 @@ async def dashboard(
     pending_amount = sum((p.amount or Decimal("0")) for p in payments if p.status != "paid")
 
     # Upcoming: next 10 payments across ALL months that are not paid
+    # Include pending, overdue — sorted by due_date
     result_upcoming = await db.execute(
         select(Payment)
         .options(joinedload(Payment.contractor))
-        .where(Payment.status != "paid")
+        .where(Payment.status.in_(["pending", "overdue"]))
         .order_by(Payment.due_date.asc())
         .limit(10)
     )

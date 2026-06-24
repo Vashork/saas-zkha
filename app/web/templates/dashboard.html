@@ -61,7 +61,7 @@
             {% for p in upcoming %}
             <tr>
                 <td>{{ p.contractor.name if p.contractor else '—' }}</td>
-                <td>{{ "{:,.0f}".format(p.amount) }} ₽</td>
+                <td>{{ "{:,.0f}".format(p.amount or 0) }} ₽</td>
                 <td>{{ p.due_date.strftime('%d.%m.%Y') }}</td>
                 <td><span class="badge-status badge-{{ payment_color_class(p.due_date, p.status) }}">{{ p.status }}</span></td>
             </tr>

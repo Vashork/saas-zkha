@@ -12,43 +12,150 @@
         <button class="nav-link-custom" onclick="location.href='/analytics'">📈 Аналитика</button>
         <button class="nav-link-custom active" onclick="location.href='/settings'">⚙️ Настройки</button>
     </div>
-    <div class="user-badge">{{ username }} <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button></div>
+    <div class="user-badge">
+        {{ username }}
+        <button class="btn-icon" title="Сменить имя" onclick="document.getElementById('changeNameModal').style.display='flex'">✏️</button>
+        <button class="btn-icon" title="Сменить пароль" onclick="document.getElementById('changePassModal').style.display='flex'">🔑</button>
+        <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button>
+    </div>
 </nav>
 
 <div class="container-main">
     <h1 class="page-title">⚙️ Настройки</h1>
 
     {% if error %}
-    <div class="alert-error">{{ error }}</div>
+    <div class="alert-error">{{ error | url_decode | default(error) }}</div>
     {% endif %}
-    {% if request.cookies.get('flash_success') %}
+    {% if success %}
     <div style="background:var(--paid-bg);color:var(--paid);padding:12px;border-radius:12px;margin-bottom:16px;font-size:14px;">
-        ✅ Изменения сохранены
+        ✅ {{ success | url_decode | default(success) }}
     </div>
     {% endif %}
 
-    <!-- Change username -->
-    <div class="card-custom">
-        <h3 style="margin-bottom:16px;">👤 Сменить имя пользователя</h3>
-        <form method="post" action="/settings/change-username">
-            <div class="form-group">
-                <label>Текущее имя</label>
-                <input type="text" class="input-custom" value="{{ username }}" disabled>
+    <!-- Quick actions for current user -->
+    <div class="card-custom" style="margin-bottom:24px;">
+        <h3 style="margin-bottom:16px;">👤 Мой профиль</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn-custom" onclick="document.getElementById('changeNameModal').style.display='flex'">📝 Сменить имя</button>
+            <button class="btn-custom" onclick="document.getElementById('changePassModal').style.display='flex'">🔒 Сменить пароль</button>
+        </div>
+    </div>
+
+    {% if user_role == 'admin' %}
+    <!-- Create user -->
+    <div class="card-custom" style="margin-bottom:24px;">
+        <h3 style="margin-bottom:16px;">➕ Создать пользователя</h3>
+        <form method="post" action="/settings/users/create" id="createUserForm">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div class="form-group">
+                    <label>Имя пользователя</label>
+                    <input type="text" name="username" class="input-custom" placeholder="Новое имя" required>
+                </div>
+                <div class="form-group">
+                    <label>Пароль</label>
+                    <input type="password" name="password" class="input-custom" required>
+                </div>
+                <div class="form-group">
+                    <label>Роль</label>
+                    <select name="role" class="input-custom">
+                        <option value="user">Пользователь</option>
+                        <option value="admin">Администратор</option>
+                    </select>
+                </div>
             </div>
-            <div class="form-group">
-                <label>Новое имя пользователя</label>
-                <input type="text" name="username" class="input-custom" placeholder="Новое имя" required>
+            <div style="margin-top:12px;">
+                <label style="font-weight:600;margin-bottom:8px;display:block;">Доступ к страницам:</label>
+                <div style="display:flex;flex-wrap:wrap;gap:12px;">
+                    {% for slug, label in pages %}
+                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;">
+                        <input type="checkbox" name="page_{{ slug }}" value="on" checked> {{ label }}
+                    </label>
+                    {% endfor %}
+                </div>
             </div>
-            <div class="form-group">
-                <label>Текущий пароль (для подтверждения)</label>
-                <input type="password" name="current_password" class="input-custom" required>
+            <div style="margin-top:12px;">
+                <label style="font-weight:600;margin-bottom:8px;display:block;">Права редактирования:</label>
+                <div style="display:flex;flex-wrap:wrap;gap:12px;">
+                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;">
+                        <input type="checkbox" name="edit_payments" value="on"> Редактировать платежи
+                    </label>
+                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;">
+                        <input type="checkbox" name="edit_contractors" value="on"> Редактировать подрядчиков
+                    </label>
+                </div>
             </div>
-            <button type="submit" class="btn-custom">Сменить имя</button>
+            <div style="margin-top:16px;">
+                <button type="submit" class="btn-custom">➕ Создать</button>
+            </div>
         </form>
     </div>
 
-    <!-- Change password -->
+    <!-- Users list -->
     <div class="card-custom">
+        <h3 style="margin-bottom:16px;">👥 Пользователи</h3>
+        <table class="table-custom">
+            <thead>
+                <tr><th>Имя</th><th>Роль</th><th>Страницы</th><th>Редактирование</th><th>Действия</th></tr>
+            </thead>
+            <tbody>
+            {% for u in users %}
+            <tr>
+                <td><strong>{{ u.username }}</strong>{% if u.id == request.cookies.get('user_id', '')|int %} (вы){% endif %}</td>
+                <td>
+                    <span class="badge-status badge-{{ 'paid' if u.role == 'admin' else 'pending' }}">
+                        {{ '👑 Админ' if u.role == 'admin' else '👤 Пользователь' }}
+                    </span>
+                </td>
+                <td style="font-size:12px;">
+                    {% if u.page_permissions %}
+                        {{ u.page_permissions.split(',') | join(', ') }}
+                    {% else %}
+                        все
+                    {% endif %}
+                </td>
+                <td style="font-size:12px;">—</td>
+                <td>
+                    <button class="btn-icon" title="Изменить права"
+                        onclick="openEditUser({{ u.id }}, '{{ u.username }}', '{{ u.role }}', '{{ u.page_permissions or '' }}')">⚙️</button>
+                    {% if u.id != request.cookies.get('user_id', '')|int %}
+                    <form method="post" action="/settings/users/{{ u.id }}/delete" style="display:inline;"
+                          onsubmit="return confirm('Удалить пользователя {{ u.username }}?')">
+                        <button type="submit" class="btn-icon" title="Удалить">🗑</button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Change name modal -->
+<div id="changeNameModal" class="modal-overlay">
+    <div class="card-custom" style="max-width:400px;width:90%;">
+        <h3 style="margin-bottom:16px;">📝 Сменить имя</h3>
+        <form method="post" action="/settings/change-username">
+            <div class="form-group">
+                <label>Новое имя</label>
+                <input type="text" name="username" class="input-custom" value="{{ username }}" required>
+            </div>
+            <div class="form-group">
+                <label>Текущий пароль</label>
+                <input type="password" name="current_password" class="input-custom" required>
+            </div>
+            <div style="display:flex;gap:8px;">
+                <button type="submit" class="btn-custom">Сохранить</button>
+                <button type="button" class="btn-secondary-custom" onclick="closeModal('changeNameModal')">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Change password modal -->
+<div id="changePassModal" class="modal-overlay">
+    <div class="card-custom" style="max-width:400px;width:90%;">
         <h3 style="margin-bottom:16px;">🔒 Сменить пароль</h3>
         <form method="post" action="/settings/change-password">
             <div class="form-group">
@@ -60,33 +167,75 @@
                 <input type="password" name="new_password" class="input-custom" required>
             </div>
             <div class="form-group">
-                <label>Подтвердите новый пароль</label>
+                <label>Подтвердите</label>
                 <input type="password" name="confirm_password" class="input-custom" required>
             </div>
-            <button type="submit" class="btn-custom">Сменить пароль</button>
+            <div style="display:flex;gap:8px;">
+                <button type="submit" class="btn-custom">Сохранить</button>
+                <button type="button" class="btn-secondary-custom" onclick="closeModal('changePassModal')">Отмена</button>
+            </div>
         </form>
     </div>
-
-    <!-- Users list (admin only) -->
-    {% if user_role == 'admin' %}
-    <div class="card-custom">
-        <h3 style="margin-bottom:16px;">👥 Пользователи</h3>
-        <table class="table-custom">
-            <thead>
-                <tr><th>Имя</th><th>Роль</th><th>TG ID</th><th>Создан</th></tr>
-            </thead>
-            <tbody>
-            {% for u in users %}
-            <tr>
-                <td>{{ u.username }}</td>
-                <td><span class="badge-status badge-{{ 'paid' if u.role == 'admin' else 'pending' }}">{{ '👑 Админ' if u.role == 'admin' else '👤 Пользователь' }}</span></td>
-                <td>{{ u.telegram_user_id or '—' }}</td>
-                <td>{{ u.created_at.strftime('%d.%m.%Y') if u.created_at else '—' }}</td>
-            </tr>
-            {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    {% endif %}
 </div>
+
+<!-- Edit user permissions modal (admin) -->
+{% if user_role == 'admin' %}
+<div id="editUserModal" class="modal-overlay">
+    <div class="card-custom" style="max-width:500px;width:90%;">
+        <h3 style="margin-bottom:16px;">⚙️ Права: <span id="editUserName"></span></h3>
+        <form id="editUserForm" method="post">
+            <div class="form-group">
+                <label>Роль</label>
+                <select name="role" class="input-custom" id="editUserRole">
+                    <option value="user">Пользователь</option>
+                    <option value="admin">Администратор</option>
+                </select>
+            </div>
+            <div>
+                <label style="font-weight:600;margin-bottom:8px;display:block;">Доступ к страницам:</label>
+                <div style="display:flex;flex-wrap:wrap;gap:12px;">
+                    {% for slug, label in pages %}
+                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;">
+                        <input type="checkbox" name="page_{{ slug }}" value="on" class="edit-page-cb" data-slug="{{ slug }}"> {{ label }}
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+            <div style="margin-top:12px;">
+                <label style="font-weight:600;margin-bottom:8px;display:block;">Редактирование:</label>
+                <div style="display:flex;flex-wrap:wrap;gap:12px;">
+                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;">
+                        <input type="checkbox" name="edit_payments" value="on" id="editPayCk"> Платежи
+                    </label>
+                    <label style="display:flex;align-items:center;gap:4px;font-weight:normal;">
+                        <input type="checkbox" name="edit_contractors" value="on" id="editContCk"> Подрядчики
+                    </label>
+                </div>
+            </div>
+            <div style="margin-top:16px;display:flex;gap:8px;">
+                <button type="submit" class="btn-custom">Сохранить</button>
+                <button type="button" class="btn-secondary-custom" onclick="closeModal('editUserModal')">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openEditUser(id, username, role, perms) {
+    document.getElementById('editUserForm').action = `/settings/users/${id}/update`;
+    document.getElementById('editUserName').textContent = username;
+    document.getElementById('editUserRole').value = role;
+    // Restore page permissions
+    document.querySelectorAll('.edit-page-cb').forEach(cb => {
+        cb.checked = false;
+        if (perms && perms.split(',').includes(cb.dataset.slug)) {
+            cb.checked = true;
+        }
+    });
+    document.getElementById('editPayCk').checked = false;
+    document.getElementById('editContCk').checked = false;
+    document.getElementById('editUserModal').style.display = 'flex';
+}
+</script>
+{% endif %}
 {% endblock %}

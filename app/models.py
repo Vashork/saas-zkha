@@ -23,6 +23,7 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     telegram_user_id = Column(Integer, unique=True, nullable=True)
     role = Column(String, nullable=False, default="user")
+    page_permissions = Column(String, nullable=True)  # comma-separated page slugs
     created_at = Column(DateTime, server_default=func.now())
 
     def __repr__(self):

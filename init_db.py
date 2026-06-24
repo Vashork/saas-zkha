@@ -41,6 +41,22 @@ DEFAULT_CONTRACTORS = [
 ]
 
 
+def _run_migrations(conn):
+    """Apply incremental migrations to an existing database."""
+    import sqlite3
+    conn_raw = conn.connection if hasattr(conn, 'connection') else conn
+
+    # Check if page_permissions column exists in users table
+    cur = conn_raw.cursor()
+    cur.execute("PRAGMA table_info(users)")
+    columns = [row[1] for row in cur.fetchall()]
+
+    if "page_permissions" not in columns:
+        cur.execute("ALTER TABLE users ADD COLUMN page_permissions TEXT")
+        conn_raw.commit()
+        print("Migration: added page_permissions to users")
+
+
 async def seed_data(session: AsyncSession):
     """Insert default users, contractors, and settings if they don't exist."""
     from app.utils import generate_uuid
@@ -94,6 +110,10 @@ async def main():
     print("Creating database tables...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # Run migrations for existing databases
+    async with engine.begin() as conn:
+        await conn.run_sync(_run_migrations)
 
     async with async_session_factory() as session:
         await seed_data(session)

@@ -69,7 +69,7 @@ def payment_color_class(due_date: date, status: str) -> str:
     days = days_until_due(due_date)
     if days < 0:
         return "overdue"
-    if days <= 1:
+    if days == 0:
         return "overdue"
     if days <= 5:
         return "soon"

@@ -255,6 +255,23 @@ code {
     font-family: 'Courier New', monospace;
 }
 
+/* === Alerts === */
+.alert-error {
+    background: var(--overdue-bg);
+    color: var(--overdue);
+    padding: 12px;
+    border-radius: 12px;
+    margin-bottom: 16px;
+    font-size: 14px;
+}
+
+/* === User badge actions === */
+.user-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
 /* === Responsive === */
 @media (max-width: 768px) {
     .navbar-custom { flex-direction: column; gap: 12px; }
