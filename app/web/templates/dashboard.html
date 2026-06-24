@@ -12,7 +12,11 @@
         <button class="nav-link-custom" onclick="location.href='/analytics'">📈 Аналитика</button>
         <button class="nav-link-custom" onclick="location.href='/settings'">⚙️ Настройки</button>
     </div>
-    <div class="user-badge">{{ username }} <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button></div>
+    <div class="user-badge">
+        {{ username }}
+        <button class="btn-icon" title="Переключить тему" onclick="toggleTheme()">🌓</button>
+        <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button>
+    </div>
 </nav>
 
 <div class="container-main">
@@ -20,7 +24,7 @@
         <h1 class="page-title" style="margin-bottom:0;">Добро пожаловать, {{ username }}!</h1>
         <div style="display:flex;gap:8px;align-items:center;">
             <label style="color:var(--text-muted);font-size:13px;">Месяц:</label>
-            <select class="select-custom" id="monthSelect" onchange="window.location.href='/?year='+this.dataset.y+'&month='+this.dataset.m">
+            <select class="select-custom" id="monthSelect" onchange="const opt=this.options[this.selectedIndex]; window.location.href='/?year='+opt.dataset.y+'&month='+opt.dataset.m">
                 {% for y, m, name in month_options %}
                 <option value="{{ m }}" data-y="{{ y }}" data-m="{{ m }}" {% if y == year and m == month %}selected{% endif %}>{{ name }} {{ y }}</option>
                 {% endfor %}

@@ -3,13 +3,13 @@ Auth routes — login, logout, session management, user management.
 """
 
 import logging
-from fastapi import APIRouter, Request, Form, Depends
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Request, Form, Depends, Body
+from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from app.database import get_db
+from app.database import get_db, async_session_factory
 from app.models import User
 from app.utils import verify_password, hash_password
 
@@ -105,6 +105,7 @@ async def settings_page(request: Request, db: AsyncSession = Depends(get_db)):
         "error": request.query_params.get("error"),
         "success": request.query_params.get("success"),
         "settings": settings_dict,
+        "user_theme": settings_dict.get("ui_theme", "dark"),
     })
 
 
@@ -259,6 +260,46 @@ async def toggle_user_active(
     return RedirectResponse(url=f"/settings?success=Пользователь {action}", status_code=303)
 
 
+@router.post("/settings/users/{user_id}/delete")
+async def delete_user(
+    user_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently delete a user."""
+    redirect = await _require_auth(request)
+    if redirect:
+        return redirect
+
+    user_role = request.cookies.get("user_role", "user")
+    if user_role != "admin":
+        return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
+
+    my_id = int(request.cookies.get("user_id", 0))
+    if my_id == user_id:
+        return RedirectResponse(url="/settings?error=Нельзя+удалить+себя", status_code=303)
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        return RedirectResponse(url="/settings?error=Пользователь+не+найден", status_code=303)
+
+    # Cannot delete the last active admin
+    if user.role == "admin" and user.is_active:
+        admin_count = await db.execute(
+            select(func.count(User.id)).where(
+                User.role == "admin",
+                User.is_active == True,
+            )
+        )
+        if admin_count.scalar() <= 1:
+            return RedirectResponse(url="/settings?error=Нельзя+удалить+последнего+админа", status_code=303)
+
+    await db.delete(user)
+    await db.commit()
+    return RedirectResponse(url="/settings?success=Пользователь+удалён", status_code=303)
+
+
 @router.post("/settings/users/{user_id}/update")
 async def update_user(
     user_id: int,
@@ -271,8 +312,6 @@ async def update_user(
     page_contractors: str = Form("off"),
     page_analytics: str = Form("off"),
     page_settings: str = Form("off"),
-    edit_payments: str = Form("off"),
-    edit_contractors: str = Form("off"),
 ):
     redirect = await _require_auth(request)
     if redirect:
@@ -289,13 +328,17 @@ async def update_user(
 
     user.role = role
 
-    # Build page permissions from form data
-    allowed_pages = []
-    for slug in ["dashboard", "payments", "history", "contractors", "analytics", "settings"]:
-        if request.form.get(f"page_{slug}") == "on":
-            allowed_pages.append(slug)
-
-    user.page_permissions = ",".join(allowed_pages)
+    # Build page permissions from explicit Form parameters
+    perms_map = {
+        "dashboard": page_dashboard,
+        "payments": page_payments,
+        "history": page_history,
+        "contractors": page_contractors,
+        "analytics": page_analytics,
+        "settings": page_settings,
+    }
+    allowed_pages = [slug for slug, val in perms_map.items() if val == "on"]
+    user.page_permissions = ",".join(allowed_pages) if allowed_pages else None
 
     await db.commit()
     return RedirectResponse(url="/settings?success=Пользователь+обновлён", status_code=303)
@@ -329,3 +372,50 @@ async def save_settings(
 
     await db.commit()
     return RedirectResponse(url="/settings?success=Настройки+сохранены", status_code=303)
+
+
+@router.post("/settings/theme")
+async def change_theme(request: Request, data: dict = Body(...)):
+    """AJAX endpoint to save theme preference."""
+    if not request.cookies.get("user_id"):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+    from app.models import Setting as SettingModel
+    theme_val = data.get("theme", "dark")
+
+    async with async_session_factory() as db:
+        result = await db.execute(select(SettingModel).where(SettingModel.key == "ui_theme"))
+        setting = result.scalar_one_or_none()
+        if setting:
+            setting.value = theme_val
+        else:
+            db.add(SettingModel(key="ui_theme", value=theme_val, description="Тема интерфейса"))
+        await db.commit()
+
+    return JSONResponse({"ok": True})
+
+
+@router.post("/settings/users/{user_id}/change-password")
+async def change_user_password(
+    user_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    new_password: str = Form(...),
+):
+    """Admin changes another user's password."""
+    redirect = await _require_auth(request)
+    if redirect:
+        return redirect
+
+    user_role = request.cookies.get("user_role", "user")
+    if user_role != "admin":
+        return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        return RedirectResponse(url="/settings?error=Пользователь+не+найден", status_code=303)
+
+    user.password_hash = hash_password(new_password)
+    await db.commit()
+    return RedirectResponse(url="/settings?success=Пароль+изменён", status_code=303)

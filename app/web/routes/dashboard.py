@@ -29,10 +29,10 @@ async def _require_auth(request: Request):
 
 
 def _effective_status(payment: Payment) -> str:
-    """Return the effective status, treating past-due pending as overdue."""
+    """Return the effective status, treating past-due or due-today pending as overdue."""
     if payment.status == "paid":
         return "paid"
-    if payment.due_date and payment.due_date < date.today():
+    if payment.due_date and payment.due_date <= date.today():
         return "overdue"
     return payment.status
 
@@ -71,7 +71,8 @@ async def dashboard(
     pending = [p for p in payments if p.status != "paid" and _effective_status(p) != "overdue"]
     overdue = [p for p in payments if _effective_status(p) == "overdue"]
 
-    pending_amount = sum((p.amount or Decimal("0")) for p in payments if p.status != "paid")
+    pending_amount = sum((p.amount or Decimal("0")) for p in pending)
+    overdue_amount = sum((p.amount or Decimal("0")) for p in overdue)
 
     # Upcoming: all unpaid payments sorted by due_date (nearest first)
     # Include pending and overdue — fetch ALL non-paid and filter/sort

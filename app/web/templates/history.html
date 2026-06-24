@@ -12,7 +12,11 @@
         <button class="nav-link-custom" onclick="location.href='/analytics'">📈 Аналитика</button>
         <button class="nav-link-custom" onclick="location.href='/settings'">⚙️ Настройки</button>
     </div>
-    <div class="user-badge">{{ username }} <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button></div>
+    <div class="user-badge">
+        {{ username }}
+        <button class="btn-icon" title="Переключить тему" onclick="toggleTheme()">🌓</button>
+        <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button>
+    </div>
 </nav>
 
 <div class="container-main">

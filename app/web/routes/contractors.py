@@ -10,6 +10,8 @@ from sqlalchemy import select
 
 from app.database import get_db
 from app.models import Contractor
+from sqlalchemy.exc import IntegrityError
+
 from app.utils import generate_uuid
 
 router = APIRouter()
@@ -70,7 +72,19 @@ async def add_contractor(
         is_active=True,
     )
     db.add(contractor)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        result = await db.execute(select(Contractor).order_by(Contractor.name))
+        contractors = result.scalars().all()
+        return templates.TemplateResponse("contractors.html", {
+            "request": request,
+            "username": request.cookies.get("username", "User"),
+            "user_role": request.cookies.get("user_role", "user"),
+            "contractors": contractors,
+            "error": "Конфликт: подрядчик с таким именем или slug уже существует",
+        })
 
     return RedirectResponse(url="/contractors", status_code=303)
 

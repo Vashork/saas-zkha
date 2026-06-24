@@ -48,3 +48,22 @@ if (monthSelect) {
         window.location.href = '/?year=' + opt.dataset.y + '&month=' + opt.dataset.m;
     };
 }
+
+// Theme toggle
+function toggleTheme() {
+    const html = document.documentElement;
+    const current = html.getAttribute('data-theme');
+    const next = current === 'light' ? 'dark' : 'light';
+    html.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
+    // Also save to backend
+    fetch('/settings/theme', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({theme: next}) });
+}
+
+// Load saved theme on startup
+(function() {
+    const saved = localStorage.getItem('theme');
+    if (saved) {
+        document.documentElement.setAttribute('data-theme', saved);
+    }
+})();

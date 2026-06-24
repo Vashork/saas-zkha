@@ -16,6 +16,7 @@
         {{ username }}
         <button class="btn-icon" title="Сменить имя" onclick="document.getElementById('changeNameModal').style.display='flex'">✏️</button>
         <button class="btn-icon" title="Сменить пароль" onclick="document.getElementById('changePassModal').style.display='flex'">🔑</button>
+        <button class="btn-icon" title="Переключить тему" onclick="toggleTheme()">🌓</button>
         <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button>
     </div>
 </nav>
@@ -49,9 +50,9 @@
                 </div>
                 <div class="form-group">
                     <label>Тема оформления</label>
-                    <select name="theme" class="input-custom">
-                        <option value="dark" {% if settings.get('theme','dark') == 'dark' %}selected{% endif %}>Тёмная</option>
-                        <option value="light" {% if settings.get('theme','dark') == 'light' %}selected{% endif %}>Светлая</option>
+                    <select name="theme" class="input-custom" onchange="document.documentElement.setAttribute('data-theme', this.value); localStorage.setItem('theme', this.value);">
+                        <option value="dark" {% if settings.get('ui_theme','dark') == 'dark' %}selected{% endif %}>Тёмная</option>
+                        <option value="light" {% if settings.get('ui_theme','dark') == 'light' %}selected{% endif %}>Светлая</option>
                     </select>
                 </div>
                 <div class="form-group" style="display:flex;align-items:center;gap:8px;padding-top:24px;">
@@ -140,6 +141,10 @@
                     </form>
                     {% endif %}
                     <button class="btn-icon" title="Права" onclick="openEditUserModal({{ u.id }}, '{{ u.page_permissions or '' }}', '{{ u.role }}')">⚙️</button>
+                    <button class="btn-icon" title="Сменить пароль" onclick="openChangePassModal({{ u.id }})">🔑</button>
+                    <form method="post" action="/settings/users/{{ u.id }}/delete" style="display:inline;" onsubmit="return confirm('Безвозвратно удалить {{ u.username }}?')">
+                        <button type="submit" class="btn-icon" title="Удалить">🗑️</button>
+                    </form>
                     {% endif %}
                 </td>
             </tr>
@@ -213,6 +218,23 @@
     </div>
 </div>
 
+<!-- Модальное окно: сменить пароль пользователя -->
+<div id="changeUserPassModal" class="modal-overlay" style="display:none;">
+    <div class="card-custom" style="max-width:400px;width:90%;">
+        <h3 style="margin-bottom:16px;">🔒 Сменить пароль пользователя</h3>
+        <form id="changeUserPassForm" method="post" action="">
+            <div class="form-group">
+                <label>Новый пароль</label>
+                <input type="password" name="new_password" class="input-custom" required>
+            </div>
+            <div style="display:flex;gap:8px;">
+                <button type="submit" class="btn-custom">Сохранить</button>
+                <button type="button" class="btn-secondary-custom" onclick="closeModal('changeUserPassModal')">Отмена</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
 function openEditUserModal(userId, perms, role) {
     document.getElementById('editUserForm').action = '/settings/users/' + userId + '/update';
@@ -223,5 +245,28 @@ function openEditUserModal(userId, perms, role) {
     });
     document.getElementById('editUserModal').style.display = 'flex';
 }
+
+function openChangePassModal(userId) {
+    document.getElementById('changeUserPassForm').action = '/settings/users/' + userId + '/change-password';
+    document.getElementById('changeUserPassModal').style.display = 'flex';
+}
+
+function closeModal(id) {
+    document.getElementById(id).style.display = 'none';
+}
+
+// Close modals on outside click
+document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('modal-overlay')) {
+        e.target.style.display = 'none';
+    }
+});
+
+// Close modals on Escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none');
+    }
+});
 </script>
 {% endblock %}

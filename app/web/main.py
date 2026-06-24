@@ -50,6 +50,10 @@ UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./data/uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
+# Configure Jinja2 templates with context processor for theme
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates.env.globals["user_theme"] = "dark"
+
 # Include routers
 app.include_router(auth.router)
 app.include_router(dashboard.router)

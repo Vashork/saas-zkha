@@ -12,11 +12,26 @@
         <button class="nav-link-custom active" onclick="location.href='/analytics'">📈 Аналитика</button>
         <button class="nav-link-custom" onclick="location.href='/settings'">⚙️ Настройки</button>
     </div>
-    <div class="user-badge">{{ username }} <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button></div>
+    <div class="user-badge">
+        {{ username }}
+        <button class="btn-icon" title="Переключить тему" onclick="toggleTheme()">🌓</button>
+        <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button>
+    </div>
 </nav>
 
 <div class="container-main">
-    <h1 class="page-title">📈 Аналитика</h1>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:0;">
+        <h1 class="page-title" style="margin-bottom:0;">📈 Аналитика</h1>
+        <div style="display:flex;gap:8px;align-items:center;">
+            <label style="color:var(--text-muted);font-size:13px;">Год:</label>
+            <select class="select-custom" onchange="window.location.href='/analytics?year='+this.value">
+                <option value="">Текущий</option>
+                {% for y in [year, year-1, year-2, year-3, year-4] %}
+                <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
 
     <!-- YoY summary -->
     <div class="stat-grid">
