@@ -70,8 +70,11 @@ def _remaining_amount(payment: Payment) -> Decimal:
 
 
 def _effective_status(payment: Payment) -> str:
+    """Return visual/business status, not just raw DB status."""
     if _remaining_amount(payment) <= 0:
         return "paid"
+    if payment.status == "overdue":
+        return "overdue"
     if payment.due_date and payment.due_date <= date.today():
         return "overdue"
     return "pending"
@@ -164,11 +167,11 @@ async def _page_context(
         Payment.year == year,
         Payment.month == month,
     )
-    if status_filter and status_filter != "all":
-        query = query.where(Payment.status == status_filter)
 
     payments_result = await db.execute(query)
     payments = payments_result.scalars().all()
+    if status_filter and status_filter != "all":
+        payments = [p for p in payments if _effective_status(p) == status_filter]
 
     contractors_result = await db.execute(select(Contractor).where(Contractor.is_active == True))
     contractors = contractors_result.scalars().all()
@@ -190,6 +193,7 @@ async def _page_context(
         "planned_amount": _planned_amount,
         "paid_amount": _paid_amount,
         "remaining_amount": _remaining_amount,
+        "effective_status": _effective_status,
         "status_label": _status_label,
         "status_css_class": _status_css_class,
         "error": request.query_params.get("error"),
@@ -237,6 +241,7 @@ async def add_payment(
     db: AsyncSession = Depends(get_db),
     contractor_id: str = Form(...),
     amount: str = Form("0"),
+    status: str = Form("pending"),
     paid_date_str: str = Form(""),
     year: int = Form(None),
     month: int = Form(None),
@@ -249,6 +254,10 @@ async def add_payment(
     today = date.today()
     selected_year = year if year and 2000 <= year <= 2100 else today.year
     selected_month = month if month and 1 <= month <= 12 else today.month
+
+    if status not in {"pending", "paid", "overdue"}:
+        ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Некорректный статус"})
+        return templates.TemplateResponse("payments.html", ctx)
 
     try:
         paid_amt = _parse_amount(amount)
@@ -302,7 +311,14 @@ async def add_payment(
 
     due_day = min(contractor.due_day, 28)
     due_date = date(selected_year, selected_month, due_day)
-    status = "paid" if paid_date and paid_amt > 0 else "pending"
+
+    paid_amount = None
+    if status == "paid":
+        paid_amount = paid_amt
+        if not paid_date:
+            paid_date = today
+    else:
+        paid_date = None
 
     payment = Payment(
         id=f"pay-{selected_year}{selected_month:02d}-{contractor_id}-{uuid.uuid4().hex[:8]}",
@@ -310,7 +326,7 @@ async def add_payment(
         year=selected_year,
         month=selected_month,
         amount=paid_amt,
-        paid_amount=paid_amt if status == "paid" else None,
+        paid_amount=paid_amount,
         due_date=due_date,
         paid_date=paid_date,
         status=status,
@@ -354,16 +370,25 @@ async def edit_payment(
             return templates.TemplateResponse("payments.html", ctx)
         payment.status = status
 
-    if paid_date_str:
+    if status == "paid":
+        if paid_date_str:
+            try:
+                payment.paid_date = date.fromisoformat(paid_date_str)
+            except ValueError:
+                ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Некорректная дата оплаты"})
+                return templates.TemplateResponse("payments.html", ctx)
+        elif not payment.paid_date:
+            payment.paid_date = date.today()
+        payment.paid_amount = payment.amount
+    elif status in {"pending", "overdue"}:
+        payment.paid_date = None
+        payment.paid_amount = None
+    elif paid_date_str:
         try:
             payment.paid_date = date.fromisoformat(paid_date_str)
         except ValueError:
             ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Некорректная дата оплаты"})
             return templates.TemplateResponse("payments.html", ctx)
-        payment.paid_amount = payment.amount
-    elif status == "paid":
-        payment.paid_date = date.today()
-        payment.paid_amount = payment.amount
 
     if receipt and receipt.filename:
         if not is_allowed_file(receipt.filename):
