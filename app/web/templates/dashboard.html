@@ -44,14 +44,14 @@
             <div class="stat-value">{{ "{:,.0f}".format(paid) }} ₽</div>
         </div>
         <div class="stat-card soon">
-            <div class="stat-label">Остаток к оплате</div>
+            <div class="stat-label">Всего к оплате</div>
             <div class="stat-value">{{ "{:,.0f}".format(unpaid_amount) }} ₽</div>
-            <div class="stat-sub">{{ unpaid_count }} неоплаченных платеж(ей)</div>
+            <div class="stat-sub">{{ unpaid_count }} неоплаченных платеж(ей), включая просрочку</div>
         </div>
         <div class="stat-card overdue">
-            <div class="stat-label">Просрочено</div>
+            <div class="stat-label">Из них просрочено</div>
             <div class="stat-value">{{ "{:,.0f}".format(overdue_amount or 0) }} ₽</div>
-            <div class="stat-sub">{{ overdue_count }} платеж(ей)</div>
+            <div class="stat-sub">{{ overdue_count }} просроченных платеж(ей)</div>
         </div>
     </div>
 
