@@ -53,8 +53,6 @@ services:
     volumes:
       - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./logs/nginx:/var/log/nginx
-      - ./app/web/static:/app/app/web/static:ro
-      - ./data/uploads:/app/data/uploads:ro
     networks:
       - zhkh-bot-network
     depends_on:
