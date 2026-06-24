@@ -25,7 +25,7 @@
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <label style="color:var(--text-muted);font-size:13px;">Год:</label>
             <select class="select-custom" id="analyticsYearSelect" onchange="updateAnalytics()">
-                {% for y in [year, year-1, year-2, year-3, year-4] %}
+                {% for y in year_options %}
                 <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
                 {% endfor %}
             </select>
