@@ -42,8 +42,7 @@ services:
     networks:
       - zhkh-bot-network
     depends_on:
-      web:
-        condition: service_healthy
+      - web
 
   nginx:
     image: nginx:alpine
