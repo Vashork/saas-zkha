@@ -31,7 +31,20 @@ async def get_db() -> AsyncSession:
 
 
 async def init_db():
-    """Create all tables from models."""
+    """Create all tables and run migrations."""
     from app import models  # noqa: F401 — import to register models
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_run_migrations)
+
+
+def _run_migrations(conn):
+    """Apply incremental migrations to an existing database."""
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(users)")
+    columns = [row[1] for row in cur.fetchall()]
+
+    if "page_permissions" not in columns:
+        cur.execute("ALTER TABLE users ADD COLUMN page_permissions TEXT")
+        conn.commit()
+        print("Migration: added page_permissions to users")

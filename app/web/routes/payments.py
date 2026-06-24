@@ -4,6 +4,7 @@ Payments route — current month payments with CRUD, filters, manual add.
 
 import os
 import uuid
+import logging
 from datetime import date
 from decimal import Decimal
 from fastapi import APIRouter, Request, Form, File, UploadFile, Depends
@@ -17,6 +18,8 @@ from app.database import get_db
 from app.models import Payment, Contractor
 from app.utils import month_name, payment_color_class, is_allowed_file, get_upload_path, ALLOWED_EXTENSIONS, MAX_FILE_SIZE
 
+logger = logging.getLogger("zhkh.payments")
+
 router = APIRouter()
 templates = Jinja2Templates(directory="app/web/templates")
 
@@ -27,6 +30,24 @@ async def _require_auth(request: Request):
     if not request.cookies.get("user_id"):
         return RedirectResponse(url="/login", status_code=303)
     return None
+
+
+def _context(request, extra=None):
+    """Build base template context for payments.html."""
+    ctx = {
+        "request": request,
+        "username": request.cookies.get("username", "User"),
+        "user_role": request.cookies.get("user_role", "user"),
+        "month_name": month_name(date.today().month),
+        "year": date.today().year,
+        "payments": [],
+        "contractors": [],
+        "status_filter": "",
+        "payment_color_class": payment_color_class,
+    }
+    if extra:
+        ctx.update(extra)
+    return ctx
 
 
 @router.get("/payments")
@@ -51,7 +72,6 @@ async def payments_page(
     result = await db.execute(query)
     payments = result.scalars().all()
 
-    # Get all contractors for the manual add form
     contractors_result = await db.execute(select(Contractor).where(Contractor.is_active == True))
     contractors = contractors_result.scalars().all()
 
@@ -91,16 +111,7 @@ async def add_payment(
             content = await receipt.read()
             if len(content) > MAX_FILE_SIZE:
                 return templates.TemplateResponse("payments.html", {
-                    "request": request,
-                    "username": request.cookies.get("username", "User"),
-                    "user_role": request.cookies.get("user_role", "user"),
-                    "month_name": month_name(month),
-                    "year": year,
-                    "payments": [],
-                    "contractors": [],
-                    "status_filter": "",
-                    "payment_color_class": payment_color_class,
-                    "error": "Файл слишком большой (макс. 10MB)",
+                    **_context(request, {"error": "Файл слишком большой (макс. 10MB)"}),
                 })
             upload_dir = get_upload_path(year, month, UPLOAD_DIR)
             ext = os.path.splitext(receipt.filename)[1]
@@ -111,20 +122,11 @@ async def add_payment(
             receipt_path = f"{year}/{month:02d}/{filename}"
         else:
             return templates.TemplateResponse("payments.html", {
-                "request": request,
-                "username": request.cookies.get("username", "User"),
-                "user_role": request.cookies.get("user_role", "user"),
-                "month_name": month_name(month),
-                "year": year,
-                "payments": [],
-                "contractors": [],
-                "status_filter": "",
-                "payment_color_class": payment_color_class,
-                "error": "Недопустимый формат файла (PDF, JPG, PNG)",
+                **_context(request, {"error": "Недопустимый формат файла (PDF, JPG, PNG)"}),
             })
 
-    paid_date = date.fromisoformat(paid_date_str) if paid_date_str else today
-    paid_amt = Decimal(amount.replace(",", ".").strip()) if amount else Decimal("0")
+    paid_date = date.fromisoformat(paid_date_str) if paid_date_str else None
+    paid_amt = Decimal(amount.replace(",", ".").strip()) if amount.strip() else Decimal("0")
 
     # Check for existing payment this month/contractor
     existing = await db.execute(
@@ -136,16 +138,7 @@ async def add_payment(
     )
     if existing.scalar_one_or_none():
         return templates.TemplateResponse("payments.html", {
-            "request": request,
-            "username": request.cookies.get("username", "User"),
-            "user_role": request.cookies.get("user_role", "user"),
-            "month_name": month_name(month),
-            "year": year,
-            "payments": [],
-            "contractors": [],
-            "status_filter": "",
-            "payment_color_class": payment_color_class,
-            "error": "Платеж за этот месяц уже существует",
+            **_context(request, {"error": "Платеж за этот месяц уже существует"}),
         })
 
     # Determine due_date from contractor
@@ -157,24 +150,26 @@ async def add_payment(
     except ValueError:
         due_date = date(year, month, 28)
 
+    # Determine status
+    if paid_date and paid_amt > 0:
+        status = "paid"
+    else:
+        status = "paid" if paid_amt > 0 and paid_date_str else "pending"
+        if not paid_date_str:
+            paid_date = None
+
     payment = Payment(
-        id=f"pay-{year}{month:02d}-{contractor_id}-manual",
+        id=f"pay-{year}{month:02d}-{contractor_id}-{uuid.uuid4().hex[:8]}",
         contractor_id=contractor_id,
         year=year,
         month=month,
         amount=paid_amt,
-        paid_amount=paid_amt if paid_date else None,
+        paid_amount=paid_amt if (paid_date and status == "paid") else None,
         due_date=due_date,
-        paid_date=paid_date if paid_date != today else None,
-        status="paid" if paid_date and paid_amt > 0 else "pending",
+        paid_date=paid_date,
+        status=status,
         receipt_file=receipt_path,
     )
-    # If no paid_date given, it's pending
-    if not paid_date_str:
-        payment.status = "pending"
-        payment.paid_amount = None
-        payment.paid_date = None
-
     db.add(payment)
     await db.commit()
 
@@ -186,8 +181,8 @@ async def edit_payment(
     payment_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    amount: str = Form("0"),
-    status: str = Form("pending"),
+    amount: str = Form(""),
+    status: str = Form(""),
     paid_date_str: str = Form(""),
     receipt: UploadFile = File(None),
 ):
@@ -200,33 +195,44 @@ async def edit_payment(
     if not payment:
         return RedirectResponse(url="/payments", status_code=303)
 
-    amount_val = Decimal(amount.replace(",", ".").strip()) if amount else Decimal("0")
-    payment.amount = amount_val
-    payment.status = status
+    # Only update fields that were actually sent (non-empty)
+    if amount.strip():
+        payment.amount = Decimal(amount.replace(",", ".").strip())
+    if status:
+        payment.status = status
 
     if paid_date_str:
         payment.paid_date = date.fromisoformat(paid_date_str)
-        payment.paid_amount = amount_val
-    else:
+        payment.paid_amount = payment.amount
+    elif not paid_date_str and status != "paid":
         payment.paid_date = None
-        payment.paid_amount = None if status != "paid" else payment.paid_amount
+        payment.paid_amount = None
 
     # Handle receipt upload
     if receipt and receipt.filename:
         if is_allowed_file(receipt.filename):
-            content = await receipt.read()
-            if len(content) > MAX_FILE_SIZE:
+            try:
+                content = await receipt.read()
+                if len(content) > MAX_FILE_SIZE:
+                    return templates.TemplateResponse("payments.html", {
+                        **_context(request, {"error": "Файл слишком большой (макс. 10MB)"}),
+                    })
+                upload_dir = get_upload_path(payment.year, payment.month, UPLOAD_DIR)
+                ext = os.path.splitext(receipt.filename)[1]
+                filename = f"{uuid.uuid4()}{ext}"
+                filepath = os.path.join(upload_dir, filename)
+                with open(filepath, "wb") as f:
+                    f.write(content)
+                payment.receipt_file = f"{payment.year}/{payment.month:02d}/{filename}"
+            except Exception as e:
+                logger.error("Receipt upload error: %s", e)
                 return templates.TemplateResponse("payments.html", {
-                    "request": request,
-                    "error": "Файл слишком большой (макс. 10MB)",
+                    **_context(request, {"error": "Ошибка загрузки файла"}),
                 })
-            upload_dir = get_upload_path(payment.year, payment.month, UPLOAD_DIR)
-            ext = os.path.splitext(receipt.filename)[1]
-            filename = f"{uuid.uuid4()}{ext}"
-            filepath = os.path.join(upload_dir, filename)
-            with open(filepath, "wb") as f:
-                f.write(content)
-            payment.receipt_file = f"{payment.year}/{payment.month:02d}/{filename}"
+        else:
+            return templates.TemplateResponse("payments.html", {
+                **_context(request, {"error": "Недопустимый формат файла (PDF, JPG, PNG)"}),
+            })
 
     await db.commit()
     return RedirectResponse(url="/payments", status_code=303)

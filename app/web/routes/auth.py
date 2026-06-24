@@ -2,6 +2,7 @@
 Auth routes — login, logout, session management, user management.
 """
 
+import logging
 from fastapi import APIRouter, Request, Form, Depends
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -12,10 +13,11 @@ from app.database import get_db
 from app.models import User
 from app.utils import verify_password, hash_password
 
+logger = logging.getLogger("zhkh.auth")
+
 router = APIRouter()
 templates = Jinja2Templates(directory="app/web/templates")
 
-# Pages that exist in the app
 PAGES = [
     ("dashboard", "📊 Дашборд"),
     ("payments", "💳 Платежи"),
@@ -54,7 +56,6 @@ async def login(
         )
         response.set_cookie(key="username", value=user.username, samesite="lax")
         response.set_cookie(key="user_role", value=user.role, samesite="lax")
-        # Store page permissions as comma-separated slugs
         perms = getattr(user, "page_permissions", None)
         response.set_cookie(key="page_permissions", value=perms or "", samesite="lax")
         return response
@@ -171,14 +172,12 @@ async def create_user(
     username: str = Form(...),
     password: str = Form(...),
     role: str = Form("user"),
-    # Page permissions
     page_dashboard: str = Form("off"),
     page_payments: str = Form("off"),
     page_history: str = Form("off"),
     page_contractors: str = Form("off"),
     page_analytics: str = Form("off"),
     page_settings: str = Form("off"),
-    # Edit permissions
     edit_payments: str = Form("off"),
     edit_contractors: str = Form("off"),
 ):
@@ -190,31 +189,33 @@ async def create_user(
     if user_role != "admin":
         return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
 
+    # Validate input
+    if not username.strip():
+        return RedirectResponse(url="/settings?error=Имя+не+может+быть+пустым", status_code=303)
+    if len(password) < 4:
+        return RedirectResponse(url="/settings?error=Минимум+4+символа", status_code=303)
+
     existing = await db.execute(select(User).where(User.username == username))
     if existing.scalar_one_or_none():
         return RedirectResponse(url="/settings?error=Имя+уже+занято", status_code=303)
 
-    # Build permissions
+    # Build page permissions from form data
     allowed_pages = []
     for slug in ["dashboard", "payments", "history", "contractors", "analytics", "settings"]:
-        if getattr(request.form, f"page_{slug}", request.form.get(f"page_{slug}", "off")) == "on":
+        if request.form.get(f"page_{slug}") == "on":
             allowed_pages.append(slug)
 
     can_edit_payments = request.form.get("edit_payments") == "on"
     can_edit_contractors = request.form.get("edit_contractors") == "on"
 
-    perms = {
-        "pages": allowed_pages,
-        "edit": {
-            "payments": can_edit_payments,
-            "contractors": can_edit_contractors,
-        }
-    }
+    # Store as JSON-like string: pages:d,p;edit:p,c
+    perms_str = ",".join(allowed_pages)
 
     new_user = User(
         username=username,
         password_hash=hash_password(password),
         role=role,
+        page_permissions=perms_str,
     )
     db.add(new_user)
     await db.commit()
@@ -236,15 +237,17 @@ async def delete_user(
     if user_role != "admin":
         return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
 
-    # Don't allow deleting yourself
-    if int(request.cookies.get("user_id", 0)) == user_id:
+    my_id = int(request.cookies.get("user_id", 0))
+    if my_id == user_id:
         return RedirectResponse(url="/settings?error=Нельзя+удалить+себя", status_code=303)
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
-    if user:
-        await db.delete(user)
-        await db.commit()
+    if not user:
+        return RedirectResponse(url="/settings?success=Пользователь+удалён", status_code=303)
+
+    await db.delete(user)
+    await db.commit()
 
     return RedirectResponse(url="/settings?success=Пользователь+удалён", status_code=303)
 
@@ -279,21 +282,12 @@ async def update_user(
 
     user.role = role
 
-    # Build permissions
+    # Build page permissions from form data
     allowed_pages = []
     for slug in ["dashboard", "payments", "history", "contractors", "analytics", "settings"]:
         if request.form.get(f"page_{slug}") == "on":
             allowed_pages.append(slug)
 
-    perms = {
-        "pages": allowed_pages,
-        "edit": {
-            "payments": request.form.get("edit_payments") == "on",
-            "contractors": request.form.get("edit_contractors") == "on",
-        }
-    }
-
-    # Store as JSON string in a simple format
     user.page_permissions = ",".join(allowed_pages)
 
     await db.commit()

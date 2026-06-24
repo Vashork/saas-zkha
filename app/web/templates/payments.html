@@ -43,7 +43,7 @@
             {% for p in payments %}
             <tr>
                 <td>{{ p.contractor.name if p.contractor else '—' }}</td>
-                <td>{{ "{:,.2f}".format(p.amount) }} ₽</td>
+                <td>{{ "{:,.2f}".format(p.amount or 0) }} ₽</td>
                 <td>{{ p.due_date.strftime('%d.%m.%Y') }}</td>
                 <td><span class="badge-status badge-{{ payment_color_class(p.due_date, p.status) }}">{{ p.status }}</span></td>
                 <td>
@@ -52,7 +52,7 @@
                     {% endif %}
                     {% if user_role == 'admin' %}
                     <button class="btn-icon" title="Загрузить чек" onclick="openReceiptModal('{{ p.id }}', '{{ p.year }}', '{{ p.month }}')">📤</button>
-                    <button class="btn-icon" title="Редактировать" onclick="openEditModal('{{ p.id }}', '{{ p.amount }}', '{{ p.status }}', '{{ p.paid_date.isoformat() if p.paid_date else '' }}')">✏️</button>
+                    <button class="btn-icon" title="Редактировать" onclick="openEditModal('{{ p.id }}', '{{ p.amount if p.amount else 0 }}', '{{ p.status }}', '{{ p.paid_date.isoformat() if p.paid_date else '' }}')">✏️</button>
                     <form method="post" action="/payments/{{ p.id }}/delete" style="display:inline;" onsubmit="return confirm('Удалить платеж?')">
                         <button type="submit" class="btn-icon" title="Удалить">🗑</button>
                     </form>
