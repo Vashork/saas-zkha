@@ -69,7 +69,7 @@
                 <td><span class="badge-status badge-{{ payment_color_class(p.due_date, p.status) }}">{{ 'просрочено' if payment_color_class(p.due_date, p.status) == 'overdue' else p.status }}</span></td>
                 <td>
                     {% if p.receipt_file %}
-                    <a href="/static/uploads/{{ p.receipt_file }}" download class="btn-icon" style="width:auto;padding:0 8px;" title="Скачать чек">📎</a>
+                    <a href="/uploads/{{ p.receipt_file }}" download class="btn-icon" style="width:auto;padding:0 8px;" title="Скачать чек">📎</a>
                     {% endif %}
                 </td>
             </tr>
