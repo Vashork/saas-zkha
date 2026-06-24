@@ -40,15 +40,6 @@ function openEditModal(paymentId, amount, status, paidDate) {
     document.getElementById('editModal').style.display = 'flex';
 }
 
-// Month selector (dashboard)
-const monthSelect = document.getElementById('monthSelect');
-if (monthSelect) {
-    monthSelect.onchange = function() {
-        const opt = this.options[this.selectedIndex];
-        window.location.href = '/?year=' + opt.dataset.y + '&month=' + opt.dataset.m;
-    };
-}
-
 // Theme toggle
 function toggleTheme() {
     const html = document.documentElement;

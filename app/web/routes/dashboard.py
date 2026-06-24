@@ -49,9 +49,15 @@ async def dashboard(
     view_year = request.query_params.get("year")
     view_month = request.query_params.get("month")
     if view_year:
-        year = int(view_year)
+        try:
+            year = int(view_year)
+        except ValueError:
+            pass  # ignore invalid values
     if view_month:
-        month = int(view_month)
+        try:
+            month = int(view_month)
+        except ValueError:
+            pass  # ignore invalid values
 
     # Current month payments
     result = await db.execute(

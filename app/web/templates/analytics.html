@@ -24,13 +24,13 @@
         <h1 class="page-title" style="margin-bottom:0;">📈 Аналитика</h1>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <label style="color:var(--text-muted);font-size:13px;">Год:</label>
-            <select class="select-custom" id="yearSelect" onchange="updateAnalytics()">
+            <select class="select-custom" id="analyticsYearSelect" onchange="updateAnalytics()">
                 {% for y in [year, year-1, year-2, year-3, year-4] %}
                 <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
                 {% endfor %}
             </select>
             <label style="color:var(--text-muted);font-size:13px;">Месяц:</label>
-            <select class="select-custom" id="monthSelect" onchange="updateAnalytics()">
+            <select class="select-custom" id="analyticsMonthSelect" onchange="updateAnalytics()">
                 <option value="" {% if not month %}selected{% endif %}>Весь год</option>
                 {% for m in range(1, 13) %}
                 <option value="{{ m }}" {% if month and month == m %}selected{% endif %}>{{ month_name(m) }}</option>
@@ -75,8 +75,8 @@
 {% block scripts %}
 <script>
 function updateAnalytics() {
-    const year = document.getElementById('yearSelect').value;
-    const month = document.getElementById('monthSelect').value;
+    const year = document.getElementById('analyticsYearSelect').value;
+    const month = document.getElementById('analyticsMonthSelect').value;
     let url = '/analytics?year=' + year;
     if (month) url += '&month=' + month;
     window.location.href = url;

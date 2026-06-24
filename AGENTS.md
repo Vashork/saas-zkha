@@ -148,12 +148,19 @@ app/
 ### 5.6 Null-безопасность
 - `p.amount or 0`, `p.paid_amount or 0` — везде, где используются суммы
 - SQL `SUM()` может вернуть NULL — всегда `result.scalar() or Decimal("0")`
+- Query params (`request.query_params.get("year")`) могут быть `"undefined"` из JS — всегда оборачивай `int()` в `try/except ValueError`
 
 ### 5.7 Темы
 - CSS variables в `:root` (тёмная) и `[data-theme="light"]` (светлая)
 - `:root` ДОЛЖЕН быть ПЕРЕД `[data-theme="light"]` в CSS
 - Тема сохраняется в `localStorage` и через AJAX в БД (`/settings/theme`)
 - `base.html` загружает тему из `localStorage` через inline-скрипт до рендера
+
+### 5.8 Селекторы и ID
+- Каждый `<select>` на странице должен иметь **уникальный id** (не `monthSelect` для всех)
+- Дашборд: `monthSelect` с inline `onchange`, читает `options[selectedIndex].dataset.y/m`
+- Аналитика: `analyticsYearSelect` + `analyticsMonthSelect`, JS функция `updateAnalytics()`
+- НЕ используй глобальные обработчики в `main.js` для элементов, которые имеют inline `onchange`
 
 ### 5.8 Статические файлы
 - FastAPI монтирует `/static` и `/uploads` через `StaticFiles`
@@ -262,4 +269,5 @@ docker compose up -d --build
 7. **Компилируй Python:** `python3 -m py_compile <file>` перед коммитом
 8. **Миграции добавляй в ДВА файла:** `app/database.py` и `init_db.py`
 9. **CSS variables:** `:root` ДОЛЖЕН быть перед `[data-theme="light"]`
+- **Jinja2:** `max()`, `min()` и другие Python builtins НЕ доступны. Используй `{% set var = ... %}` + тернарные выражения.
 10. **Git:** commit messages в Conventional Commits формате
