@@ -7,17 +7,33 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
 from app.models import Contractor
-from sqlalchemy.exc import IntegrityError
-
 from app.utils import generate_uuid
-from app.web.routes.auth import _require_page
+from app.web.routes.auth import _require_page, get_current_user
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/web/templates")
 
+
+async def _require_admin_user(request: Request, db: AsyncSession):
+    """Return active admin user or a redirect response."""
+    current_user = await get_current_user(request, db)
+    if not current_user:
+        return None, RedirectResponse(url="/login", status_code=303)
+    if current_user.role != "admin":
+        return current_user, RedirectResponse(url="/contractors?error=Только+для+админа", status_code=303)
+    return current_user, None
+
+
+def _user_context(current_user):
+    """Template identity context based on DB user, not display cookies."""
+    return {
+        "username": current_user.username,
+        "user_role": current_user.role,
+    }
 
 
 @router.get("/contractors")
@@ -29,14 +45,18 @@ async def contractors_page(
     if redirect:
         return redirect
 
+    current_user = await get_current_user(request, db)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=303)
+
     result = await db.execute(select(Contractor).order_by(Contractor.name))
     contractors = result.scalars().all()
 
     return templates.TemplateResponse("contractors.html", {
         "request": request,
-        "username": request.cookies.get("username", "User"),
-        "user_role": request.cookies.get("user_role", "user"),
+        **_user_context(current_user),
         "contractors": contractors,
+        "error": request.query_params.get("error"),
     })
 
 
@@ -52,16 +72,21 @@ async def add_contractor(
     account_number: str = Form(""),
     description: str = Form(""),
 ):
-    redirect = await _require_page(request, "contractors")
+    current_user, redirect = await _require_admin_user(request, db)
     if redirect:
         return redirect
 
+    if payment_type not in {"fixed", "variable"}:
+        return RedirectResponse(url="/contractors?error=Некорректный+тип+платежа", status_code=303)
+    if due_day < 1 or due_day > 31:
+        return RedirectResponse(url="/contractors?error=Некорректный+день+оплаты", status_code=303)
+
     contractor = Contractor(
         id=generate_uuid(),
-        name=name,
+        name=name.strip(),
         slug=slug.lower().strip(),
         payment_type=payment_type,
-        fixed_amount=float(fixed_amount) if fixed_amount else None,
+        fixed_amount=float(fixed_amount.replace(",", ".").strip()) if fixed_amount else None,
         due_day=due_day,
         account_number=account_number or None,
         description=description or None,
@@ -76,8 +101,7 @@ async def add_contractor(
         contractors = result.scalars().all()
         return templates.TemplateResponse("contractors.html", {
             "request": request,
-            "username": request.cookies.get("username", "User"),
-            "user_role": request.cookies.get("user_role", "user"),
+            **_user_context(current_user),
             "contractors": contractors,
             "error": "Конфликт: подрядчик с таким именем или slug уже существует",
         })
@@ -88,8 +112,13 @@ async def add_contractor(
 @router.post("/contractors/{contractor_id}/toggle")
 async def toggle_contractor(
     contractor_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
+    _, redirect = await _require_admin_user(request, db)
+    if redirect:
+        return redirect
+
     result = await db.execute(select(Contractor).where(Contractor.id == contractor_id))
     contractor = result.scalar_one_or_none()
     if contractor:
@@ -105,13 +134,9 @@ async def delete_contractor(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    redirect = await _require_page(request, "contractors")
+    _, redirect = await _require_admin_user(request, db)
     if redirect:
         return redirect
-
-    user_role = request.cookies.get("user_role", "user")
-    if user_role != "admin":
-        return RedirectResponse(url="/contractors", status_code=303)
 
     result = await db.execute(select(Contractor).where(Contractor.id == contractor_id))
     contractor = result.scalar_one_or_none()
@@ -134,19 +159,29 @@ async def edit_contractor(
     account_number: str = Form(""),
     description: str = Form(""),
 ):
-    redirect = await _require_page(request, "contractors")
+    _, redirect = await _require_admin_user(request, db)
     if redirect:
         return redirect
+
+    if payment_type not in {"fixed", "variable"}:
+        return RedirectResponse(url="/contractors?error=Некорректный+тип+платежа", status_code=303)
+
+    try:
+        parsed_due_day = int(due_day)
+    except ValueError:
+        return RedirectResponse(url="/contractors?error=Некорректный+день+оплаты", status_code=303)
+    if parsed_due_day < 1 or parsed_due_day > 31:
+        return RedirectResponse(url="/contractors?error=Некорректный+день+оплаты", status_code=303)
 
     result = await db.execute(select(Contractor).where(Contractor.id == contractor_id))
     contractor = result.scalar_one_or_none()
     if not contractor:
         return RedirectResponse(url="/contractors", status_code=303)
 
-    contractor.name = name
+    contractor.name = name.strip()
     contractor.payment_type = payment_type
     contractor.fixed_amount = float(fixed_amount.replace(",", ".").strip()) if fixed_amount else None
-    contractor.due_day = int(due_day)
+    contractor.due_day = parsed_due_day
     contractor.account_number = account_number or None
     contractor.description = description or None
 
