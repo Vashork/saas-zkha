@@ -3,6 +3,7 @@ APScheduler — auto-generation of monthly payments and payment status checks.
 """
 
 import logging
+import asyncio
 from datetime import date
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -11,7 +12,8 @@ from sqlalchemy.orm import joinedload
 
 from app.config import get_settings
 from app.database import async_session_factory
-from app.models import Contractor, Payment
+from app.models import Contractor, Payment, BackupHistory, Setting
+from app.backup_service import create_local_backup, cleanup_old_backups
 
 logger = logging.getLogger("zhkh.scheduler")
 scheduler = AsyncIOScheduler()
@@ -156,8 +158,152 @@ def start_scheduler():
         notif_min,
     )
 
+    # Schedule auto-backup based on DB settings (async, fire-and-forget)
+    asyncio.create_task(_schedule_backup_job())
+
 
 def stop_scheduler():
     """Stop the scheduler."""
     if scheduler.running:
         scheduler.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Helpers for reading backup settings from the database
+# ---------------------------------------------------------------------------
+
+_DEFAULT_RETENTION_COUNT = 10
+_DEFAULT_BACKUP_FREQUENCY = "manual"
+_DEFAULT_BACKUP_TIME = "03:00"
+
+
+def _parse_retention(value: str | None) -> int:
+    try:
+        count = int(value or _DEFAULT_RETENTION_COUNT)
+    except (TypeError, ValueError):
+        return _DEFAULT_RETENTION_COUNT
+    return max(1, min(count, 100))
+
+
+def _parse_frequency(value: str | None) -> str:
+    if value in {"manual", "daily", "weekly", "monthly"}:
+        return value
+    return _DEFAULT_BACKUP_FREQUENCY
+
+
+def _parse_time(value: str | None) -> str:
+    value = value or _DEFAULT_BACKUP_TIME
+    try:
+        hour, minute = value.split(":")
+        h, m = int(hour), int(minute)
+    except (ValueError, AttributeError):
+        return _DEFAULT_BACKUP_TIME
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        return _DEFAULT_BACKUP_TIME
+    return f"{h:02d}:{m:02d}"
+
+
+async def _load_backup_settings() -> dict:
+    """Read backup_frequency, backup_time, backup_retention_count from DB."""
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Setting).where(Setting.key.in_(
+                ["backup_retention_count", "backup_frequency", "backup_time"]
+            ))
+        )
+        values = {s.key: s.value for s in result.scalars().all()}
+
+    return {
+        "retention_count": _parse_retention(values.get("backup_retention_count")),
+        "frequency": _parse_frequency(values.get("backup_frequency")),
+        "backup_time": _parse_time(values.get("backup_time")),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Auto-backup job
+# ---------------------------------------------------------------------------
+
+async def scheduled_backup_job():
+    """Create a local backup, enforce retention, and log the result."""
+    settings = await _load_backup_settings()
+    retention = settings["retention_count"]
+
+    try:
+        file_path, size_bytes = await asyncio.to_thread(create_local_backup)
+        await asyncio.to_thread(cleanup_old_backups, retention)
+
+        async with async_session_factory() as session:
+            session.add(BackupHistory(
+                mode="A",
+                backup_type="full",
+                size_bytes=size_bytes,
+                storage="local",
+                status="success",
+                file_path=file_path,
+            ))
+            await session.commit()
+
+        logger.info("Scheduled backup created: %s (%d bytes)", file_path, size_bytes)
+
+    except Exception as exc:
+        logger.exception("Scheduled backup failed")
+        try:
+            async with async_session_factory() as session:
+                session.add(BackupHistory(
+                    mode="A",
+                    backup_type="full",
+                    size_bytes=0,
+                    storage="local",
+                    status="failed",
+                    error_message=str(exc),
+                    file_path=None,
+                ))
+                await session.commit()
+        except Exception:
+            logger.exception("Failed to log backup failure")
+
+
+# ---------------------------------------------------------------------------
+# Cron-expression builder for backup frequency
+# ---------------------------------------------------------------------------
+
+
+def _build_cron_kwargs(backup_time: str) -> dict:
+    h, m = map(int, backup_time.split(":"))
+    cron: dict = {}
+    cron["hour"] = h
+    cron["minute"] = m
+    return cron
+
+
+async def _schedule_backup_job():
+    """Read settings from DB and add / replace the auto-backup cron job."""
+    settings = await _load_backup_settings()
+    freq = settings["frequency"]
+
+    # Remove any existing auto-backup job (idempotent)
+    try:
+        scheduler.remove_job("auto_backup")
+    except Exception:
+        pass
+
+    if freq == "manual":
+        logger.info("Auto-backup: disabled (manual mode)")
+        return
+
+    cron_kw = _build_cron_kwargs(settings["backup_time"])
+    if freq == "weekly":
+        cron_kw["day_of_week"] = "mon"
+    elif freq == "monthly":
+        cron_kw["day"] = "1"
+
+    scheduler.add_job(
+        scheduled_backup_job,
+        "cron",
+        id="auto_backup",
+        replace_existing=True,
+        timezone=get_settings().NOTIFICATION_TIMEZONE,
+        **cron_kw,
+    )
+    logger.info("Auto-backup scheduled: %s at %s", freq, settings["backup_time"])
