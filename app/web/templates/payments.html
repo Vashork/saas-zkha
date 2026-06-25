@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set _csrf = request.cookies.get(csrf_cookie_name, '') %}
 {% block title %}💳 Платежи — Мой Дом{% endblock %}
 
 {% block content %}
@@ -38,6 +39,7 @@
             {% if user_role == 'admin' %}
             <button class="btn-custom" onclick="document.getElementById('addForm').style.display='block'">+ Добавить платеж</button>
             <form method="post" action="/payments/cleanup-receipts" style="display:inline;" onsubmit="return confirm('Удалить файлы чеков, которые больше не привязаны ни к одному платежу?')">
+                <input type="hidden" name="_csrf" value="{{ _csrf }}">
                 <input type="hidden" name="year" value="{{ year }}">
                 <input type="hidden" name="month" value="{{ month }}">
                 <input type="hidden" name="status_filter" value="{{ status_filter }}">
@@ -91,6 +93,7 @@
                     {% endif %}
                     <button class="btn-icon" title="Редактировать" onclick="openEditModal('{{ p.id }}', '{{ edit_amount }}', '{{ current_status }}', '{{ p.paid_date.isoformat() if p.paid_date else '' }}')">✏️</button>
                     <form method="post" action="/payments/{{ p.id }}/delete" style="display:inline;" onsubmit="return confirm('Удалить платеж?')">
+                        <input type="hidden" name="_csrf" value="{{ _csrf }}">
                         <button type="submit" class="btn-icon" title="Удалить">🗑</button>
                     </form>
                     {% endif %}
@@ -112,6 +115,7 @@
     <div id="addForm" class="card-custom" style="display:none;">
         <h3 style="margin-bottom:16px;">+ Добавить платеж за {{ month_name }} {{ year }}</h3>
         <form method="post" action="/payments/add" enctype="multipart/form-data">
+            <input type="hidden" name="_csrf" value="{{ _csrf }}">
             <input type="hidden" name="year" value="{{ year }}">
             <input type="hidden" name="month" value="{{ month }}">
             <div class="form-group">
@@ -156,6 +160,7 @@
         <div class="card-custom" style="max-width:400px;width:90%;">
             <h3 style="margin-bottom:16px;">📤 Загрузить чек</h3>
             <form id="receiptForm" method="post" enctype="multipart/form-data">
+                <input type="hidden" name="_csrf" value="{{ _csrf }}">
                 <div class="form-group">
                     <label>Чек (PDF, JPG, PNG)</label>
                     <input type="file" name="receipt" class="input-custom" accept=".pdf,.jpg,.jpeg,.png" required>
@@ -172,6 +177,7 @@
         <div class="card-custom" style="max-width:400px;width:90%;">
             <h3 style="margin-bottom:16px;">✏️ Редактировать платеж</h3>
             <form id="editForm" method="post" enctype="multipart/form-data">
+                <input type="hidden" name="_csrf" value="{{ _csrf }}">
                 <div class="form-group">
                     <label>Сумма начисления (₽)</label>
                     <input type="text" name="amount" class="input-custom" id="editAmount" required>

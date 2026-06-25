@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set _csrf = request.cookies.get(csrf_cookie_name, '') %}
 {% block title %}🏢 Подрядчики — Мой Дом{% endblock %}
 
 {% block content %}
@@ -56,11 +57,13 @@
                 <td>
                     {% if user_role == 'admin' %}
                     <form method="post" action="/contractors/{{ c.id }}/toggle" style="display:inline;">
+                        <input type="hidden" name="_csrf" value="{{ _csrf }}">
                         <button type="submit" class="btn-icon" title="{{ 'Перенести в архив' if c.is_active else 'Вернуть из архива' }}">{{ '📦' if c.is_active else '↩️' }}</button>
                     </form>
                     <button class="btn-icon" title="Редактировать" onclick="openContractorEdit('{{ c.id }}', '{{ c.name }}', '{{ c.payment_type }}', '{{ c.fixed_amount or '' }}', '{{ c.due_day }}', '{{ c.account_number or '' }}', '{{ c.description or '' }}')">✏️</button>
                     {% if not show_archived %}
                     <form method="post" action="/contractors/{{ c.id }}/delete" style="display:inline;" onsubmit="return confirm('Если у подрядчика есть платежи, он будет перенесён в архив. Если платежей нет — будет удалён. Продолжить?')">
+                        <input type="hidden" name="_csrf" value="{{ _csrf }}">
                         <button type="submit" class="btn-icon" title="Удалить или архивировать">🗑</button>
                     </form>
                     {% endif %}
@@ -79,6 +82,7 @@
         <div class="card-custom" style="max-width:500px;width:90%;">
             <h3 style="margin-bottom:16px;">+ Новый подрядчик</h3>
             <form method="post" action="/contractors/add">
+                <input type="hidden" name="_csrf" value="{{ _csrf }}">
                 <div class="form-group">
                     <label>Название</label>
                     <input type="text" name="name" class="input-custom" placeholder="Мосэнергосбыт" required>
@@ -122,6 +126,7 @@
         <div class="card-custom" style="max-width:500px;width:90%;">
             <h3 style="margin-bottom:16px;">✏️ Редактировать подрядчика</h3>
             <form id="editContractorForm" method="post">
+                <input type="hidden" name="_csrf" value="{{ _csrf }}">
                 <div class="form-group">
                     <label>Название</label>
                     <input type="text" name="name" class="input-custom" id="editCName" required>

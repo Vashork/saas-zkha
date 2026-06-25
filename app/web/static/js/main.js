@@ -48,7 +48,7 @@ function toggleTheme() {
     html.setAttribute('data-theme', next);
     localStorage.setItem('theme', next);
     // Also save to backend
-    fetch('/settings/theme', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({theme: next}) });
+    fetch('/settings/theme', { method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': document.cookie.match(/_csrf=([^;]+)/)?.[1] || ''}, body: JSON.stringify({theme: next}) });
 }
 
 // Load saved theme on startup

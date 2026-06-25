@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set _csrf = request.cookies.get(csrf_cookie_name, '') %}
 {% block title %}⚙️ Настройки — Мой Дом{% endblock %}
 
 {% block content %}
@@ -39,7 +40,7 @@
     <div class="card-custom" style="margin-bottom:24px;">
         <h3 style="margin-bottom:16px;">🔧 Системные настройки</h3>
         <form method="post" action="/settings/save">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <input type="hidden" name="_csrf" value="{{ _csrf }}">
                 <div class="form-group">
                     <label>День платежа по умолчанию</label>
                     <input type="number" name="default_due_day" class="input-custom" value="{{ settings.get('default_due_day', '15') }}" min="1" max="28">
@@ -67,6 +68,7 @@
         </summary>
         <div style="margin-top:16px;">
             <form method="post" action="/settings/users/create">
+                <input type="hidden" name="_csrf" value="{{ _csrf }}">
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                     <div class="form-group"><label>Имя пользователя</label><input type="text" name="username" class="input-custom" required></div>
                     <div class="form-group"><label>Пароль</label><input type="password" name="password" class="input-custom" required></div>
@@ -99,14 +101,14 @@
                 <td>
                     {% if u.id != current_user_id %}
                     {% if u.is_active %}
-                    <form method="post" action="/settings/users/{{ u.id }}/toggle-active" style="display:inline;" onsubmit="return confirm('Деактивировать {{ u.username }}?')"><button type="submit" class="btn-icon" title="Деактивировать">⛔</button></form>
+                    <form method="post" action="/settings/users/{{ u.id }}/toggle-active" style="display:inline;" onsubmit="return confirm('Деактивировать {{ u.username }}?')"><input type="hidden" name="_csrf" value="{{ _csrf }}"><button type="submit" class="btn-icon" title="Деактивировать">⛔</button></form>
                     {% else %}
-                    <form method="post" action="/settings/users/{{ u.id }}/toggle-active" style="display:inline;"><button type="submit" class="btn-icon" title="Активировать">✅</button></form>
+                    <form method="post" action="/settings/users/{{ u.id }}/toggle-active" style="display:inline;"><input type="hidden" name="_csrf" value="{{ _csrf }}"><button type="submit" class="btn-icon" title="Активировать">✅</button></form>
                     {% endif %}
                     <button class="btn-icon" title="Права" onclick="openEditUserModal({{ u.id }}, '{{ u.page_permissions or '' }}', '{{ u.role }}')">⚙️</button>
                     <button class="btn-icon" title="Сменить пароль" onclick="openChangePassModal({{ u.id }})">🔑</button>
                     {% if u.role != 'admin' %}
-                    <form method="post" action="/settings/users/{{ u.id }}/delete" style="display:inline;" onsubmit="return confirm('Удалить {{ u.username }}?')"><button type="submit" class="btn-icon" title="Удалить">🗑️</button></form>
+                    <form method="post" action="/settings/users/{{ u.id }}/delete" style="display:inline;" onsubmit="return confirm('Удалить {{ u.username }}?')"><input type="hidden" name="_csrf" value="{{ _csrf }}"><button type="submit" class="btn-icon" title="Удалить">🗑️</button></form>
                     {% endif %}
                     {% endif %}
                 </td>
@@ -121,6 +123,7 @@
         <div class="card-custom" style="max-width:400px;width:90%;">
             <h3 style="margin-bottom:16px;">📝 Сменить имя</h3>
             <form method="post" action="/settings/change-username">
+                <input type="hidden" name="_csrf" value="{{ _csrf }}">
                 <div class="form-group"><label>Новое имя</label><input type="text" name="new_username" class="input-custom" required></div>
                 <div class="form-group"><label>Текущий пароль</label><input type="password" name="current_password" class="input-custom" required></div>
                 <div style="display:flex;gap:8px;"><button type="submit" class="btn-custom">Сохранить</button><button type="button" class="btn-secondary-custom" onclick="closeModal('changeNameModal')">Отмена</button></div>
@@ -132,6 +135,7 @@
         <div class="card-custom" style="max-width:400px;width:90%;">
             <h3 style="margin-bottom:16px;">🔒 Сменить пароль</h3>
             <form method="post" action="/settings/change-password">
+                <input type="hidden" name="_csrf" value="{{ _csrf }}">
                 <div class="form-group"><label>Текущий пароль</label><input type="password" name="current_password" class="input-custom" required></div>
                 <div class="form-group"><label>Новый пароль</label><input type="password" name="new_password" class="input-custom" required></div>
                 <div class="form-group"><label>Повторите новый пароль</label><input type="password" name="confirm_password" class="input-custom" required></div>
@@ -145,6 +149,7 @@
         <div class="card-custom" style="max-width:500px;width:90%;">
             <h3 style="margin-bottom:16px;">⚙️ Редактировать права</h3>
             <form id="editUserForm" method="post" action="">
+                <input type="hidden" name="_csrf" value="{{ _csrf }}">
                 <div style="margin-bottom:12px;"><label style="font-weight:600;">Роль:</label><select name="role" class="input-custom" id="editUserRoleSelect"><option value="user">Пользователь</option><option value="admin">Администратор</option></select></div>
                 <div style="margin-bottom:12px;">
                     <label style="font-weight:600;margin-bottom:8px;display:block;">Доступ к страницам:</label>
@@ -163,6 +168,7 @@
         <div class="card-custom" style="max-width:400px;width:90%;">
             <h3 style="margin-bottom:16px;">🔒 Сменить пароль пользователя</h3>
             <form id="changeUserPassForm" method="post" action="">
+                <input type="hidden" name="_csrf" value="{{ _csrf }}">
                 <div class="form-group"><label>Новый пароль</label><input type="password" name="new_password" class="input-custom" required></div>
                 <div style="display:flex;gap:8px;"><button type="submit" class="btn-custom">Сохранить</button><button type="button" class="btn-secondary-custom" onclick="closeModal('changeUserPassModal')">Отмена</button></div>
             </form>

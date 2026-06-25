@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set _csrf = request.cookies.get(csrf_cookie_name, '') %}
 {% block title %}💾 Бекапы — Мой Дом{% endblock %}
 
 {% block content %}
@@ -24,6 +25,7 @@
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:24px;">
         <h1 class="page-title" style="margin-bottom:0;">💾 Локальные бекапы</h1>
         <form method="post" action="/backups/create" onsubmit="return confirm('Создать локальный бекап данных?')">
+            <input type="hidden" name="_csrf" value="{{ _csrf }}">
             <button type="submit" class="btn-custom">+ Создать бекап</button>
         </form>
     </div>
@@ -54,6 +56,7 @@
     <div class="card-custom">
         <h3 style="margin-bottom:16px;">⚙️ Настройки бекапа</h3>
         <form method="post" action="/backups/settings">
+            <input type="hidden" name="_csrf" value="{{ _csrf }}">
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end;">
                 <div class="form-group" style="margin-bottom:0;">
                     <label>Сколько последних архивов хранить</label>
@@ -81,6 +84,7 @@
     <div class="card-custom">
         <h3 style="margin-bottom:16px;">⬆️ Загрузить и восстановить бекап</h3>
         <form method="post" action="/backups/upload-restore" enctype="multipart/form-data" onsubmit="return confirm('Восстановить данные из выбранного архива? Перед восстановлением будет создан страховочный бекап текущих данных.')">
+            <input type="hidden" name="_csrf" value="{{ _csrf }}">
             <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;max-width:680px;">
                 <div class="form-group" style="margin-bottom:0;">
                     <label>Файл backup tar.gz</label>
@@ -108,9 +112,11 @@
                 <td style="display:flex;gap:8px;flex-wrap:wrap;">
                     <a class="btn-secondary-custom" href="{{ f.download_url }}">Скачать</a>
                     <form method="post" action="{{ f.restore_url }}" onsubmit="return confirm('Восстановить данные из {{ f.name }}? Перед восстановлением будет создан страховочный бекап текущих данных.')">
+                        <input type="hidden" name="_csrf" value="{{ _csrf }}">
                         <button type="submit" class="btn-secondary-custom">Восстановить</button>
                     </form>
                     <form method="post" action="/backups/discard/{{ f.name }}" onsubmit="return confirm('{% if backup_files|length == 1 %}Это последний локальный бекап. Удалить его всё равно?{% else %}Удалить файл бекапа {{ f.name }}?{% endif %}')">
+                        <input type="hidden" name="_csrf" value="{{ _csrf }}">
                         <button type="submit" class="btn-secondary-custom">Удалить</button>
                     </form>
                 </td>
