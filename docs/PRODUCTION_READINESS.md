@@ -14,15 +14,17 @@ The branch is not yet ready for an internet-facing production deployment. It can
 
 - Added shared template configuration in `app/web/template_engine.py`.
 - Moved route template globals wiring out of ad-hoc inline setup in `app/web/main.py`.
+- Migrated `dashboard`, `history`, `analytics` and `backups` routes to use the shared template engine directly.
 - Added a guard for `GET /settings` so page-level permissions are enforced while legacy routes are being refactored.
 - Fixed `/backups/settings`: it imported `parse_retention`, `parse_frequency`, `parse_time` but called missing `_parse_retention`, `_parse_frequency`, `_parse_time` functions.
+- Added a detailed manual QA plan in `docs/QA_PLAN.md`.
 - Kept the earlier CSRF fixes for urlencoded and multipart form submissions.
 
 ## Remaining blockers before production
 
 ### P0 — must fix before production
 
-1. Fully refactor route modules to import the shared `templates` object from `app.web.template_engine` instead of creating local `Jinja2Templates` instances.
+1. Finish route template refactor for remaining legacy modules: `auth`, `payments`, `contractors`.
 2. Remove the temporary `payments.payment_color_class = payment_color_class` compatibility assignment from `app/web/main.py` by refactoring `payments.py` directly.
 3. Add automated tests for CSRF on normal forms, multipart forms and AJAX theme save.
 4. Add automated tests for page permissions, especially `/settings`, admin-only user management and contractor/payment mutations.
@@ -42,7 +44,9 @@ The branch is not yet ready for an internet-facing production deployment. It can
 
 ## Manual QA checklist
 
-Run after `git pull` and rebuild:
+The detailed QA procedure is in `docs/QA_PLAN.md`.
+
+Quick smoke check after `git pull` and rebuild:
 
 ```bash
 docker compose up -d --build
