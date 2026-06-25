@@ -216,6 +216,8 @@ async def _page_context(
         "status_label": _status_label,
         "status_css_class": _status_css_class,
         "error": request.query_params.get("error"),
+        "success": request.query_params.get("success"),
+        "removed_receipts": request.query_params.get("removed_receipts", "0"),
     }
     if extra:
         ctx.update(extra)
@@ -265,6 +267,33 @@ def _remove_receipt_file(receipt_file: str | None) -> None:
         os.remove(path)
     except OSError as exc:
         logger.warning("Could not remove receipt file %s: %s", path, exc)
+
+
+def _normalize_receipt_ref(path: str) -> str:
+    return os.path.normpath(path).replace(os.sep, "/")
+
+
+def _cleanup_orphan_receipts(referenced_receipts: set[str]) -> int:
+    """Remove files in uploads/ that are not referenced by any payment."""
+    base_dir = os.path.abspath(UPLOAD_DIR)
+    if not os.path.isdir(base_dir):
+        return 0
+
+    removed = 0
+    for root, _, files in os.walk(base_dir):
+        for filename in files:
+            full_path = os.path.abspath(os.path.join(root, filename))
+            if not full_path.startswith(base_dir + os.sep):
+                continue
+            rel_path = _normalize_receipt_ref(os.path.relpath(full_path, base_dir))
+            if rel_path in referenced_receipts:
+                continue
+            try:
+                os.remove(full_path)
+                removed += 1
+            except OSError as exc:
+                logger.warning("Could not remove orphan receipt %s: %s", full_path, exc)
+    return removed
 
 
 @router.get("/payments")
@@ -476,6 +505,35 @@ async def edit_payment(
 
     await db.commit()
     return _redirect_to_period(payment.year, payment.month)
+
+
+@router.post("/payments/cleanup-receipts")
+async def cleanup_orphan_receipts(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    year: int = Form(None),
+    month: int = Form(None),
+    status_filter: str = Form(""),
+):
+    _, redirect = await _require_admin_user(request, db)
+    if redirect:
+        return redirect
+
+    today = date.today()
+    selected_year = year if year and 2000 <= year <= 2100 else today.year
+    selected_month = month if month and 1 <= month <= 12 else today.month
+
+    refs_result = await db.execute(select(Payment.receipt_file).where(Payment.receipt_file.is_not(None)))
+    referenced_receipts = {
+        _normalize_receipt_ref(receipt_file)
+        for receipt_file in refs_result.scalars().all()
+        if receipt_file
+    }
+    removed_count = _cleanup_orphan_receipts(referenced_receipts)
+
+    url = _period_url(selected_year, selected_month, status_filter)
+    url += f"&success=orphan_receipts_removed&removed_receipts={removed_count}"
+    return RedirectResponse(url=url, status_code=303)
 
 
 @router.post("/payments/{payment_id}/delete")
