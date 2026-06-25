@@ -100,6 +100,19 @@ body {
     padding: 24px;
     margin-bottom: 20px;
 }
+.container-main > .card-custom,
+.container-main > details.card-custom {
+    width: 100%;
+    display: block;
+}
+.card-custom form,
+details.card-custom form {
+    width: 100%;
+}
+.card-custom .form-group,
+details.card-custom .form-group {
+    width: 100%;
+}
 
 /* === Stats === */
 .stat-grid {
@@ -107,16 +120,45 @@ body {
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     gap: 16px;
     margin-bottom: 24px;
+    align-items: stretch;
 }
 .stat-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: 16px;
     padding: 20px;
+    min-height: 142px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
 }
-.stat-label { color: var(--text-muted); font-size: 13px; margin-bottom: 8px; }
-.stat-value { font-size: 28px; font-weight: 700; }
-.stat-sub { color: var(--text-muted); font-size: 13px; margin-top: 4px; }
+.stat-label {
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.25;
+    min-height: 34px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: flex-start;
+}
+.stat-value {
+    font-size: 28px;
+    line-height: 1.1;
+    font-weight: 700;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    min-height: 36px;
+}
+.stat-sub {
+    color: var(--text-muted);
+    font-size: 13px;
+    line-height: 1.25;
+    margin-top: 8px;
+    min-height: 34px;
+    display: flex;
+    align-items: flex-start;
+}
 .stat-card.paid { border-left: 3px solid var(--paid); }
 .stat-card.paid .stat-value { color: var(--paid); }
 .stat-card.soon { border-left: 3px solid var(--soon); }
@@ -226,6 +268,25 @@ body {
 }
 .form-group { margin-bottom: 16px; }
 .form-group label { display: block; margin-bottom: 6px; font-size: 13px; color: var(--text-muted); }
+input[type="file"].input-custom {
+    padding: 7px;
+    cursor: pointer;
+}
+input[type="file"].input-custom::file-selector-button {
+    background: var(--bg-hover);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 12px;
+    margin-right: 12px;
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+input[type="file"].input-custom::file-selector-button:hover {
+    background: var(--primary-bg);
+    color: var(--primary);
+}
 
 /* === Toolbar === */
 .toolbar {
@@ -301,7 +362,7 @@ code {
     .nav-link-custom { padding: 6px 10px; font-size: 12px; }
     .container-main { padding: 16px 12px; }
     .stat-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-    .stat-card { padding: 14px; }
+    .stat-card { padding: 14px; min-height: 130px; }
     .stat-value { font-size: 22px; }
     .page-title { font-size: 22px; }
     .table-custom { font-size: 12px; }
@@ -313,9 +374,10 @@ code {
 
 @media (max-width: 480px) {
     .stat-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
-    .stat-card { padding: 10px; }
+    .stat-card { padding: 10px; min-height: 124px; }
     .stat-value { font-size: 18px; }
-    .stat-label { font-size: 11px; }
+    .stat-label { font-size: 11px; min-height: 30px; }
+    .stat-sub { font-size: 11px; min-height: 30px; }
     .brand { font-size: 16px; }
     .nav-link-custom { padding: 5px 8px; font-size: 11px; }
 }
