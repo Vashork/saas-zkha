@@ -55,18 +55,20 @@ Runtime data:
 - login проверяет активного пользователя;
 - contractor write-actions ограничены admin-only;
 - dashboard безопасно парсит `year` и `month`;
-- dashboard строит устойчивый selector месяцев;
-- dashboard считает planned / paid / remaining amount;
-- dashboard учитывает variable payments без суммы;
-- dashboard показывает `total` и `paid` за выбранный месяц;
 - dashboard показывает открытые долги и просрочки глобально по всем месяцам;
 - scheduler запускает генерацию при старте как repair-step;
 - scheduler по расписанию обновляет просроченные платежи;
 - `/backups` добавлен как admin-only web UI;
-- ручной backup создаёт архив каталога `data/`;
-- результат backup пишется в `backup_history`;
+- backup архивирует каталог `data/`, то есть SQLite-базу, платежи, подрядчиков, пользователей, настройки и загруженные чеки;
+- backup-файлы можно скачать;
+- backup-файлы можно восстановить из списка;
+- внешний backup-файл можно загрузить, провалидировать и восстановить;
+- перед восстановлением создаётся страховочный backup текущего `data/`;
+- настройки backup в GUI: лимит хранения, частота, время запуска;
+- частота backup пока сохраняется в БД и отображается в GUI, но scheduler-job для неё ещё нужно дописать локально;
 - history CSV export использует те же фильтры, что страница истории;
-- hard delete пользователя убран из UI настроек;
+- обычных пользователей можно удалять;
+- админов нельзя удалять, их можно только деактивировать;
 - ручное создание variable payment без суммы разрешено.
 
 ---
@@ -82,23 +84,31 @@ Runtime data:
 
 Локальная подсказка: в `init_db.py` надо убрать `conn_raw.cursor()` и сделать миграцию так же, как уже сделано в `app/database.py`: `from sqlalchemy import text`, затем `conn.execute(text("PRAGMA table_info(users)"))`, `conn.execute(text("ALTER TABLE ..."))`.
 
-### Этап 2 — `/backups` UI
+### Этап 2 — `/backups` UI и restore
 
-- [x] Добавить кнопку получения backup-файла в `backups.html`.
+- [x] Добавить кнопку скачивания backup-файла.
 - [x] Исправить текст страницы: архивы сохраняются в `./backups` на хосте через Docker volume.
-- [x] Проверить, что download route остаётся admin-only.
+- [x] Явно указать в GUI, что в backup входят платежи, подрядчики и прочие данные из SQLite DB.
+- [x] Добавить настройку лимита хранения последних архивов.
+- [x] Добавить настройку частоты backup и времени запуска в GUI.
+- [x] Добавить кнопку восстановления у существующего архива.
+- [x] Добавить загрузку внешнего backup-файла с валидацией.
+- [x] Перед восстановлением создавать страховочный backup текущих данных.
+- [ ] Подключить частоту backup к APScheduler. Попытка записи `app/scheduler.py` через connector блокируется — поправить локально.
+
+Локальная подсказка для scheduler: добавить async job, который читает `backup_frequency`, `backup_time`, `backup_retention_count`, вызывает `create_local_backup()` из `app.backup_service`, затем `cleanup_old_backups()` и пишет запись в `backup_history`.
 
 ### Этап 3 — навигация
 
 - [ ] Добавить ссылку `💾 Бекапы` для admin во все navbar-шаблоны. Сделано: dashboard, history, payments, contractors, settings. Осталось: analytics. Запись `analytics.html` через connector блокируется — поправить локально.
 - [ ] В будущем вынести navbar в общий include, чтобы не дублировать меню в каждом шаблоне.
 
-Локальная подсказка для `analytics.html`: после ссылки `📈 Аналитика` добавить `{% if user_role == 'admin' %}<a class="nav-link-custom" href="/backups">💾 Бекапы</a>{% endif %}` и заменить logout button на обычную ссылку по аналогии с dashboard/payments.
-
 ### Этап 4 — пользователи и безопасность операций
 
-- [x] Убрать hard delete пользователя из UI.
-- [x] Оставить основной сценарий управления пользователями через деактивацию.
+- [x] Вернуть удаление обычных пользователей.
+- [x] Запретить удаление пользователей с ролью admin на backend-уровне.
+- [x] Оставить деактивацию admin как основной сценарий.
+- [x] Показывать уведомление “нет доступа” при переходе на запрещённую страницу.
 - [ ] Позже добавить CSRF-токены для POST-форм.
 
 ### Этап 5 — деньги и фильтры
@@ -107,15 +117,13 @@ Runtime data:
 - [x] Разрешить ручное создание variable payment без суммы.
 - [x] Привести CSV export истории к тем же фильтрам, что страница истории: год, месяц, подрядчик, статус.
 
-Локальная подсказка для `contractors.py`: добавить `from decimal import Decimal, InvalidOperation`, сделать helper для разбора `fixed_amount`, для `variable` сохранять `None`, для `fixed` сохранять `Decimal`, отрицательные значения запрещать.
-
 ### Этап 6 — production hardening
 
-- [ ] Проверить поведение при дефолтном `SECRET_KEY` и дефолтных паролях.
+- [ ] Проверить поведение при небезопасных дефолтах конфигурации.
 - [ ] Добавить warning или fail-fast для production-сценария.
 - [x] Описать restore-процедуру для backup.
 
-Restore из backup:
+Restore из backup через CLI:
 
 ```bash
 docker compose down
