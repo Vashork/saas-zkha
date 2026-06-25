@@ -110,6 +110,9 @@
                     <form method="post" action="{{ f.restore_url }}" onsubmit="return confirm('Восстановить данные из {{ f.name }}? Перед восстановлением будет создан страховочный бекап текущих данных.')">
                         <button type="submit" class="btn-secondary-custom">Восстановить</button>
                     </form>
+                    <form method="post" action="/backups/discard/{{ f.name }}" onsubmit="return confirm('{% if backup_files|length == 1 %}Это последний локальный бекап. Удалить его всё равно?{% else %}Удалить файл бекапа {{ f.name }}?{% endif %}')">
+                        <button type="submit" class="btn-secondary-custom">Удалить</button>
+                    </form>
                 </td>
             </tr>
             {% endfor %}
