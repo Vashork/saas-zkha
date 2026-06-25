@@ -242,6 +242,31 @@ def _redirect_to_period(year: int, month: int, status_filter: str = "") -> Redir
     return RedirectResponse(url=_period_url(year, month, status_filter), status_code=303)
 
 
+def _receipt_path(receipt_file: str | None) -> str | None:
+    """Build a safe absolute path for a stored receipt file."""
+    if not receipt_file:
+        return None
+    normalized = os.path.normpath(receipt_file)
+    if os.path.isabs(normalized) or normalized.startswith(".."):
+        return None
+    base_dir = os.path.abspath(UPLOAD_DIR)
+    full_path = os.path.abspath(os.path.join(base_dir, normalized))
+    if not full_path.startswith(base_dir + os.sep):
+        return None
+    return full_path
+
+
+def _remove_receipt_file(receipt_file: str | None) -> None:
+    """Remove a receipt file from uploads if it belongs to the local uploads tree."""
+    path = _receipt_path(receipt_file)
+    if not path or not os.path.isfile(path):
+        return
+    try:
+        os.remove(path)
+    except OSError as exc:
+        logger.warning("Could not remove receipt file %s: %s", path, exc)
+
+
 @router.get("/payments")
 async def payments_page(
     request: Request,
@@ -442,6 +467,7 @@ async def edit_payment(
             filepath = os.path.join(upload_dir, filename)
             with open(filepath, "wb") as f:
                 f.write(content)
+            _remove_receipt_file(payment.receipt_file)
             payment.receipt_file = f"{payment.year}/{payment.month:02d}/{filename}"
         except Exception as e:
             logger.error("Receipt upload error: %s", e)
@@ -466,6 +492,7 @@ async def delete_payment(
     payment = result.scalar_one_or_none()
     if payment:
         year, month = payment.year, payment.month
+        _remove_receipt_file(payment.receipt_file)
         await db.delete(payment)
         await db.commit()
         return _redirect_to_period(year, month)
