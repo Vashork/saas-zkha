@@ -95,6 +95,23 @@ def _status_css_class(payment: Payment) -> str:
     return payment_color_class(payment.due_date, status)
 
 
+def _history_query(year: int | None, month: int | None, contractor_id: str = ""):
+    query = select(Payment).options(joinedload(Payment.contractor))
+    if year:
+        query = query.where(Payment.year == year)
+    if month:
+        query = query.where(Payment.month == month)
+    if contractor_id:
+        query = query.where(Payment.contractor_id == contractor_id)
+    return query.order_by(Payment.due_date.desc())
+
+
+def _filter_by_effective_status(payments, status_filter: str):
+    if status_filter and status_filter != "all":
+        return [p for p in payments if _effective_status(p) == status_filter]
+    return payments
+
+
 @router.get("/history")
 async def history_page(
     request: Request,
@@ -112,21 +129,8 @@ async def history_page(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
 
-    query = select(Payment).options(joinedload(Payment.contractor))
-
-    if year:
-        query = query.where(Payment.year == year)
-    if month:
-        query = query.where(Payment.month == month)
-    if contractor_id:
-        query = query.where(Payment.contractor_id == contractor_id)
-
-    query = query.order_by(Payment.due_date.desc())
-
-    result = await db.execute(query)
-    payments = result.scalars().all()
-    if status_filter and status_filter != "all":
-        payments = [p for p in payments if _effective_status(p) == status_filter]
+    result = await db.execute(_history_query(year, month, contractor_id))
+    payments = _filter_by_effective_status(result.scalars().all(), status_filter)
 
     contractors_result = await db.execute(select(Contractor))
     contractors = contractors_result.scalars().all()
@@ -163,20 +167,15 @@ async def export_csv(
     db: AsyncSession = Depends(get_db),
     year: int = Query(None),
     month: int = Query(None),
+    contractor_id: str = Query(""),
+    status_filter: str = Query(""),
 ):
     redirect = await _require_page(request, "history")
     if redirect:
         return redirect
 
-    query = select(Payment).options(joinedload(Payment.contractor))
-    if year:
-        query = query.where(Payment.year == year)
-    if month:
-        query = query.where(Payment.month == month)
-    query = query.order_by(Payment.due_date.desc())
-
-    result = await db.execute(query)
-    payments = result.scalars().all()
+    result = await db.execute(_history_query(year, month, contractor_id))
+    payments = _filter_by_effective_status(result.scalars().all(), status_filter)
 
     output = io.StringIO()
     writer = csv.writer(output)
