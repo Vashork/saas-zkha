@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}💾 Бекапы — Мой Дом{% endblock %}
+
+{% block content %}
+<nav class="navbar-custom">
+    <div class="brand">🏠 Мой Дом</div>
+    <div class="nav-links">
+        <a class="nav-link-custom" href="/">📊 Дашборд</a>
+        <a class="nav-link-custom" href="/payments">💳 Платежи</a>
+        <a class="nav-link-custom" href="/history">📜 История</a>
+        <a class="nav-link-custom" href="/contractors">🏢 Подрядчики</a>
+        <a class="nav-link-custom" href="/analytics">📈 Аналитика</a>
+        <a class="nav-link-custom active" href="/backups">💾 Бекапы</a>
+        <a class="nav-link-custom" href="/settings">⚙️ Настройки</a>
+    </div>
+    <div class="user-badge">
+        {{ username }}
+        <button class="btn-icon" title="Переключить тему" onclick="toggleTheme()">🌓</button>
+        <a class="nav-link-custom" href="/logout" style="margin-left:8px;padding:4px 10px;">🚪</a>
+    </div>
+</nav>
+
+<div class="container-main">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:24px;">
+        <h1 class="page-title" style="margin-bottom:0;">💾 Локальные бекапы</h1>
+        <form method="post" action="/backups/create" onsubmit="return confirm('Создать локальный бекап данных?')">
+            <button type="submit" class="btn-custom">+ Создать бекап</button>
+        </form>
+    </div>
+
+    {% if success == 'backup_created' %}
+    <div style="background:var(--paid-bg);color:var(--paid);padding:12px;border-radius:12px;margin-bottom:16px;font-size:14px;">✅ Бекап создан</div>
+    {% endif %}
+    {% if error == 'backup_failed' %}
+    <div class="alert-error">❌ Не удалось создать бекап. Проверьте логи контейнера zhkh-web.</div>
+    {% endif %}
+
+    <div class="card-custom" style="background:var(--accent-bg);">
+        <p style="margin:0;color:var(--text);">
+            Бекап создаёт архив каталога <code>data/</code>: SQLite-базу и загруженные чеки. Архивы сохраняются в <code>/app/backups</code> внутри контейнера.
+        </p>
+    </div>
+
+    <div class="card-custom">
+        <h3 style="margin-bottom:16px;">📦 Файлы бекапов</h3>
+        {% if backup_files %}
+        <table class="table-custom">
+            <thead>
+                <tr><th>Файл</th><th>Размер</th><th>Создан</th></tr>
+            </thead>
+            <tbody>
+            {% for f in backup_files %}
+            <tr>
+                <td>{{ f.name }}</td>
+                <td>{{ format_size(f.size_bytes) }}</td>
+                <td>{{ f.created_at.strftime('%d.%m.%Y %H:%M:%S') }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color:var(--text-muted);">Локальных архивов пока нет.</p>
+        {% endif %}
+    </div>
+
+    <div class="card-custom">
+        <h3 style="margin-bottom:16px;">🧾 История операций</h3>
+        {% if history %}
+        <table class="table-custom">
+            <thead>
+                <tr><th>Дата</th><th>Режим</th><th>Тип</th><th>Хранилище</th><th>Статус</th><th>Размер</th><th>Файл / ошибка</th></tr>
+            </thead>
+            <tbody>
+            {% for item in history %}
+            <tr>
+                <td>{{ item.created_at.strftime('%d.%m.%Y %H:%M:%S') if item.created_at else '—' }}</td>
+                <td>{{ item.mode }}</td>
+                <td>{{ item.backup_type }}</td>
+                <td>{{ item.storage }}</td>
+                <td><span class="badge-status badge-{{ 'paid' if item.status == 'success' else 'overdue' }}">{{ item.status }}</span></td>
+                <td>{{ format_size(item.size_bytes) }}</td>
+                <td>{{ item.file_path or item.error_message or '—' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color:var(--text-muted);">История бекапов пока пустая.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
