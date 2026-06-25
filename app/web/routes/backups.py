@@ -7,7 +7,7 @@ import tarfile
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
 from app.database import get_db
-from app.models import BackupHistory
+from app.models import BackupHistory, Setting
 from app.web.routes.auth import get_current_user
 
 logger = logging.getLogger("zhkh.backups")
@@ -26,6 +26,7 @@ templates = Jinja2Templates(directory="app/web/templates")
 PROJECT_ROOT = Path("/app") if Path("/app").exists() else Path.cwd()
 BACKUP_DIR = PROJECT_ROOT / "backups"
 DATA_DIR = PROJECT_ROOT / "data"
+DEFAULT_RETENTION_COUNT = 10
 
 
 def _create_local_backup() -> tuple[str, int]:
@@ -59,6 +60,26 @@ def _list_backup_files() -> list[dict]:
     return files
 
 
+def _cleanup_old_backups(retention_count: int) -> int:
+    """Keep only the newest N local archives and return number of deleted files."""
+    if retention_count < 1 or not BACKUP_DIR.exists():
+        return 0
+
+    files = sorted(
+        BACKUP_DIR.glob("zhkh-data-backup-*.tar.gz"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    deleted = 0
+    for path in files[retention_count:]:
+        try:
+            path.unlink()
+            deleted += 1
+        except OSError:
+            logger.warning("Could not remove old backup: %s", path)
+    return deleted
+
+
 def _format_size(size_bytes: int) -> str:
     size = float(size_bytes or 0)
     for unit in ["B", "KB", "MB", "GB"]:
@@ -80,6 +101,39 @@ def _safe_backup_path(filename: str) -> Path | None:
     return path
 
 
+def _parse_retention(value: str | None) -> int:
+    try:
+        retention_count = int(value or DEFAULT_RETENTION_COUNT)
+    except (TypeError, ValueError):
+        return DEFAULT_RETENTION_COUNT
+    if retention_count < 1:
+        return 1
+    if retention_count > 100:
+        return 100
+    return retention_count
+
+
+async def _get_backup_settings(db: AsyncSession) -> dict:
+    result = await db.execute(select(Setting).where(Setting.key == "backup_retention_count"))
+    setting = result.scalar_one_or_none()
+    retention_count = _parse_retention(setting.value if setting else None)
+    return {"retention_count": retention_count}
+
+
+async def _save_backup_settings(db: AsyncSession, retention_count: int) -> None:
+    result = await db.execute(select(Setting).where(Setting.key == "backup_retention_count"))
+    setting = result.scalar_one_or_none()
+    if setting:
+        setting.value = str(retention_count)
+    else:
+        db.add(Setting(
+            key="backup_retention_count",
+            value=str(retention_count),
+            description="Сколько последних локальных архивов хранить",
+        ))
+    await db.commit()
+
+
 async def _require_admin(request: Request, db: AsyncSession):
     current_user = await get_current_user(request, db)
     if not current_user:
@@ -97,6 +151,7 @@ async def backups_page(request: Request, db: AsyncSession = Depends(get_db)):
 
     result = await db.execute(select(BackupHistory).order_by(BackupHistory.created_at.desc()))
     history = result.scalars().all()
+    settings = await _get_backup_settings(db)
 
     return templates.TemplateResponse("backups.html", {
         "request": request,
@@ -104,10 +159,27 @@ async def backups_page(request: Request, db: AsyncSession = Depends(get_db)):
         "user_role": current_user.role,
         "history": history,
         "backup_files": _list_backup_files(),
+        "backup_settings": settings,
         "format_size": _format_size,
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),
     })
+
+
+@router.post("/backups/settings")
+async def save_backup_settings(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    retention_count: str = Form("10"),
+):
+    _, redirect = await _require_admin(request, db)
+    if redirect:
+        return redirect
+
+    parsed_retention = _parse_retention(retention_count)
+    await _save_backup_settings(db, parsed_retention)
+    await run_in_threadpool(_cleanup_old_backups, parsed_retention)
+    return RedirectResponse(url="/backups?success=settings_saved", status_code=303)
 
 
 @router.post("/backups/create")
@@ -116,8 +188,12 @@ async def create_backup(request: Request, db: AsyncSession = Depends(get_db)):
     if redirect:
         return redirect
 
+    settings = await _get_backup_settings(db)
+    retention_count = settings["retention_count"]
+
     try:
         file_path, size_bytes = await run_in_threadpool(_create_local_backup)
+        await run_in_threadpool(_cleanup_old_backups, retention_count)
         db.add(BackupHistory(
             mode="C",
             backup_type="full",
