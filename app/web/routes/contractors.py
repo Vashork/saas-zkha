@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
-from app.models import Contractor
+from app.models import Contractor, Payment
 from app.utils import generate_uuid
 from app.web.routes.auth import _require_page, get_current_user
 
@@ -53,6 +53,10 @@ def _parse_fixed_amount(payment_type: str, fixed_amount: str) -> Decimal | None:
         raise ValueError("Сумма не может быть отрицательной")
 
     return parsed.quantize(Decimal("0.01"))
+
+
+def _contractor_error(message: str) -> RedirectResponse:
+    return RedirectResponse(url=f"/contractors?error={message.replace(' ', '+')}", status_code=303)
 
 
 @router.get("/contractors")
@@ -96,14 +100,14 @@ async def add_contractor(
         return redirect
 
     if payment_type not in {"fixed", "variable"}:
-        return RedirectResponse(url="/contractors?error=Некорректный+тип+платежа", status_code=303)
+        return _contractor_error("Некорректный тип платежа")
     if due_day < 1 or due_day > 31:
-        return RedirectResponse(url="/contractors?error=Некорректный+день+оплаты", status_code=303)
+        return _contractor_error("Некорректный день оплаты")
 
     try:
         parsed_fixed_amount = _parse_fixed_amount(payment_type, fixed_amount)
     except ValueError as exc:
-        return RedirectResponse(url=f"/contractors?error={str(exc).replace(' ', '+')}", status_code=303)
+        return _contractor_error(str(exc))
 
     contractor = Contractor(
         id=generate_uuid(),
@@ -164,9 +168,19 @@ async def delete_contractor(
 
     result = await db.execute(select(Contractor).where(Contractor.id == contractor_id))
     contractor = result.scalar_one_or_none()
-    if contractor:
-        await db.delete(contractor)
+    if not contractor:
+        return RedirectResponse(url="/contractors", status_code=303)
+
+    existing_payment_id = await db.scalar(
+        select(Payment.id).where(Payment.contractor_id == contractor_id).limit(1)
+    )
+    if existing_payment_id:
+        contractor.is_active = False
         await db.commit()
+        return _contractor_error("У подрядчика есть платежи. Он деактивирован вместо удаления")
+
+    await db.delete(contractor)
+    await db.commit()
 
     return RedirectResponse(url="/contractors", status_code=303)
 
@@ -188,19 +202,19 @@ async def edit_contractor(
         return redirect
 
     if payment_type not in {"fixed", "variable"}:
-        return RedirectResponse(url="/contractors?error=Некорректный+тип+платежа", status_code=303)
+        return _contractor_error("Некорректный тип платежа")
 
     try:
         parsed_due_day = int(due_day)
     except ValueError:
-        return RedirectResponse(url="/contractors?error=Некорректный+день+оплаты", status_code=303)
+        return _contractor_error("Некорректный день оплаты")
     if parsed_due_day < 1 or parsed_due_day > 31:
-        return RedirectResponse(url="/contractors?error=Некорректный+день+оплаты", status_code=303)
+        return _contractor_error("Некорректный день оплаты")
 
     try:
         parsed_fixed_amount = _parse_fixed_amount(payment_type, fixed_amount)
     except ValueError as exc:
-        return RedirectResponse(url=f"/contractors?error={str(exc).replace(' ', '+')}", status_code=303)
+        return _contractor_error(str(exc))
 
     result = await db.execute(select(Contractor).where(Contractor.id == contractor_id))
     contractor = result.scalar_one_or_none()
