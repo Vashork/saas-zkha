@@ -13,7 +13,7 @@ from fastapi.responses import RedirectResponse
 
 from app.database import init_db, engine
 from app.scheduler import start_scheduler, stop_scheduler
-from app.web.routes import auth, dashboard, payments, history, contractors, analytics
+from app.web.routes import auth, dashboard, payments, history, contractors, analytics, backups
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("zhkh.web")
@@ -61,6 +61,7 @@ app.include_router(payments.router)
 app.include_router(history.router)
 app.include_router(contractors.router)
 app.include_router(analytics.router)
+app.include_router(backups.router)
 
 
 @app.get("/health")
