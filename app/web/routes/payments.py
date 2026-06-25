@@ -10,14 +10,13 @@ from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Request, Form, File, UploadFile, Depends
 from fastapi.responses import RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
 from app.database import get_db
 from app.models import Payment, Contractor
-from app.utils import month_name, is_allowed_file, get_upload_path, MAX_FILE_SIZE
+from app.utils import month_name, is_allowed_file, get_upload_path, MAX_FILE_SIZE, payment_color_class
 from app.web.routes.auth import _require_page, get_current_user
 from app.web.routes.payment_helpers import (
     _as_decimal,
@@ -29,11 +28,11 @@ from app.web.routes.payment_helpers import (
     _status_label,
     _status_css_class,
 )
+from app.web.template_engine import templates
 
 logger = logging.getLogger("zhkh.payments")
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/web/templates")
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./data/uploads")
 
@@ -46,9 +45,6 @@ async def _require_admin_user(request: Request, db: AsyncSession):
     if current_user.role != "admin":
         return current_user, RedirectResponse(url="/payments?error=Только+для+админа", status_code=303)
     return current_user, None
-
-
-
 
 
 def _shift_month(year: int, month: int, offset: int) -> tuple[int, int]:
