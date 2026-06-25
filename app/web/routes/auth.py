@@ -19,6 +19,7 @@ from app.config import get_settings
 from app.database import get_db, async_session_factory
 from app.models import User
 from app.utils import verify_password, hash_password
+from app.rate_limiter import _is_rate_limited, _record_attempt
 
 logger = logging.getLogger("zhkh.auth")
 
@@ -175,14 +176,24 @@ async def login(
     password: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
+    # Rate limit by client IP
+    client_ip = request.client.host if request.client else "unknown"
+    if _is_rate_limited(client_ip):
+        return templates.TemplateResponse("login.html", {
+            "request": request,
+            "error": "Слишком много попыток. Попробуйте через минуту.",
+        })
+
     result = await db.execute(select(User).where(User.username == username, User.is_active == True))
     user = result.scalar_one_or_none()
 
     if user and verify_password(password, user.password_hash):
+        _record_attempt(client_ip)  # Record successful attempt too
         response = RedirectResponse(url="/", status_code=303)
         _set_session_cookies(response, user)
         return response
 
+    _record_attempt(client_ip)
     return templates.TemplateResponse("login.html", {
         "request": request,
         "error": "Неверный логин или пароль",
