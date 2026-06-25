@@ -9,6 +9,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./data:/app/data
+      - ./backups:/app/backups
       - ./logs:/var/log/zhkh-bot
     environment:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/zhkh.db

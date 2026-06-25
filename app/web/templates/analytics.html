@@ -25,8 +25,14 @@
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <label style="color:var(--text-muted);font-size:13px;">Год:</label>
             <select class="select-custom" id="analyticsYearSelect" onchange="updateAnalytics()">
-                {% for y in [year, year-1, year-2, year-3, year-4] %}
+                {% for y in year_options %}
                 <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+                {% endfor %}
+            </select>
+            <label style="color:var(--text-muted);font-size:13px;">Сравнить с:</label>
+            <select class="select-custom" id="analyticsCompareYearSelect" onchange="updateAnalytics()">
+                {% for y in year_options %}
+                <option value="{{ y }}" {% if y == compare_year %}selected{% endif %}>{{ y }}</option>
                 {% endfor %}
             </select>
             <label style="color:var(--text-muted);font-size:13px;">Месяц:</label>
@@ -39,34 +45,33 @@
         </div>
     </div>
 
-    <!-- YoY summary -->
     <div class="stat-grid">
         <div class="stat-card primary">
             <div class="stat-label">{% if month %}{{ month_name(month) }} {{ year }}{% else %}Всего за {{ year }}{% endif %}</div>
             <div class="stat-value">{{ "{:,.0f}".format(current_total) }} ₽</div>
         </div>
         <div class="stat-card {{ 'paid' if yoy_pct < 0 else 'overdue' }}">
-            <div class="stat-label">Против {{ prev_year }}</div>
+            <div class="stat-label">Против {{ compare_year }}</div>
             <div class="stat-value">{{ yoy_pct|abs }}%</div>
-            <div class="stat-sub">{{ '↓' if yoy_pct < 0 else '↑' }} {{ "{:,.0f}".format(prev_total) }} ₽ в {{ prev_year }}</div>
+            <div class="stat-sub">{{ '↓' if yoy_pct < 0 else '↑' }} {{ "{:,.0f}".format(prev_total) }} ₽ в {{ compare_year }}</div>
         </div>
     </div>
 
-    <!-- Monthly comparison chart -->
     <div class="card-custom">
-        <h3 style="margin-bottom:16px;">📊 Расходы по месяцам</h3>
+        <h3 style="margin-bottom:16px;">{% if month %}📊 Расходы: {{ month_name(month) }} {{ year }}{% else %}📊 Расходы по месяцам — {{ year }}{% endif %}</h3>
+        {% if month %}
+        <p style="margin-top:-8px;margin-bottom:16px;color:var(--text-muted);font-size:13px;">Сравнение с {{ month_name(month) }} {{ compare_year }} показано в верхней карточке. Этот график показывает выбранный месяц основного года.</p>
+        {% endif %}
         <canvas id="monthlyChart" height="200"></canvas>
     </div>
 
-    <!-- Top contractors -->
     <div class="card-custom">
-        <h3 style="margin-bottom:16px;">🏆 Топ-5 подрядчиков</h3>
+        <h3 style="margin-bottom:16px;">🏆 Топ-5 подрядчиков{% if month %} — {{ month_name(month) }} {{ year }}{% else %} — {{ year }}{% endif %}</h3>
         <canvas id="topChart" height="150"></canvas>
     </div>
 
-    <!-- Trend lines -->
     <div class="card-custom">
-        <h3 style="margin-bottom:16px;">📉 Динамика по подрядчикам</h3>
+        <h3 style="margin-bottom:16px;">📉 Динамика по подрядчикам{% if month %} — {{ month_name(month) }}, последние годы{% else %} — {{ year }}{% endif %}</h3>
         <canvas id="trendChart" height="200"></canvas>
     </div>
 </div>
@@ -76,27 +81,26 @@
 <script>
 function updateAnalytics() {
     const year = document.getElementById('analyticsYearSelect').value;
+    const compareYear = document.getElementById('analyticsCompareYearSelect').value;
     const month = document.getElementById('analyticsMonthSelect').value;
-    let url = '/analytics?year=' + year;
+    let url = '/analytics?year=' + year + '&compare_year=' + compareYear;
     if (month) url += '&month=' + month;
     window.location.href = url;
 }
 
 const isMonthView = {{ 'true' if month else 'false' }};
 
-// Monthly comparison bar chart
 new Chart(document.getElementById('monthlyChart'), {
     type: 'bar',
     data: {
         labels: {{ monthly_labels | tojson }},
         datasets: [
-            { label: '{{ year }}', data: {{ monthly_current | tojson }}, backgroundColor: 'rgba(147, 197, 253, 0.6)', borderRadius: 4 },
-            { label: '{{ prev_year }}', data: {{ monthly_previous | tojson }}, backgroundColor: 'rgba(196, 181, 253, 0.4)', borderRadius: 4 },
+            { label: '{{ month_name(month) if month else "Расходы" }} {{ year }}', data: {{ monthly_current | tojson }}, backgroundColor: 'rgba(147, 197, 253, 0.6)', borderRadius: 4 },
         ]
     },
     options: {
         responsive: true,
-        plugins: { legend: { labels: { color: '#e8e6e3' } } },
+        plugins: { legend: { display: false } },
         scales: {
             y: { beginAtZero: true, ticks: { color: '#9ca3af' }, grid: { color: '#2d313a' } },
             x: { ticks: { color: '#9ca3af' }, grid: { display: false } }
@@ -104,7 +108,6 @@ new Chart(document.getElementById('monthlyChart'), {
     }
 });
 
-// Top contractors horizontal bar
 const top5 = {{ top5_contractors | tojson }};
 new Chart(document.getElementById('topChart'), {
     type: 'bar',
@@ -123,7 +126,6 @@ new Chart(document.getElementById('topChart'), {
     }
 });
 
-// Trend line chart
 const trends = {{ trends | tojson }};
 const colors = ['#93c5fd','#c4b5fd','#a7f3d0','#fde68a','#fca5a5','#fcd34d','#67e8f9','#f9a8d4'];
 new Chart(document.getElementById('trendChart'), {

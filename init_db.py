@@ -6,7 +6,7 @@ Run once on first startup.
 import asyncio
 import os
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import Base, engine, async_session_factory
@@ -28,7 +28,7 @@ DEFAULT_SETTINGS = [
     ("ui_theme", "dark", "Тема интерфейса"),
     ("ui_date_format", "DD.MM.YYYY", "Формат даты"),
     ("ui_currency", "RUB", "Валюта"),
-    ("ui_currency_symbol", "\u20bd", "Символ валюты"),
+    ("ui_currency_symbol", "₽", "Символ валюты"),
     ("ui_language", "ru", "Язык интерфейса"),
 ]
 
@@ -43,43 +43,31 @@ DEFAULT_CONTRACTORS = [
 
 def _run_migrations(conn):
     """Apply incremental migrations to an existing database."""
-    import sqlite3
-    conn_raw = conn.connection if hasattr(conn, 'connection') else conn
-
-    # Check if columns exist in users table
-    cur = conn_raw.cursor()
-    cur.execute("PRAGMA table_info(users)")
-    columns = [row[1] for row in cur.fetchall()]
+    columns = [row[1] for row in conn.execute(text("PRAGMA table_info(users)")).fetchall()]
 
     if "page_permissions" not in columns:
-        cur.execute("ALTER TABLE users ADD COLUMN page_permissions TEXT")
-        conn_raw.commit()
+        conn.execute(text("ALTER TABLE users ADD COLUMN page_permissions TEXT"))
         print("Migration: added page_permissions to users")
 
     if "is_active" not in columns:
-        cur.execute("ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1")
-        conn_raw.commit()
+        conn.execute(text("ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1"))
         print("Migration: added is_active to users")
 
 
 async def seed_data(session: AsyncSession):
-    """Insert default users, contractors, and settings if they don't exist."""
+    """Insert default admin, contractors, and settings if they don't exist."""
     from app.utils import generate_uuid
 
-    # Default users
-    for username, password, role in [
-        ("admin", os.getenv("ADMIN_PASSWORD", "admin"), "admin"),
-        ("user", os.getenv("USER_PASSWORD", "user"), "user"),
-    ]:
-        result = await session.execute(select(User).where(User.username == username))
-        if not result.scalar_one_or_none():
-            session.add(
-                User(
-                    username=username,
-                    password_hash=hash_password(password),
-                    role=role,
-                )
+    # Bootstrap only the admin user. Regular users must be created manually in GUI.
+    result = await session.execute(select(User).where(User.username == "admin"))
+    if not result.scalar_one_or_none():
+        session.add(
+            User(
+                username="admin",
+                password_hash=hash_password(os.getenv("ADMIN_PASSWORD", "admin")),
+                role="admin",
             )
+        )
 
     # Default contractors
     for name, slug, ptype, fixed_amt, due_day, acct in DEFAULT_CONTRACTORS:

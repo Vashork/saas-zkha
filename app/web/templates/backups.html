@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}💾 Бекапы — Мой Дом{% endblock %}
+
+{% block content %}
+<nav class="navbar-custom">
+    <div class="brand">🏠 Мой Дом</div>
+    <div class="nav-links">
+        <a class="nav-link-custom" href="/">📊 Дашборд</a>
+        <a class="nav-link-custom" href="/payments">💳 Платежи</a>
+        <a class="nav-link-custom" href="/history">📜 История</a>
+        <a class="nav-link-custom" href="/contractors">🏢 Подрядчики</a>
+        <a class="nav-link-custom" href="/analytics">📈 Аналитика</a>
+        <a class="nav-link-custom active" href="/backups">💾 Бекапы</a>
+        <a class="nav-link-custom" href="/settings">⚙️ Настройки</a>
+    </div>
+    <div class="user-badge">
+        {{ username }}
+        <button class="btn-icon" title="Переключить тему" onclick="toggleTheme()">🌓</button>
+        <a class="nav-link-custom" href="/logout" style="margin-left:8px;padding:4px 10px;">🚪</a>
+    </div>
+</nav>
+
+<div class="container-main">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:24px;">
+        <h1 class="page-title" style="margin-bottom:0;">💾 Локальные бекапы</h1>
+        <form method="post" action="/backups/create" onsubmit="return confirm('Создать локальный бекап данных?')">
+            <button type="submit" class="btn-custom">+ Создать бекап</button>
+        </form>
+    </div>
+
+    {% if success == 'backup_created' %}
+    <div style="background:var(--paid-bg);color:var(--paid);padding:12px;border-radius:12px;margin-bottom:16px;font-size:14px;">✅ Бекап создан</div>
+    {% elif success == 'settings_saved' %}
+    <div style="background:var(--paid-bg);color:var(--paid);padding:12px;border-radius:12px;margin-bottom:16px;font-size:14px;">✅ Настройки бекапа сохранены</div>
+    {% elif success == 'restore_completed' %}
+    <div style="background:var(--paid-bg);color:var(--paid);padding:12px;border-radius:12px;margin-bottom:16px;font-size:14px;">✅ Бекап восстановлен. Рекомендуется перезапустить контейнеры.</div>
+    {% endif %}
+    {% if error == 'backup_failed' %}
+    <div class="alert-error">❌ Не удалось создать бекап. Проверьте логи контейнера zhkh-web.</div>
+    {% elif error == 'backup_not_found' %}
+    <div class="alert-error">❌ Файл бекапа не найден.</div>
+    {% elif error == 'backup_invalid' %}
+    <div class="alert-error">❌ Архив не прошёл валидацию. Нужен tar.gz с каталогом data/ и файлом data/zhkh.db.</div>
+    {% elif error == 'restore_failed' %}
+    <div class="alert-error">❌ Не удалось восстановить бекап. Проверьте логи контейнера zhkh-web.</div>
+    {% endif %}
+
+    <div class="card-custom" style="background:var(--accent-bg);">
+        <p style="margin:0;color:var(--text);">
+            Бекап создаёт архив каталога <code>data/</code>: SQLite-базу со всеми платежами, подрядчиками, пользователями, настройками и загруженными чеками. Архивы сохраняются в <code>./backups</code> на хосте через Docker volume.
+        </p>
+    </div>
+
+    <div class="card-custom">
+        <h3 style="margin-bottom:16px;">⚙️ Настройки бекапа</h3>
+        <form method="post" action="/backups/settings">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end;">
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Сколько последних архивов хранить</label>
+                    <input type="number" name="retention_count" class="input-custom" min="1" max="100" value="{{ backup_settings.retention_count }}">
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Частота автобекапа</label>
+                    <select name="frequency" class="input-custom">
+                        <option value="manual" {% if backup_settings.frequency == 'manual' %}selected{% endif %}>Только вручную</option>
+                        <option value="daily" {% if backup_settings.frequency == 'daily' %}selected{% endif %}>Ежедневно</option>
+                        <option value="weekly" {% if backup_settings.frequency == 'weekly' %}selected{% endif %}>Еженедельно</option>
+                        <option value="monthly" {% if backup_settings.frequency == 'monthly' %}selected{% endif %}>Ежемесячно</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Время запуска</label>
+                    <input type="time" name="backup_time" class="input-custom" value="{{ backup_settings.backup_time }}">
+                </div>
+                <button type="submit" class="btn-custom">💾 Сохранить</button>
+            </div>
+            <small style="color:var(--text-muted);display:block;margin-top:8px;">После создания нового бекапа старые архивы сверх лимита будут удалены.</small>
+        </form>
+    </div>
+
+    <div class="card-custom">
+        <h3 style="margin-bottom:16px;">⬆️ Загрузить и восстановить бекап</h3>
+        <form method="post" action="/backups/upload-restore" enctype="multipart/form-data" onsubmit="return confirm('Восстановить данные из выбранного архива? Перед восстановлением будет создан страховочный бекап текущих данных.')">
+            <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;max-width:680px;">
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Файл backup tar.gz</label>
+                    <input type="file" name="backup_file" class="input-custom" accept=".tar.gz,application/gzip" required>
+                    <small style="color:var(--text-muted);">Архив проходит валидацию: внутри должен быть каталог data/ и файл data/zhkh.db.</small>
+                </div>
+                <button type="submit" class="btn-custom">Восстановить</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card-custom">
+        <h3 style="margin-bottom:16px;">📦 Файлы бекапов</h3>
+        {% if backup_files %}
+        <table class="table-custom">
+            <thead>
+                <tr><th>Файл</th><th>Размер</th><th>Создан</th><th>Действия</th></tr>
+            </thead>
+            <tbody>
+            {% for f in backup_files %}
+            <tr>
+                <td>{{ f.name }}</td>
+                <td>{{ format_size(f.size_bytes) }}</td>
+                <td>{{ f.created_at.strftime('%d.%m.%Y %H:%M:%S') }}</td>
+                <td style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <a class="btn-secondary-custom" href="{{ f.download_url }}">Скачать</a>
+                    <form method="post" action="{{ f.restore_url }}" onsubmit="return confirm('Восстановить данные из {{ f.name }}? Перед восстановлением будет создан страховочный бекап текущих данных.')">
+                        <button type="submit" class="btn-secondary-custom">Восстановить</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color:var(--text-muted);">Локальных архивов пока нет.</p>
+        {% endif %}
+    </div>
+
+    <div class="card-custom">
+        <h3 style="margin-bottom:16px;">🧾 История операций</h3>
+        {% if history %}
+        <table class="table-custom">
+            <thead>
+                <tr><th>Дата</th><th>Режим</th><th>Тип</th><th>Хранилище</th><th>Статус</th><th>Размер</th><th>Файл / ошибка</th></tr>
+            </thead>
+            <tbody>
+            {% for item in history %}
+            <tr>
+                <td>{{ item.created_at.strftime('%d.%m.%Y %H:%M:%S') if item.created_at else '—' }}</td>
+                <td>{{ item.mode }}</td>
+                <td>{{ item.backup_type }}</td>
+                <td>{{ item.storage }}</td>
+                <td><span class="badge-status badge-{{ 'paid' if item.status == 'success' else 'overdue' }}">{{ item.status }}</span></td>
+                <td>{{ format_size(item.size_bytes) }}</td>
+                <td>{{ item.file_path or item.error_message or '—' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color:var(--text-muted);">История бекапов пока пустая.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

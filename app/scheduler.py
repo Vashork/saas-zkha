@@ -1,18 +1,17 @@
 """
-APScheduler — auto-generation of monthly payments and notifications.
+APScheduler — auto-generation of monthly payments and payment status checks.
 """
 
 import logging
-from datetime import date, datetime
-from decimal import Decimal
+from datetime import date
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from sqlalchemy.orm import joinedload
 
 from app.config import get_settings
 from app.database import async_session_factory
-from app.models import Contractor, Payment, Setting
+from app.models import Contractor, Payment
 
 logger = logging.getLogger("zhkh.scheduler")
 scheduler = AsyncIOScheduler()
@@ -28,7 +27,13 @@ def _month_name(month: int) -> str:
 
 
 async def generate_monthly_payments():
-    """Create pending payments for all active contractors for the current month."""
+    """
+    Create pending payments for all active contractors for the current month.
+
+    The generation must be idempotent per contractor, not per month. If one
+    payment already exists for the month, the scheduler still has to create
+    missing rows for other active contractors.
+    """
     settings = get_settings()
     if not settings.GENERATION_ENABLED:
         return
@@ -36,34 +41,31 @@ async def generate_monthly_payments():
     today = date.today()
     year, month = today.year, today.month
 
-    # Check if payments already exist for this month
     async with async_session_factory() as session:
-        count = await session.scalar(
-            select(func.count(Payment.id)).where(
-                Payment.year == year, Payment.month == month
-            )
-        )
-        if count and count > 0:
-            logger.info("Payments for %s %s already exist, skipping.", _month_name(month), year)
-            return
-
-        # Get active contractors
         result = await session.execute(select(Contractor).where(Contractor.is_active == True))
         contractors = result.scalars().all()
 
         created = 0
-        for c in contractors:
-            due_day = min(c.due_day, 28)  # safety: cap at 28 for Feb
-            try:
-                due_date = date(year, month, c.due_day)
-            except ValueError:
-                due_date = date(year, month, 28)
+        skipped = 0
+        for contractor in contractors:
+            existing_payment_id = await session.scalar(
+                select(Payment.id).where(
+                    Payment.contractor_id == contractor.id,
+                    Payment.year == year,
+                    Payment.month == month,
+                )
+            )
+            if existing_payment_id:
+                skipped += 1
+                continue
 
-            amount = c.fixed_amount if c.payment_type == "fixed" else None
+            due_day = min(contractor.due_day, 28)
+            due_date = date(year, month, due_day)
+            amount = contractor.fixed_amount if contractor.payment_type == "fixed" else None
 
             payment = Payment(
-                id=f"pay-{year}{month:02d}-{c.id}",
-                contractor_id=c.id,
+                id=f"pay-{year}{month:02d}-{contractor.id}",
+                contractor_id=contractor.id,
                 year=year,
                 month=month,
                 amount=amount,
@@ -74,15 +76,20 @@ async def generate_monthly_payments():
             created += 1
 
         await session.commit()
-        logger.info("Created %s payments for %s %s", created, _month_name(month), year)
+        logger.info(
+            "Monthly payment generation for %s %s: created %s, skipped %s existing rows",
+            _month_name(month),
+            year,
+            created,
+            skipped,
+        )
 
 
 async def check_notifications():
-    """Send notifications for upcoming/overdue payments."""
+    """Update overdue payments and log due-soon counts."""
     today = date.today()
 
     async with async_session_factory() as session:
-        # Get pending payments due soon
         result = await session.execute(
             select(Payment)
             .options(joinedload(Payment.contractor))
@@ -90,26 +97,33 @@ async def check_notifications():
         )
         payments = result.scalars().all()
 
-        urgent = [p for p in payments if (p.due_date - today).days <= 5]
         overdue = [p for p in payments if p.due_date < today]
+        urgent = [p for p in payments if 0 <= (p.due_date - today).days <= 5]
 
-        for p in overdue:
-            p.status = "overdue"
-            logger.warning("Overdue: contractor %s, due %s", p.contractor_id, p.due_date)
+        for payment in overdue:
+            payment.status = "overdue"
+            logger.warning("Overdue: contractor %s, due %s", payment.contractor_id, payment.due_date)
 
         if urgent or overdue:
             await session.commit()
-            logger.info("Notifications: %s urgent, %s overdue", len(urgent), len(overdue))
-            # TODO: send Telegram notifications via bot
+            logger.info("Payment status check: %s due soon, %s overdue", len(urgent), len(overdue))
 
 
 def start_scheduler():
-    """Start the APScheduler with payment generation and notification jobs."""
+    """Start the APScheduler with payment generation and status-check jobs."""
     settings = get_settings()
 
-    # Parse times
     gen_hour, gen_min = map(int, settings.GENERATION_TIME.split(":"))
     notif_hour, notif_min = map(int, settings.NOTIFICATION_TIME.split(":"))
+
+    # Run once on application startup as an idempotent repair step for missing
+    # current-month payments. The function itself skips existing contractor rows.
+    scheduler.add_job(
+        generate_monthly_payments,
+        "date",
+        id="generate_payments_on_start",
+        replace_existing=True,
+    )
 
     scheduler.add_job(
         generate_monthly_payments,
@@ -133,11 +147,17 @@ def start_scheduler():
     )
 
     scheduler.start()
-    logger.info("Scheduler started: generation %s:%s day %s, notifications %s:%s",
-                gen_hour, gen_min, settings.GENERATION_DAY, notif_hour, notif_min)
+    logger.info(
+        "Scheduler started: generation %s:%s day %s, status checks %s:%s",
+        gen_hour,
+        gen_min,
+        settings.GENERATION_DAY,
+        notif_hour,
+        notif_min,
+    )
 
 
 def stop_scheduler():
-    """Stop the APScheduler."""
+    """Stop the scheduler."""
     if scheduler.running:
         scheduler.shutdown()

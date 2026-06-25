@@ -1,6 +1,6 @@
 """
 Message parser — extracts tags from payment messages like:
-  #оплачено #мосэнергосбыт #сумма:3200
+  #оплачено #мосэнергосбыт #сумма:3200 #период:2026-06
 """
 
 import re
@@ -13,6 +13,31 @@ from typing import Optional
 class ParsedPayment:
     slug: str
     amount: Optional[Decimal] = None
+    year: Optional[int] = None
+    month: Optional[int] = None
+
+
+def _parse_amount(text_lower: str) -> Optional[Decimal]:
+    amount_match = re.search(r"#сумма[:\s]*([\d_.,]+)", text_lower)
+    if not amount_match:
+        return None
+    try:
+        raw = amount_match.group(1).replace("_", "").replace(" ", "")
+        if "," in raw and "." in raw:
+            raw = raw.replace(",", "")
+        elif "," in raw:
+            raw = raw.replace(",", ".")
+        return Decimal(raw)
+    except InvalidOperation:
+        return None
+
+
+def _parse_period(text_lower: str) -> tuple[Optional[int], Optional[int]]:
+    """Parse #период:YYYY-MM / #период:YYYY.MM / #период:YYYY/MM."""
+    period_match = re.search(r"#период[:\s]*(20\d{2})[-./](0?[1-9]|1[0-2])", text_lower)
+    if not period_match:
+        return None, None
+    return int(period_match.group(1)), int(period_match.group(2))
 
 
 def parse_payment_message(text: str) -> Optional[ParsedPayment]:
@@ -25,12 +50,10 @@ def parse_payment_message(text: str) -> Optional[ParsedPayment]:
 
     text_lower = text.lower()
 
-    # Check for #оплачено tag
     if "#оплачено" not in text_lower:
         return None
 
-    # Extract contractor slug: first hashtag that is NOT a reserved word
-    reserved = {"оплачено", "сумма"}
+    reserved = {"оплачено", "сумма", "период"}
     all_tags = re.findall(r"#([а-яa-z0-9_-]{2,50})", text_lower)
     slug = None
     for tag in all_tags:
@@ -41,19 +64,7 @@ def parse_payment_message(text: str) -> Optional[ParsedPayment]:
     if not slug:
         return None
 
-    # Extract amount: #сумма:X
-    amount_match = re.search(r"#сумма[:\s]*([\d_.,]+)", text_lower)
-    amount = None
-    if amount_match:
-        try:
-            raw = amount_match.group(1).replace("_", "").replace(" ", "")
-            # Handle both comma and dot as decimal separator
-            if "," in raw and "." in raw:
-                raw = raw.replace(",", "")
-            elif "," in raw:
-                raw = raw.replace(",", ".")
-            amount = Decimal(raw)
-        except InvalidOperation:
-            pass
+    amount = _parse_amount(text_lower)
+    year, month = _parse_period(text_lower)
 
-    return ParsedPayment(slug=slug, amount=amount)
+    return ParsedPayment(slug=slug, amount=amount, year=year, month=month)
