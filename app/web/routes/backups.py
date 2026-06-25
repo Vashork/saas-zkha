@@ -7,7 +7,6 @@ from datetime import datetime
 
 from fastapi import APIRouter, Request, Depends, Form, File, UploadFile
 from fastapi.responses import RedirectResponse, FileResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
@@ -26,11 +25,11 @@ from app.backup_settings import parse_retention, parse_frequency, parse_time
 from app.database import get_db
 from app.models import BackupHistory, Setting
 from app.web.routes.auth import get_current_user
+from app.web.template_engine import templates
 
 logger = logging.getLogger("zhkh.backups")
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/web/templates")
 
 DEFAULT_RETENTION_COUNT = 10
 DEFAULT_BACKUP_FREQUENCY = "manual"
@@ -120,9 +119,9 @@ async def save_backup_settings(
     if redirect:
         return redirect
 
-    parsed_retention = _parse_retention(retention_count)
-    parsed_frequency = _parse_frequency(frequency)
-    parsed_time = _parse_time(backup_time)
+    parsed_retention = parse_retention(retention_count)
+    parsed_frequency = parse_frequency(frequency)
+    parsed_time = parse_time(backup_time)
     await _save_backup_settings(db, parsed_retention, parsed_frequency, parsed_time)
     await run_in_threadpool(cleanup_old_backups, parsed_retention)
     return RedirectResponse(url="/backups?success=settings_saved", status_code=303)
