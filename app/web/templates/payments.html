@@ -37,7 +37,7 @@
                 {% if status_filter %}<input type="hidden" name="status_filter" value="{{ status_filter }}">{% endif %}
             </form>
             {% if user_role == 'admin' %}
-            <button class="btn-custom" onclick="document.getElementById('addForm').style.display='block'">+ Добавить платеж</button>
+            <button class="btn-custom" type="button" onclick="openAddPaymentModal()">+ Добавить платеж</button>
             <form method="post" action="/payments/cleanup-receipts" style="display:inline;" onsubmit="return confirm('Удалить файлы чеков, которые больше не привязаны ни к одному платежу?')">
                 <input type="hidden" name="_csrf" value="{{ _csrf }}">
                 <input type="hidden" name="year" value="{{ year }}">
@@ -112,47 +112,49 @@
     </div>
 
     {% if user_role == 'admin' %}
-    <div id="addForm" class="card-custom" style="display:none;">
-        <h3 style="margin-bottom:16px;">+ Добавить платеж за {{ month_name }} {{ year }}</h3>
-        <form method="post" action="/payments/add" enctype="multipart/form-data">
-            <input type="hidden" name="_csrf" value="{{ _csrf }}">
-            <input type="hidden" name="year" value="{{ year }}">
-            <input type="hidden" name="month" value="{{ month }}">
-            <div class="form-group">
-                <label>Подрядчик</label>
-                <select name="contractor_id" class="input-custom" required>
-                    {% for c in contractors %}
-                    <option value="{{ c.id }}">{{ c.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="form-group">
-                <label>Сумма начисления (₽, можно оставить пустой для переменного платежа без начисления)</label>
-                <input type="text" name="amount" class="input-custom" placeholder="3200.50">
-            </div>
-            <div class="form-group">
-                <label>Статус при создании</label>
-                <select name="status" class="input-custom" id="addStatus" onchange="toggleAddPaidFields()">
-                    <option value="pending" selected>Ожидает оплаты</option>
-                    <option value="paid">Оплачено</option>
-                    <option value="overdue">Просрочено</option>
-                </select>
-            </div>
-            <div id="addPaidFields" style="display:none;">
+    <div id="addPaymentModal" class="modal-overlay" style="display:none;">
+        <div class="card-custom modal-card-wide modal-card-scroll">
+            <h3 style="margin-bottom:16px;">+ Добавить платеж за {{ month_name }} {{ year }}</h3>
+            <form id="addForm" method="post" action="/payments/add" enctype="multipart/form-data">
+                <input type="hidden" name="_csrf" value="{{ _csrf }}">
+                <input type="hidden" name="year" value="{{ year }}">
+                <input type="hidden" name="month" value="{{ month }}">
                 <div class="form-group">
-                    <label>Дата оплаты</label>
-                    <input type="date" name="paid_date_str" class="input-custom" id="addPaidDate">
+                    <label>Подрядчик</label>
+                    <select name="contractor_id" class="input-custom" required>
+                        {% for c in contractors %}
+                        <option value="{{ c.id }}">{{ c.name }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
                 <div class="form-group">
-                    <label>Чек (PDF, JPG, PNG)</label>
-                    <input type="file" name="receipt" class="input-custom" accept=".pdf,.jpg,.jpeg,.png">
+                    <label>Сумма начисления (₽, можно оставить пустой для переменного платежа без начисления)</label>
+                    <input type="text" name="amount" class="input-custom" placeholder="3200.50">
                 </div>
-            </div>
-            <div style="display:flex;gap:8px;">
-                <button type="submit" class="btn-custom">Сохранить</button>
-                <button type="button" class="btn-secondary-custom" onclick="document.getElementById('addForm').style.display='none'">Отмена</button>
-            </div>
-        </form>
+                <div class="form-group">
+                    <label>Статус при создании</label>
+                    <select name="status" class="input-custom" id="addStatus" onchange="toggleAddPaidFields()">
+                        <option value="pending" selected>Ожидает оплаты</option>
+                        <option value="paid">Оплачено</option>
+                        <option value="overdue">Просрочено</option>
+                    </select>
+                </div>
+                <div id="addPaidFields" style="display:none;">
+                    <div class="form-group">
+                        <label>Дата оплаты</label>
+                        <input type="date" name="paid_date_str" class="input-custom" id="addPaidDate">
+                    </div>
+                    <div class="form-group">
+                        <label>Чек (PDF, JPG, PNG)</label>
+                        <input type="file" name="receipt" class="input-custom" accept=".pdf,.jpg,.jpeg,.png">
+                    </div>
+                </div>
+                <div style="display:flex;gap:8px;justify-content:flex-end;">
+                    <button type="button" class="btn-secondary-custom" onclick="closeModal('addPaymentModal')">Отмена</button>
+                    <button type="submit" class="btn-custom">Сохранить</button>
+                </div>
+            </form>
+        </div>
     </div>
     {% endif %}
 
@@ -212,6 +214,16 @@
 
 {% block scripts %}
 <script>
+function openAddPaymentModal() {
+    const modal = document.getElementById('addPaymentModal');
+    if (!modal) return false;
+    modal.style.display = 'flex';
+    const status = document.getElementById('addStatus');
+    if (status) status.value = 'pending';
+    toggleAddPaidFields();
+    return false;
+}
+
 function openReceiptModal(paymentId) {
     const form = document.getElementById('receiptForm');
     form.action = '/payments/' + paymentId + '/edit';
