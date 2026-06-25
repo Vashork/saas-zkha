@@ -109,7 +109,7 @@
                 <td>{{ f.name }}</td>
                 <td>{{ format_size(f.size_bytes) }}</td>
                 <td>{{ f.created_at.strftime('%d.%m.%Y %H:%M:%S') }}</td>
-                <td style="display:flex;gap:8px;flex-wrap:wrap;">
+                <td class="backup-actions">
                     <a class="btn-secondary-custom" href="{{ f.download_url }}">Скачать</a>
                     <form method="post" action="{{ f.restore_url }}" onsubmit="return confirm('Восстановить данные из {{ f.name }}? Перед восстановлением будет создан страховочный бекап текущих данных.')">
                         <input type="hidden" name="_csrf" value="{{ _csrf }}">
