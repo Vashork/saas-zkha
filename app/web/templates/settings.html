@@ -41,21 +41,20 @@
         <h3 style="margin-bottom:16px;">🔧 Системные настройки</h3>
         <form method="post" action="/settings/save">
             <input type="hidden" name="_csrf" value="{{ _csrf }}">
-                <div class="form-group">
-                    <label>День платежа по умолчанию</label>
-                    <input type="number" name="default_due_day" class="input-custom" value="{{ settings.get('default_due_day', '15') }}" min="1" max="28">
-                </div>
-                <div class="form-group">
-                    <label>Тема оформления</label>
-                    <select name="theme" class="input-custom" onchange="document.documentElement.setAttribute('data-theme', this.value); localStorage.setItem('theme', this.value);">
-                        <option value="dark" {% if settings.get('ui_theme','dark') == 'dark' %}selected{% endif %}>Тёмная</option>
-                        <option value="light" {% if settings.get('ui_theme','dark') == 'light' %}selected{% endif %}>Светлая</option>
-                    </select>
-                </div>
-                <div class="form-group" style="display:flex;align-items:center;gap:8px;padding-top:24px;">
-                    <input type="checkbox" name="notifications_enabled" value="on" {% if settings.get('notifications_enabled','off') == 'on' %}checked{% endif %}>
-                    <label style="margin:0;">Включить уведомления</label>
-                </div>
+            <div class="form-group">
+                <label>День платежа по умолчанию</label>
+                <input type="number" name="default_due_day" class="input-custom" value="{{ settings.get('default_due_day', '15') }}" min="1" max="28">
+            </div>
+            <div class="form-group">
+                <label>Тема оформления</label>
+                <select name="theme" class="input-custom" onchange="document.documentElement.setAttribute('data-theme', this.value); localStorage.setItem('theme', this.value);">
+                    <option value="dark" {% if settings.get('ui_theme','dark') == 'dark' %}selected{% endif %}>Тёмная</option>
+                    <option value="light" {% if settings.get('ui_theme','dark') == 'light' %}selected{% endif %}>Светлая</option>
+                </select>
+            </div>
+            <div class="form-group" style="display:flex;align-items:center;gap:8px;padding-top:24px;">
+                <input type="checkbox" name="notifications_enabled" value="on" {% if settings.get('notifications_enabled','off') == 'on' %}checked{% endif %}>
+                <label style="margin:0;">Включить уведомления</label>
             </div>
             <div style="margin-top:16px;"><button type="submit" class="btn-custom">💾 Сохранить настройки</button></div>
         </form>
