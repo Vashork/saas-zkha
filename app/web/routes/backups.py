@@ -253,6 +253,25 @@ async def restore_backup(filename: str, request: Request, db: AsyncSession = Dep
     return RedirectResponse(url="/backups?success=restore_completed", status_code=303)
 
 
+@router.post("/backups/discard/{filename}")
+async def discard_backup(filename: str, request: Request, db: AsyncSession = Depends(get_db)):
+    _, redirect = await _require_admin(request, db)
+    if redirect:
+        return redirect
+
+    path = safe_backup_path(filename)
+    if not path:
+        return RedirectResponse(url="/backups?error=backup_not_found", status_code=303)
+
+    try:
+        path.unlink()
+    except OSError as exc:
+        logger.warning("Backup discard failed: %s", exc)
+        return RedirectResponse(url="/backups?error=backup_discard_failed", status_code=303)
+
+    return RedirectResponse(url="/backups?success=backup_discarded", status_code=303)
+
+
 @router.get("/backups/download/{filename}")
 async def download_backup(filename: str, request: Request, db: AsyncSession = Depends(get_db)):
     _, redirect = await _require_admin(request, db)
