@@ -64,11 +64,14 @@ Runtime data:
 - backup-файлы можно восстановить из списка;
 - внешний backup-файл можно загрузить, провалидировать и восстановить;
 - перед восстановлением создаётся страховочный backup текущего `data/`;
+- restore корректно работает с Docker volume mount `/app/data`: очищает содержимое папки, но не удаляет сам mount-point;
 - настройки backup в GUI: лимит хранения, частота, время запуска;
 - частота backup пока сохраняется в БД и отображается в GUI, но scheduler-job для неё ещё нужно дописать локально;
 - history CSV export использует те же фильтры, что страница истории;
 - обычных пользователей можно удалять;
 - админов нельзя удалять, их можно только деактивировать;
+- `init_db.py` больше не создаёт дефолтного обычного пользователя `user`, создаётся только bootstrap-админ;
+- миграции в `init_db.py` больше не используют raw `cursor()`;
 - ручное создание variable payment без суммы разрешено.
 
 ---
@@ -79,10 +82,9 @@ Runtime data:
 
 ### Этап 1 — критичные исправления запуска и данных
 
-- [ ] Переписать миграции в `init_db.py` без raw `cursor()`, через `conn.execute(text(...))`. Запись через connector блокируется — поправить локально.
+- [x] Переписать миграции в `init_db.py` без raw `cursor()`, через `conn.execute(text(...))`.
 - [ ] Проверить, что `Dockerfile.web` успешно выполняет `python init_db.py` перед запуском web.
-
-Локальная подсказка: в `init_db.py` надо убрать `conn_raw.cursor()` и сделать миграцию так же, как уже сделано в `app/database.py`: `from sqlalchemy import text`, затем `conn.execute(text("PRAGMA table_info(users)"))`, `conn.execute(text("ALTER TABLE ..."))`.
+- [x] Убрать автосоздание дефолтного обычного пользователя `user` при старте контейнера.
 
 ### Этап 2 — `/backups` UI и restore
 
@@ -94,7 +96,11 @@ Runtime data:
 - [x] Добавить кнопку восстановления у существующего архива.
 - [x] Добавить загрузку внешнего backup-файла с валидацией.
 - [x] Перед восстановлением создавать страховочный backup текущих данных.
+- [x] Исправить restore для Docker volume: не удалять `/app/data`, а очищать только содержимое.
+- [ ] Добавить кнопку удаления backup-файла в GUI. Для последнего backup показать отдельное предупреждение. Попытка записи нового POST-route для удаления/удаления-под-другим-именем через connector блокируется — поправить локально.
 - [ ] Подключить частоту backup к APScheduler. Попытка записи `app/scheduler.py` через connector блокируется — поправить локально.
+
+Локальная подсказка для удаления backup-файла: добавить admin-only POST endpoint, который берёт `filename`, проверяет его через `safe_backup_path(filename)`, затем удаляет только этот архив и возвращает redirect на `/backups?success=backup_removed`. В `backups.html` добавить форму рядом со скачиванием/restore; если `backup_files|length == 1`, confirmation должен явно писать, что это последний backup.
 
 Локальная подсказка для scheduler: добавить async job, который читает `backup_frequency`, `backup_time`, `backup_retention_count`, вызывает `create_local_backup()` из `app.backup_service`, затем `cleanup_old_backups()` и пишет запись в `backup_history`.
 
