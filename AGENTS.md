@@ -64,7 +64,10 @@ Runtime data:
 - scheduler по расписанию обновляет просроченные платежи;
 - `/backups` добавлен как admin-only web UI;
 - ручной backup создаёт архив каталога `data/`;
-- результат backup пишется в `backup_history`.
+- результат backup пишется в `backup_history`;
+- history CSV export использует те же фильтры, что страница истории;
+- hard delete пользователя убран из UI настроек;
+- ручное создание variable payment без суммы разрешено.
 
 ---
 
@@ -74,8 +77,10 @@ Runtime data:
 
 ### Этап 1 — критичные исправления запуска и данных
 
-- [ ] Переписать миграции в `init_db.py` без raw `cursor()`, через `conn.execute(text(...))`. Запись через connector пока блокируется, исправить локально или повторить отдельным маленьким патчем.
-- [ ] Проверить, что `Dockerfile.web` по-прежнему успешно выполняет `python init_db.py` перед запуском web.
+- [ ] Переписать миграции в `init_db.py` без raw `cursor()`, через `conn.execute(text(...))`. Запись через connector блокируется — поправить локально.
+- [ ] Проверить, что `Dockerfile.web` успешно выполняет `python init_db.py` перед запуском web.
+
+Локальная подсказка: в `init_db.py` надо убрать `conn_raw.cursor()` и сделать миграцию так же, как уже сделано в `app/database.py`: `from sqlalchemy import text`, затем `conn.execute(text("PRAGMA table_info(users)"))`, `conn.execute(text("ALTER TABLE ..."))`.
 
 ### Этап 2 — `/backups` UI
 
@@ -85,26 +90,43 @@ Runtime data:
 
 ### Этап 3 — навигация
 
-- [ ] Добавить ссылку `💾 Бекапы` для admin во все navbar-шаблоны. Частично сделано: dashboard и history.
+- [ ] Добавить ссылку `💾 Бекапы` для admin во все navbar-шаблоны. Сделано: dashboard, history, payments, contractors, settings. Осталось: analytics. Запись `analytics.html` через connector блокируется — поправить локально.
 - [ ] В будущем вынести navbar в общий include, чтобы не дублировать меню в каждом шаблоне.
+
+Локальная подсказка для `analytics.html`: после ссылки `📈 Аналитика` добавить `{% if user_role == 'admin' %}<a class="nav-link-custom" href="/backups">💾 Бекапы</a>{% endif %}` и заменить logout button на обычную ссылку по аналогии с dashboard/payments.
 
 ### Этап 4 — пользователи и безопасность операций
 
-- [ ] Убрать hard delete пользователя из UI или перенести его в отдельный опасный блок.
-- [ ] Оставить основной сценарий управления пользователями через деактивацию.
+- [x] Убрать hard delete пользователя из UI.
+- [x] Оставить основной сценарий управления пользователями через деактивацию.
 - [ ] Позже добавить CSRF-токены для POST-форм.
 
 ### Этап 5 — деньги и фильтры
 
-- [ ] Заменить `float` на `Decimal` при работе с `fixed_amount` подрядчиков. Запись через connector пока блокируется, исправить локально или повторить отдельным маленьким патчем.
-- [ ] Разрешить ручное создание variable payment без суммы.
+- [ ] Заменить `float` на `Decimal` при работе с `fixed_amount` подрядчиков. Запись `contractors.py` через connector блокируется — поправить локально.
+- [x] Разрешить ручное создание variable payment без суммы.
 - [x] Привести CSV export истории к тем же фильтрам, что страница истории: год, месяц, подрядчик, статус.
+
+Локальная подсказка для `contractors.py`: добавить `from decimal import Decimal, InvalidOperation`, сделать helper для разбора `fixed_amount`, для `variable` сохранять `None`, для `fixed` сохранять `Decimal`, отрицательные значения запрещать.
 
 ### Этап 6 — production hardening
 
 - [ ] Проверить поведение при дефолтном `SECRET_KEY` и дефолтных паролях.
 - [ ] Добавить warning или fail-fast для production-сценария.
-- [ ] Описать restore-процедуру для backup.
+- [x] Описать restore-процедуру для backup.
+
+Restore из backup:
+
+```bash
+docker compose down
+mkdir -p data
+# заменить имя архива на нужный файл из ./backups
+tar -xzf ./backups/zhkh-data-backup-YYYYMMDD-HHMMSS.tar.gz -C .
+docker compose up -d --build
+docker logs zhkh-web --tail=100
+```
+
+Перед restore лучше сделать копию текущей папки `data/`.
 
 ### Этап 7 — Telegram-бот, позже
 
