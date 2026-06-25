@@ -88,6 +88,8 @@ As admin:
 
 - Create fixed contractor.
 - Create variable contractor.
+- Open `/payments` and press `+ Добавить платеж`.
+- Confirm that the add-payment form becomes visible and the page scrolls to it.
 - Add fixed monthly payment without manually entering amount.
 - Add variable pending payment without amount.
 - Try marking variable payment as paid without amount.
@@ -100,6 +102,9 @@ As admin:
 
 Expected:
 
+- Add-payment button does not silently do nothing.
+- Browser logs should not show JavaScript errors when opening the form.
+- `POST /payments/add` appears in web logs after saving the form.
 - Status labels and amounts are consistent.
 - No payment page 500.
 - Uploaded receipts are stored under `data/uploads/YYYY/MM/` only.
@@ -128,7 +133,11 @@ As admin:
 
 - Open `/backups`.
 - Save backup settings.
-- Create backup.
+- Set automatic backup to a time 2-3 minutes in the future, not the current minute.
+- Watch logs for `Auto-backup scheduled` after saving settings.
+- Wait for the scheduled minute and confirm that a backup is created.
+- Confirm that `BackupHistory` shows a successful automatic backup row.
+- Create backup manually.
 - Download created backup.
 - Delete one backup.
 - Upload invalid `.tar.gz` without `data/zhkh.db`.
@@ -138,6 +147,7 @@ As admin:
 
 Expected:
 
+- Saving backup settings reschedules the in-memory auto-backup job without container restart.
 - Invalid archives are rejected.
 - Valid restore creates a safety backup first.
 - After restore, login and core pages still work.
@@ -148,6 +158,7 @@ Expected:
 Check in normal browser and incognito/private window:
 
 - Theme switch works.
+- Settings selected theme and actual page theme do not remain inconsistent after saving settings once.
 - Logout clears session.
 - Back button after logout does not allow protected actions.
 - Mobile width does not hide critical actions.
