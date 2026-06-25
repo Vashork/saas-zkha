@@ -1,23 +1,19 @@
 /* === Main JS === */
 
 // Close modal on Escape
- document.addEventListener('keydown', (e) => {
+document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
         const modals = document.querySelectorAll('[id$="Modal"]');
         modals.forEach(m => m.style.display = 'none');
-        const forms = document.querySelectorAll('[id$="Form"]');
-        forms.forEach(f => {
-            if (f.id !== 'editForm' && f.id !== 'receiptForm' && f.tagName !== 'FORM') {
-                f.style.display = 'none';
-            }
-        });
-        const addForm = document.getElementById('addForm');
-        if (addForm) addForm.style.display = 'none';
+        const legacyAddForm = document.getElementById('addForm');
+        if (legacyAddForm && legacyAddForm.classList.contains('card-custom')) {
+            legacyAddForm.style.display = 'none';
+        }
     }
 });
 
 // Close modal on outside click
- document.addEventListener('click', (e) => {
+document.addEventListener('click', (e) => {
     const modals = document.querySelectorAll('[id$="Modal"]');
     modals.forEach(m => {
         if (m.style.display === 'flex' && e.target === m) {
@@ -51,6 +47,16 @@ function openEditModal(paymentId, amount, status, paidDate) {
 }
 
 function showAddPaymentForm() {
+    const modal = document.getElementById('addPaymentModal');
+    if (modal) {
+        if (typeof openAddPaymentModal === 'function') {
+            return openAddPaymentModal();
+        }
+        modal.style.display = 'flex';
+        return false;
+    }
+
+    // Legacy fallback for old cached templates.
     const addForm = document.getElementById('addForm');
     if (!addForm) return false;
     addForm.style.display = 'block';
@@ -60,13 +66,13 @@ function showAddPaymentForm() {
 
 // Make add-payment opening work even when inline handlers are unavailable or stale.
 document.addEventListener('DOMContentLoaded', () => {
-    const addForm = document.getElementById('addForm');
-    if (!addForm) return;
+    const addTarget = document.getElementById('addPaymentModal') || document.getElementById('addForm');
+    if (!addTarget) return;
 
     document.querySelectorAll('button, a').forEach((item) => {
         const text = (item.textContent || '').trim();
         const inline = item.getAttribute('onclick') || '';
-        if (text.includes('Добавить платеж') || inline.includes('addForm')) {
+        if (text.includes('Добавить платеж') || inline.includes('addForm') || inline.includes('openAddPaymentModal')) {
             item.addEventListener('click', (event) => {
                 event.preventDefault();
                 showAddPaymentForm();
