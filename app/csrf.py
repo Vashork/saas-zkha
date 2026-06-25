@@ -8,6 +8,7 @@ AJAX requests must include the header ``X-CSRF-Token``.
 GET/HEAD/OPTIONS are always allowed (safe methods).
 """
 
+import hmac
 import hashlib
 import secrets
 import logging
@@ -15,7 +16,7 @@ from typing import Optional
 
 from fastapi import Request, Response
 from fastapi.responses import RedirectResponse
-from starlette.middleware.base import BaseHTTPMiddleware, HTTPConnectionScope
+from starlette.middleware.base import BaseHTTPMiddleware
 
 logger = logging.getLogger("zhkh.csrf")
 
@@ -33,7 +34,7 @@ def _make_token() -> str:
 
 
 def _constant_time_compare(a: str, b: str) -> bool:
-    return hashlib.compare_digest(a.encode(), b.encode())
+    return hmac.compare_digest(a.encode(), b.encode())
 
 
 class CsrfMiddleware(BaseHTTPMiddleware):

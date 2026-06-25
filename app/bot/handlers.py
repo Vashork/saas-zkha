@@ -2,6 +2,7 @@
 Telegram bot handlers — command and message handlers.
 """
 
+import logging
 import os
 import uuid
 from datetime import date
@@ -16,6 +17,7 @@ from app.bot.parsers import parse_payment_message
 from app.utils import month_name, get_upload_path, is_allowed_file
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./data/uploads")
+logger = logging.getLogger("zhkh.bot.handlers")
 
 
 def _message_text(message: Message) -> str:
@@ -182,5 +184,5 @@ async def _download_receipt(
         await file.download_to_file(filepath)
         return f"{year}/{month:02d}/{filename}"
     except Exception as e:
-        print(f"Bot receipt download error: {e}")
+        logger.warning("Bot receipt download error: %s", e)
         return None

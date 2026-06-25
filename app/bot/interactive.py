@@ -1,5 +1,6 @@
 """Interactive Telegram receipt workflow."""
 
+import logging
 import os
 import uuid
 from datetime import date
@@ -15,6 +16,7 @@ from app.models import Contractor, Payment
 from app.utils import get_upload_path, is_allowed_file, month_name
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./data/uploads")
+logger = logging.getLogger("zhkh.bot.interactive")
 
 
 class ReceiptFlow(StatesGroup):
@@ -238,5 +240,5 @@ async def _download_by_file_id(message: Message, file_id: str, ext: str, year: i
         await message.bot.download_file(tg_file.file_path, destination=filepath)
         return f"{year}/{month:02d}/{filename}"
     except Exception as exc:
-        print(f"Interactive receipt download error: {exc}")
+        logger.warning("Interactive receipt download error: %s", exc)
         return None
