@@ -193,6 +193,15 @@ async def dashboard(
 
     total = sum((_planned_amount(p) for p in selected_payments), Decimal("0"))
     paid = sum((_paid_amount(p) for p in selected_payments), Decimal("0"))
+    selected_open_payments = [p for p in selected_payments if _is_open_payment(p)]
+    selected_unpaid_amount = sum((_remaining_amount(p) for p in selected_open_payments), Decimal("0"))
+    selected_unpaid_count = len(selected_open_payments)
+    selected_missing_amount_count = sum(1 for p in selected_open_payments if _requires_amount(p))
+    selected_unpaid_subtext = _subtext_with_missing(
+        selected_unpaid_count,
+        selected_missing_amount_count,
+        f"открытых платеж(ей) за {month_name(month)} {year}",
+    )
 
     all_result = await db.execute(
         select(Payment)
@@ -256,6 +265,9 @@ async def dashboard(
         "month": month,
         "total": total,
         "paid": paid,
+        "selected_unpaid_amount": selected_unpaid_amount,
+        "selected_unpaid_count": selected_unpaid_count,
+        "selected_unpaid_subtext": selected_unpaid_subtext,
         "pending_count": len(pending),
         "pending_amount": pending_amount,
         "overdue_count": overdue_count,
