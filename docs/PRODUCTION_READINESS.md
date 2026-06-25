@@ -18,6 +18,8 @@ The branch is not yet ready for an internet-facing production deployment. It can
 - Added a guard for `GET /settings` so page-level permissions are enforced while legacy routes are being refactored.
 - Fixed `/backups/settings`: it imported `parse_retention`, `parse_frequency`, `parse_time` but called missing `_parse_retention`, `_parse_frequency`, `_parse_time` functions.
 - Added a detailed manual QA plan in `docs/QA_PLAN.md`.
+- Added GitHub Actions CI in `.github/workflows/ci.yml`, `pytest.ini` and `docs/CI_SETUP.md`.
+- Confirmed CI completed successfully after workflow setup.
 - Kept the earlier CSRF fixes for urlencoded and multipart form submissions.
 
 ## Remaining blockers before production
@@ -30,7 +32,6 @@ The branch is not yet ready for an internet-facing production deployment. It can
 4. Add automated tests for page permissions, especially `/settings`, admin-only user management and contractor/payment mutations.
 5. Run backup/restore QA on a real Docker volume with an existing SQLite database.
 6. Verify restore rollback behavior when recovery fails after the safety backup is created.
-7. Add CI that runs syntax checks, unit tests and at least a minimal app import test.
 
 ### P1 — should fix before public deployment
 
@@ -42,13 +43,14 @@ The branch is not yet ready for an internet-facing production deployment. It can
 6. Add security headers in nginx or FastAPI middleware: HSTS behind HTTPS, CSP, X-Frame-Options, Referrer-Policy.
 7. Validate uploaded receipt MIME/content in addition to extension and size.
 
-## CI files
+## CI status
 
-The CI workflow could not be committed by the connector safety filter during this session. Add the generated files manually from the provided `ci_files_for_project.zip` archive:
+CI is active and currently covers:
 
-- `.github/workflows/ci.yml`
-- `pytest.ini`
-- `docs/CI_SETUP.md`
+- dependency installation from `requirements.txt`;
+- syntax check with `python -m compileall app tests`;
+- minimal FastAPI app import check;
+- unit tests with `python -m pytest tests/ -v`.
 
 ## Manual QA checklist
 
