@@ -27,25 +27,25 @@
     </div>
 
     <div class="toolbar">
-        <select class="select-custom" onchange="location.href='/history?year=' + this.value">
+        <select class="select-custom" onchange="updateHistoryFilter('year', this.value)">
             <option value="">Все годы</option>
             {% for y in years %}
             <option value="{{ y }}" {% if selected_year == y %}selected{% endif %}>{{ y }}</option>
             {% endfor %}
         </select>
-        <select class="select-custom" onchange="location.href='/history?year={% if selected_year %}{{ selected_year }}{% else %}{% endif %}&month=' + this.value">
+        <select class="select-custom" onchange="updateHistoryFilter('month', this.value)">
             <option value="">Все месяцы</option>
             {% for m in range(1, 13) %}
             <option value="{{ m }}" {% if selected_month == m %}selected{% endif %}>{{ month_name(m) }}</option>
             {% endfor %}
         </select>
-        <select class="select-custom" onchange="location.href='/history?contractor_id=' + this.value">
+        <select class="select-custom" onchange="updateHistoryFilter('contractor_id', this.value)">
             <option value="">Все подрядчики</option>
             {% for c in contractors %}
             <option value="{{ c.id }}" {% if selected_contractor == c.id %}selected{% endif %}>{{ c.name }}</option>
             {% endfor %}
         </select>
-        <select class="select-custom" onchange="location.href='/history?status_filter=' + this.value">
+        <select class="select-custom" onchange="updateHistoryFilter('status_filter', this.value)">
             <option value="all">Все статусы</option>
             <option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>Ожидает</option>
             <option value="paid" {% if status_filter == 'paid' %}selected{% endif %}>Оплачено</option>
@@ -89,4 +89,18 @@
         </table>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function updateHistoryFilter(key, value) {
+    const params = new URLSearchParams(window.location.search);
+    if (!value || value === 'all') {
+        params.delete(key);
+    } else {
+        params.set(key, value);
+    }
+    window.location.href = '/history' + (params.toString() ? '?' + params.toString() : '');
+}
+</script>
 {% endblock %}
