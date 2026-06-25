@@ -75,6 +75,15 @@ async def _save_backup_settings(db: AsyncSession, retention_count: int, frequenc
     await db.commit()
 
 
+async def _reschedule_auto_backup() -> None:
+    """Refresh the in-memory scheduler after backup settings are changed."""
+    try:
+        from app.scheduler import _schedule_backup_job
+        await _schedule_backup_job()
+    except Exception:
+        logger.exception("Could not reschedule auto-backup after settings update")
+
+
 async def _require_admin(request: Request, db: AsyncSession):
     current_user = await get_current_user(request, db)
     if not current_user:
@@ -124,6 +133,7 @@ async def save_backup_settings(
     parsed_time = parse_time(backup_time)
     await _save_backup_settings(db, parsed_retention, parsed_frequency, parsed_time)
     await run_in_threadpool(cleanup_old_backups, parsed_retention)
+    await _reschedule_auto_backup()
     return RedirectResponse(url="/backups?success=settings_saved", status_code=303)
 
 
