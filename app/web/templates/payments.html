@@ -5,17 +5,18 @@
 <nav class="navbar-custom">
     <div class="brand">🏠 Мой Дом</div>
     <div class="nav-links">
-        <button class="nav-link-custom" onclick="location.href='/'">📊 Дашборд</button>
-        <button class="nav-link-custom active" onclick="location.href='/payments'">💳 Платежи</button>
-        <button class="nav-link-custom" onclick="location.href='/history'">📜 История</button>
-        <button class="nav-link-custom" onclick="location.href='/contractors'">🏢 Подрядчики</button>
-        <button class="nav-link-custom" onclick="location.href='/analytics'">📈 Аналитика</button>
-        <button class="nav-link-custom" onclick="location.href='/settings'">⚙️ Настройки</button>
+        <a class="nav-link-custom" href="/">📊 Дашборд</a>
+        <a class="nav-link-custom active" href="/payments">💳 Платежи</a>
+        <a class="nav-link-custom" href="/history">📜 История</a>
+        <a class="nav-link-custom" href="/contractors">🏢 Подрядчики</a>
+        <a class="nav-link-custom" href="/analytics">📈 Аналитика</a>
+        {% if user_role == 'admin' %}<a class="nav-link-custom" href="/backups">💾 Бекапы</a>{% endif %}
+        <a class="nav-link-custom" href="/settings">⚙️ Настройки</a>
     </div>
     <div class="user-badge">
         {{ username }}
         <button class="btn-icon" title="Переключить тему" onclick="toggleTheme()">🌓</button>
-        <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button>
+        <a class="nav-link-custom" href="/logout" style="margin-left:8px;padding:4px 10px;">🚪</a>
     </div>
 </nav>
 
@@ -113,8 +114,8 @@
                 </select>
             </div>
             <div class="form-group">
-                <label>Сумма начисления (₽, используйте точку или запятую: 3200.50)</label>
-                <input type="text" name="amount" class="input-custom" placeholder="3200.50" required>
+                <label>Сумма начисления (₽, можно оставить пустой для переменного платежа без начисления)</label>
+                <input type="text" name="amount" class="input-custom" placeholder="3200.50">
             </div>
             <div class="form-group">
                 <label>Статус при создании</label>
