@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Request, Depends
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,7 +52,7 @@ def _list_backup_files() -> list[dict]:
         stat = path.stat()
         files.append({
             "name": path.name,
-            "path": f"backups/{path.name}",
+            "download_url": f"/backups/download/{path.name}",
             "size_bytes": stat.st_size,
             "created_at": datetime.fromtimestamp(stat.st_mtime),
         })
@@ -66,6 +66,18 @@ def _format_size(size_bytes: int) -> str:
             return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} B"
         size /= 1024
     return f"{size_bytes} B"
+
+
+def _safe_backup_path(filename: str) -> Path | None:
+    """Return a backup path only for expected archive filenames."""
+    if "/" in filename or ".." in filename:
+        return None
+    if not filename.startswith("zhkh-data-backup-") or not filename.endswith(".tar.gz"):
+        return None
+    path = BACKUP_DIR / filename
+    if not path.exists() or not path.is_file():
+        return None
+    return path
 
 
 async def _require_admin(request: Request, db: AsyncSession):
@@ -129,3 +141,16 @@ async def create_backup(request: Request, db: AsyncSession = Depends(get_db)):
         ))
         await db.commit()
         return RedirectResponse(url="/backups?error=backup_failed", status_code=303)
+
+
+@router.get("/backups/download/{filename}")
+async def download_backup(filename: str, request: Request, db: AsyncSession = Depends(get_db)):
+    _, redirect = await _require_admin(request, db)
+    if redirect:
+        return redirect
+
+    path = _safe_backup_path(filename)
+    if not path:
+        return RedirectResponse(url="/backups?error=backup_not_found", status_code=303)
+
+    return FileResponse(path=path, filename=filename, media_type="application/gzip")
