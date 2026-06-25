@@ -1,7 +1,7 @@
 """
 CSRF protection — cookie-based double-submit token.
 
-A per-session token is stored in an httponly cookie and must be present
+A per-session token is stored in a cookie and must be present
 in a hidden form field ``_csrf`` on every POST/PUT/PATCH/DELETE request.
 AJAX requests must include the header ``X-CSRF-Token``.
 
@@ -12,6 +12,7 @@ import hmac
 import secrets
 import logging
 from typing import Optional
+from urllib.parse import parse_qs
 
 from fastapi import Request
 from fastapi.responses import RedirectResponse
@@ -34,6 +35,60 @@ def _make_token() -> str:
 
 def _constant_time_compare(a: str, b: str) -> bool:
     return hmac.compare_digest(a.encode(), b.encode())
+
+
+def _extract_urlencoded_token(body: bytes) -> Optional[str]:
+    """Extract the CSRF token from an application/x-www-form-urlencoded body."""
+    text = body.decode("utf-8", errors="replace")
+    values = parse_qs(text, keep_blank_values=True).get(CSRF_FIELD)
+    if not values:
+        return None
+    return values[0]
+
+
+def _extract_multipart_token(body: bytes) -> Optional[str]:
+    """Extract the CSRF token from a multipart/form-data body without consuming form parsing."""
+    text = body.decode("utf-8", errors="replace")
+    markers = (f'name="{CSRF_FIELD}"', f"name='{CSRF_FIELD}'")
+
+    for marker in markers:
+        marker_index = text.find(marker)
+        if marker_index == -1:
+            continue
+
+        value_start = text.find("\r\n\r\n", marker_index)
+        separator_len = 4
+        if value_start == -1:
+            value_start = text.find("\n\n", marker_index)
+            separator_len = 2
+        if value_start == -1:
+            continue
+
+        value_start += separator_len
+        value_end = text.find("\r\n", value_start)
+        if value_end == -1:
+            value_end = text.find("\n", value_start)
+        if value_end == -1:
+            value_end = len(text)
+
+        return text[value_start:value_end].strip()
+
+    return None
+
+
+def _extract_body_token(body: bytes, content_type: str) -> Optional[str]:
+    """Extract the CSRF token from supported request body encodings."""
+    if not body:
+        return None
+
+    normalized_content_type = (content_type or "").lower()
+    try:
+        if "multipart/form-data" in normalized_content_type:
+            return _extract_multipart_token(body)
+        return _extract_urlencoded_token(body)
+    except Exception:
+        logger.debug("Could not parse CSRF token from request body", exc_info=True)
+        return None
 
 
 class CsrfMiddleware(BaseHTTPMiddleware):
@@ -60,7 +115,7 @@ class CsrfMiddleware(BaseHTTPMiddleware):
                 response.set_cookie(
                     key=CSRF_COOKIE,
                     value=_make_token(),
-                    httponly=True,
+                    httponly=False,
                     samesite="lax",
                     max_age=7 * 24 * 60 * 60,
                 )
@@ -72,22 +127,8 @@ class CsrfMiddleware(BaseHTTPMiddleware):
             logger.warning("CSRF token missing (cookie) — %s %s", method, path)
             return RedirectResponse(url="/?csrf=1", status_code=403)
 
-        # Try form field first, then header
         body: Optional[bytes] = await request.body()
-        form_token = None
-
-        if body:
-            # Decode form data to look for _csrf field
-            try:
-                text = body.decode("utf-8", errors="replace")
-                for part in text.split("&"):
-                    if part.startswith(f"{CSRF_FIELD}="):
-                        import urllib.parse
-                        form_token = urllib.parse.unquote_plus(part.split("=", 1)[1])
-                        break
-            except Exception:
-                pass
-
+        form_token = _extract_body_token(body or b"", request.headers.get("content-type", ""))
         header_token = request.headers.get(CSRF_HEADER)
 
         submitted_token = form_token or header_token
@@ -99,7 +140,7 @@ class CsrfMiddleware(BaseHTTPMiddleware):
             logger.warning("CSRF token mismatch — %s %s", method, path)
             return RedirectResponse(url="/?csrf=1", status_code=403)
 
-        # Reconstruct request body so downstream Form() parsing still works
+        # Reconstruct request body so downstream Form()/File() parsing still works
         request._body = body
 
         return await call_next(request)
