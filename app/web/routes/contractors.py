@@ -2,6 +2,8 @@
 Contractors route — CRUD for the contractor directory.
 """
 
+from decimal import Decimal, InvalidOperation
+
 from fastapi import APIRouter, Request, Form, Depends
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -34,6 +36,23 @@ def _user_context(current_user):
         "username": current_user.username,
         "user_role": current_user.role,
     }
+
+
+def _parse_fixed_amount(payment_type: str, fixed_amount: str) -> Decimal | None:
+    """Parse fixed contractor amount without float rounding."""
+    if payment_type == "variable":
+        return None
+
+    raw_value = (fixed_amount or "0").replace(",", ".").strip()
+    try:
+        parsed = Decimal(raw_value or "0")
+    except InvalidOperation:
+        raise ValueError("Некорректная сумма")
+
+    if parsed < 0:
+        raise ValueError("Сумма не может быть отрицательной")
+
+    return parsed.quantize(Decimal("0.01"))
 
 
 @router.get("/contractors")
@@ -81,12 +100,17 @@ async def add_contractor(
     if due_day < 1 or due_day > 31:
         return RedirectResponse(url="/contractors?error=Некорректный+день+оплаты", status_code=303)
 
+    try:
+        parsed_fixed_amount = _parse_fixed_amount(payment_type, fixed_amount)
+    except ValueError as exc:
+        return RedirectResponse(url=f"/contractors?error={str(exc).replace(' ', '+')}", status_code=303)
+
     contractor = Contractor(
         id=generate_uuid(),
         name=name.strip(),
         slug=slug.lower().strip(),
         payment_type=payment_type,
-        fixed_amount=float(fixed_amount.replace(",", ".").strip()) if fixed_amount else None,
+        fixed_amount=parsed_fixed_amount,
         due_day=due_day,
         account_number=account_number or None,
         description=description or None,
@@ -173,6 +197,11 @@ async def edit_contractor(
     if parsed_due_day < 1 or parsed_due_day > 31:
         return RedirectResponse(url="/contractors?error=Некорректный+день+оплаты", status_code=303)
 
+    try:
+        parsed_fixed_amount = _parse_fixed_amount(payment_type, fixed_amount)
+    except ValueError as exc:
+        return RedirectResponse(url=f"/contractors?error={str(exc).replace(' ', '+')}", status_code=303)
+
     result = await db.execute(select(Contractor).where(Contractor.id == contractor_id))
     contractor = result.scalar_one_or_none()
     if not contractor:
@@ -180,7 +209,7 @@ async def edit_contractor(
 
     contractor.name = name.strip()
     contractor.payment_type = payment_type
-    contractor.fixed_amount = float(fixed_amount.replace(",", ".").strip()) if fixed_amount else None
+    contractor.fixed_amount = parsed_fixed_amount
     contractor.due_day = parsed_due_day
     contractor.account_number = account_number or None
     contractor.description = description or None
