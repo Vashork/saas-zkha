@@ -130,23 +130,56 @@ def _safe_unpack_data_dir(archive_path: Path, target_root: Path) -> None:
                 shutil.copyfileobj(source, output)
 
 
+def _clear_directory_contents(path: Path) -> None:
+    """
+    Clear a directory without deleting the directory itself.
+
+    /app/data is normally a Docker volume mount point. Removing that mount point
+    with shutil.rmtree('/app/data') fails with 'Device or resource busy', so
+    restore must delete only children inside the directory.
+    """
+    path.mkdir(parents=True, exist_ok=True)
+    for child in path.iterdir():
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
+def _copy_directory_contents(source_dir: Path, target_dir: Path) -> None:
+    """Copy source_dir children into target_dir without replacing target_dir itself."""
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for child in source_dir.iterdir():
+        target = target_dir / child.name
+        if child.is_dir() and not child.is_symlink():
+            shutil.copytree(child, target, dirs_exist_ok=True)
+        else:
+            shutil.copy2(child, target)
+
+
 def recover_from_backup(path: Path) -> tuple[bool, str]:
     """Recover data/ from a validated backup archive."""
     valid, message = validate_backup_archive(path)
     if not valid:
         return False, message
 
-    create_local_backup()
+    try:
+        create_local_backup()
 
-    with tempfile.TemporaryDirectory() as tmp_dir_name:
-        tmp_dir = Path(tmp_dir_name)
-        _safe_unpack_data_dir(path, tmp_dir)
-        recovered_data = tmp_dir / "data"
-        if not (recovered_data / "zhkh.db").exists():
-            return False, "После распаковки не найден data/zhkh.db"
+        with tempfile.TemporaryDirectory() as tmp_dir_name:
+            tmp_dir = Path(tmp_dir_name)
+            _safe_unpack_data_dir(path, tmp_dir)
+            recovered_data = tmp_dir / "data"
+            if not (recovered_data / "zhkh.db").exists():
+                return False, "После распаковки не найден data/zhkh.db"
 
-        if DATA_DIR.exists():
-            shutil.rmtree(DATA_DIR)
-        shutil.move(str(recovered_data), str(DATA_DIR))
+            _clear_directory_contents(DATA_DIR)
+            _copy_directory_contents(recovered_data, DATA_DIR)
+    except OSError as exc:
+        logger.exception("Backup recovery filesystem error")
+        return False, f"Ошибка файловой системы при восстановлении: {exc}"
+    except Exception as exc:
+        logger.exception("Backup recovery failed")
+        return False, f"Ошибка восстановления: {exc}"
 
     return True, "ok"
