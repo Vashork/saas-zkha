@@ -55,8 +55,13 @@ def _parse_fixed_amount(payment_type: str, fixed_amount: str) -> Decimal | None:
     return parsed.quantize(Decimal("0.01"))
 
 
-def _contractor_error(message: str) -> RedirectResponse:
-    return RedirectResponse(url=f"/contractors?error={message.replace(' ', '+')}", status_code=303)
+def _contractor_error(message: str, archived: bool = False) -> RedirectResponse:
+    archive_param = "&archived=1" if archived else ""
+    return RedirectResponse(url=f"/contractors?error={message.replace(' ', '+')}{archive_param}", status_code=303)
+
+
+def _contractors_url(archived: bool = False) -> str:
+    return "/contractors?archived=1" if archived else "/contractors"
 
 
 @router.get("/contractors")
@@ -72,13 +77,19 @@ async def contractors_page(
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
 
-    result = await db.execute(select(Contractor).order_by(Contractor.name))
+    show_archived = request.query_params.get("archived") == "1"
+    result = await db.execute(
+        select(Contractor)
+        .where(Contractor.is_active == (not show_archived))
+        .order_by(Contractor.name)
+    )
     contractors = result.scalars().all()
 
     return templates.TemplateResponse("contractors.html", {
         "request": request,
         **_user_context(current_user),
         "contractors": contractors,
+        "show_archived": show_archived,
         "error": request.query_params.get("error"),
     })
 
@@ -125,12 +136,17 @@ async def add_contractor(
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        result = await db.execute(select(Contractor).order_by(Contractor.name))
+        result = await db.execute(
+            select(Contractor)
+            .where(Contractor.is_active == True)
+            .order_by(Contractor.name)
+        )
         contractors = result.scalars().all()
         return templates.TemplateResponse("contractors.html", {
             "request": request,
             **_user_context(current_user),
             "contractors": contractors,
+            "show_archived": False,
             "error": "Конфликт: подрядчик с таким именем или slug уже существует",
         })
 
@@ -152,6 +168,7 @@ async def toggle_contractor(
     if contractor:
         contractor.is_active = not contractor.is_active
         await db.commit()
+        return RedirectResponse(url=_contractors_url(archived=not contractor.is_active), status_code=303)
 
     return RedirectResponse(url="/contractors", status_code=303)
 
@@ -166,10 +183,11 @@ async def delete_contractor(
     if redirect:
         return redirect
 
+    show_archived = request.query_params.get("archived") == "1"
     result = await db.execute(select(Contractor).where(Contractor.id == contractor_id))
     contractor = result.scalar_one_or_none()
     if not contractor:
-        return RedirectResponse(url="/contractors", status_code=303)
+        return RedirectResponse(url=_contractors_url(show_archived), status_code=303)
 
     existing_payment_id = await db.scalar(
         select(Payment.id).where(Payment.contractor_id == contractor_id).limit(1)
@@ -177,12 +195,12 @@ async def delete_contractor(
     if existing_payment_id:
         contractor.is_active = False
         await db.commit()
-        return _contractor_error("У подрядчика есть платежи. Он деактивирован вместо удаления")
+        return _contractor_error("У подрядчика есть платежи. Он перенесён в архив", archived=True)
 
     await db.delete(contractor)
     await db.commit()
 
-    return RedirectResponse(url="/contractors", status_code=303)
+    return RedirectResponse(url=_contractors_url(show_archived), status_code=303)
 
 
 @router.post("/contractors/{contractor_id}/edit")
@@ -229,4 +247,4 @@ async def edit_contractor(
     contractor.description = description or None
 
     await db.commit()
-    return RedirectResponse(url="/contractors", status_code=303)
+    return RedirectResponse(url=_contractors_url(archived=not contractor.is_active), status_code=303)
