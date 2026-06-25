@@ -37,6 +37,12 @@
             </form>
             {% if user_role == 'admin' %}
             <button class="btn-custom" onclick="document.getElementById('addForm').style.display='block'">+ Добавить платеж</button>
+            <form method="post" action="/payments/cleanup-receipts" style="display:inline;" onsubmit="return confirm('Удалить файлы чеков, которые больше не привязаны ни к одному платежу?')">
+                <input type="hidden" name="year" value="{{ year }}">
+                <input type="hidden" name="month" value="{{ month }}">
+                <input type="hidden" name="status_filter" value="{{ status_filter }}">
+                <button type="submit" class="btn-secondary-custom">🧹 Очистить сиротские чеки</button>
+            </form>
             {% endif %}
         </div>
     </div>
@@ -50,6 +56,9 @@
 
     {% if error %}
     <div class="alert-error">{{ error }}</div>
+    {% endif %}
+    {% if success == 'orphan_receipts_removed' %}
+    <div class="alert-success">🧹 Очистка чеков завершена. Удалено файлов: {{ removed_receipts }}.</div>
     {% endif %}
 
     <div class="card-custom">
