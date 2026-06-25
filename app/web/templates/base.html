@@ -18,6 +18,31 @@
 <body>
 {% block content %}{% endblock %}
 <script src="/static/js/main.js"></script>
+<script>
+(function() {
+    var role = '{{ user_role | default("") }}';
+    if (role !== 'admin') return;
+    var nav = document.querySelector('.nav-links');
+    if (!nav) return;
+    var hasBackups = Array.from(nav.querySelectorAll('a,button')).some(function(item) {
+        return (item.getAttribute('href') === '/backups') || (item.getAttribute('onclick') || '').indexOf('/backups') !== -1;
+    });
+    if (hasBackups) return;
+    var analyticsItem = Array.from(nav.querySelectorAll('a,button')).find(function(item) {
+        return (item.getAttribute('href') === '/analytics') || (item.getAttribute('onclick') || '').indexOf('/analytics') !== -1;
+    });
+    var backupButton = document.createElement('button');
+    backupButton.className = 'nav-link-custom';
+    backupButton.type = 'button';
+    backupButton.textContent = '💾 Бекапы';
+    backupButton.onclick = function() { location.href = '/backups'; };
+    if (analyticsItem && analyticsItem.nextSibling) {
+        nav.insertBefore(backupButton, analyticsItem.nextSibling);
+    } else {
+        nav.appendChild(backupButton);
+    }
+})();
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>
