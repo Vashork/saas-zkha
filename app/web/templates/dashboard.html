@@ -21,6 +21,10 @@
 </nav>
 
 <div class="container-main">
+    {% if request.query_params.get('denied') %}
+    <div class="alert-error">⛔ Нет доступа к этой странице. Обратитесь к администратору, если доступ нужен.</div>
+    {% endif %}
+
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:24px;">
         <h1 class="page-title" style="margin-bottom:0;">Добро пожаловать, {{ username }}!</h1>
         <form method="get" action="/" style="display:flex;gap:8px;align-items:center;">
