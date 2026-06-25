@@ -14,7 +14,7 @@ The branch is not yet ready for an internet-facing production deployment. It can
 
 - Added shared template configuration in `app/web/template_engine.py`.
 - Moved route template globals wiring out of ad-hoc inline setup in `app/web/main.py`.
-- Migrated `dashboard`, `history`, `analytics` and `backups` routes to use the shared template engine directly.
+- Migrated `dashboard`, `history`, `analytics`, `backups` and `contractors` routes to use the shared template engine directly.
 - Added a guard for `GET /settings` so page-level permissions are enforced while legacy routes are being refactored.
 - Fixed `/backups/settings`: it imported `parse_retention`, `parse_frequency`, `parse_time` but called missing `_parse_retention`, `_parse_frequency`, `_parse_time` functions.
 - Added a detailed manual QA plan in `docs/QA_PLAN.md`.
@@ -24,7 +24,7 @@ The branch is not yet ready for an internet-facing production deployment. It can
 
 ### P0 — must fix before production
 
-1. Finish route template refactor for remaining legacy modules: `auth`, `payments`, `contractors`.
+1. Finish route template refactor for remaining legacy modules: `auth`, `payments`.
 2. Remove the temporary `payments.payment_color_class = payment_color_class` compatibility assignment from `app/web/main.py` by refactoring `payments.py` directly.
 3. Add automated tests for CSRF on normal forms, multipart forms and AJAX theme save.
 4. Add automated tests for page permissions, especially `/settings`, admin-only user management and contractor/payment mutations.
@@ -41,6 +41,14 @@ The branch is not yet ready for an internet-facing production deployment. It can
 5. Add health checks that validate database access, not only HTTP process liveness.
 6. Add security headers in nginx or FastAPI middleware: HSTS behind HTTPS, CSP, X-Frame-Options, Referrer-Policy.
 7. Validate uploaded receipt MIME/content in addition to extension and size.
+
+## CI files
+
+The CI workflow could not be committed by the connector safety filter during this session. Add the generated files manually from the provided `ci_files_for_project.zip` archive:
+
+- `.github/workflows/ci.yml`
+- `pytest.ini`
+- `docs/CI_SETUP.md`
 
 ## Manual QA checklist
 
