@@ -21,12 +21,22 @@
 </nav>
 
 <div class="container-main">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
-        <h1 class="page-title" style="margin-bottom:0;">🏢 Справочник подрядчиков</h1>
-        {% if user_role == 'admin' %}
-        <button class="btn-custom" onclick="document.getElementById('addModal').style.display='flex'">+ Добавить</button>
-        {% endif %}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;flex-wrap:wrap;">
+        <h1 class="page-title" style="margin-bottom:0;">🏢 {{ 'Архив подрядчиков' if show_archived else 'Справочник подрядчиков' }}</h1>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <a class="btn-secondary-custom" href="/contractors">Активные</a>
+            <a class="btn-secondary-custom" href="/contractors?archived=1">Архив</a>
+            {% if user_role == 'admin' and not show_archived %}
+            <button class="btn-custom" onclick="document.getElementById('addModal').style.display='flex'">+ Добавить</button>
+            {% endif %}
+        </div>
     </div>
+
+    {% if show_archived %}
+    <div class="card-custom" style="background:var(--accent-bg);margin-bottom:16px;">
+        <p style="margin:0;color:var(--text);font-size:14px;">Здесь показаны неактивные подрядчики. Они скрыты из основного списка, но история платежей по ним сохраняется.</p>
+    </div>
+    {% endif %}
 
     <div class="card-custom">
         <table class="table-custom">
@@ -42,22 +52,24 @@
                 <td>{% if c.fixed_amount %}{{ "{:,.0f}".format(c.fixed_amount) }} ₽{% else %}—{% endif %}</td>
                 <td>{{ c.due_day }}-е число</td>
                 <td>{{ c.account_number or '—' }}</td>
-                <td><span class="badge-status badge-{{ 'paid' if c.is_active else 'overdue' }}">{{ 'Активен' if c.is_active else 'Неактивен' }}</span></td>
+                <td><span class="badge-status badge-{{ 'paid' if c.is_active else 'overdue' }}">{{ 'Активен' if c.is_active else 'Архив' }}</span></td>
                 <td>
                     {% if user_role == 'admin' %}
                     <form method="post" action="/contractors/{{ c.id }}/toggle" style="display:inline;">
-                        <button type="submit" class="btn-icon" title="{{ 'Деактивировать' if c.is_active else 'Активировать' }}">{{ '⏸' if c.is_active else '▶' }}</button>
+                        <button type="submit" class="btn-icon" title="{{ 'Перенести в архив' if c.is_active else 'Вернуть из архива' }}">{{ '📦' if c.is_active else '↩️' }}</button>
                     </form>
                     <button class="btn-icon" title="Редактировать" onclick="openContractorEdit('{{ c.id }}', '{{ c.name }}', '{{ c.payment_type }}', '{{ c.fixed_amount or '' }}', '{{ c.due_day }}', '{{ c.account_number or '' }}', '{{ c.description or '' }}')">✏️</button>
-                    <form method="post" action="/contractors/{{ c.id }}/delete" style="display:inline;" onsubmit="return confirm('Удалить подрядчика?')">
-                        <button type="submit" class="btn-icon" title="Удалить">🗑</button>
+                    {% if not show_archived %}
+                    <form method="post" action="/contractors/{{ c.id }}/delete" style="display:inline;" onsubmit="return confirm('Если у подрядчика есть платежи, он будет перенесён в архив. Если платежей нет — будет удалён. Продолжить?')">
+                        <button type="submit" class="btn-icon" title="Удалить или архивировать">🗑</button>
                     </form>
+                    {% endif %}
                     {% endif %}
                 </td>
             </tr>
             {% endfor %}
             {% if not contractors %}
-            <tr><td colspan="8" style="text-align:center;color:var(--text-muted);">Нет подрядчиков</td></tr>
+            <tr><td colspan="8" style="text-align:center;color:var(--text-muted);">{{ 'Архив пуст' if show_archived else 'Нет активных подрядчиков' }}</td></tr>
             {% endif %}
             </tbody>
         </table>
