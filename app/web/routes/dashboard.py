@@ -184,22 +184,28 @@ async def dashboard(
     today = date.today()
     year, month = _parse_selected_period(request, today)
 
-    result = await db.execute(
+    selected_result = await db.execute(
         select(Payment)
         .options(joinedload(Payment.contractor))
         .where(Payment.year == year, Payment.month == month)
     )
-    payments = result.scalars().all()
+    selected_payments = selected_result.scalars().all()
 
-    total = sum((_planned_amount(p) for p in payments), Decimal("0"))
-    paid = sum((_paid_amount(p) for p in payments), Decimal("0"))
+    total = sum((_planned_amount(p) for p in selected_payments), Decimal("0"))
+    paid = sum((_paid_amount(p) for p in selected_payments), Decimal("0"))
+
+    all_result = await db.execute(
+        select(Payment)
+        .options(joinedload(Payment.contractor))
+        .order_by(Payment.due_date.asc())
+    )
+    all_payments = all_result.scalars().all()
+    all_open_payments = [p for p in all_payments if _is_open_payment(p)]
 
     pending = []
     overdue = []
-    for p in payments:
+    for p in all_open_payments:
         eff = _effective_status(p)
-        if eff == "paid":
-            continue
         if eff == "overdue":
             overdue.append(p)
         else:
@@ -211,24 +217,17 @@ async def dashboard(
     unpaid_count = len(pending) + len(overdue)
     unpaid_missing_amount_count = sum(1 for p in pending + overdue if _requires_amount(p))
     overdue_missing_amount_count = sum(1 for p in overdue if _requires_amount(p))
-    unpaid_subtext = _subtext_with_missing(unpaid_count, unpaid_missing_amount_count, "открытых платеж(ей)")
-    overdue_subtext = _subtext_with_missing(overdue_count := len(overdue), overdue_missing_amount_count, "просроченных платеж(ей)")
-
-    result_upcoming = await db.execute(
-        select(Payment)
-        .options(joinedload(Payment.contractor))
-        .order_by(Payment.due_date.asc())
-    )
-    all_payments = result_upcoming.scalars().all()
-    all_unpaid = [p for p in all_payments if _is_open_payment(p)]
+    unpaid_subtext = _subtext_with_missing(unpaid_count, unpaid_missing_amount_count, "открытых платеж(ей) по всем месяцам")
+    overdue_count = len(overdue)
+    overdue_subtext = _subtext_with_missing(overdue_count, overdue_missing_amount_count, "просроченных платеж(ей) по всем месяцам")
 
     unpaid_overdue = sorted(
-        [p for p in all_unpaid if _effective_status(p) == "overdue"],
+        overdue,
         key=lambda p: p.due_date or date.max,
         reverse=True,
     )
     unpaid_pending = sorted(
-        [p for p in all_unpaid if _effective_status(p) != "overdue"],
+        pending,
         key=lambda p: p.due_date or date.max,
     )
     upcoming_all = (unpaid_overdue + unpaid_pending)[:15]
