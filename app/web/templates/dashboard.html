@@ -10,6 +10,7 @@
         <a class="nav-link-custom" href="/history">📜 История</a>
         <a class="nav-link-custom" href="/contractors">🏢 Подрядчики</a>
         <a class="nav-link-custom" href="/analytics">📈 Аналитика</a>
+        {% if user_role == 'admin' %}<a class="nav-link-custom" href="/backups">💾 Бекапы</a>{% endif %}
         <a class="nav-link-custom" href="/settings">⚙️ Настройки</a>
     </div>
     <div class="user-badge">
@@ -40,16 +41,16 @@
             <div class="stat-value">{{ "{:,.0f}".format(total) }} ₽</div>
         </div>
         <div class="stat-card paid">
-            <div class="stat-label">Оплачено</div>
+            <div class="stat-label">Оплачено за {{ month_name }} {{ year }}</div>
             <div class="stat-value">{{ "{:,.0f}".format(paid) }} ₽</div>
         </div>
         <div class="stat-card soon">
-            <div class="stat-label">Всего к оплате</div>
+            <div class="stat-label">Всего к оплате по всем месяцам</div>
             <div class="stat-value">{{ "{:,.0f}".format(unpaid_amount) }} ₽</div>
             <div class="stat-sub">{{ unpaid_subtext }}</div>
         </div>
         <div class="stat-card overdue">
-            <div class="stat-label">Из них просрочено</div>
+            <div class="stat-label">Просрочено по всем месяцам</div>
             <div class="stat-value">{{ "{:,.0f}".format(overdue_amount or 0) }} ₽</div>
             <div class="stat-sub">{{ overdue_subtext }}</div>
         </div>
