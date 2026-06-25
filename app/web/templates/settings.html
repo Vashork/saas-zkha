@@ -105,6 +105,9 @@
                     {% endif %}
                     <button class="btn-icon" title="Права" onclick="openEditUserModal({{ u.id }}, '{{ u.page_permissions or '' }}', '{{ u.role }}')">⚙️</button>
                     <button class="btn-icon" title="Сменить пароль" onclick="openChangePassModal({{ u.id }})">🔑</button>
+                    {% if u.role != 'admin' %}
+                    <form method="post" action="/settings/users/{{ u.id }}/delete" style="display:inline;" onsubmit="return confirm('Удалить {{ u.username }}?')"><button type="submit" class="btn-icon" title="Удалить">🗑️</button></form>
+                    {% endif %}
                     {% endif %}
                 </td>
             </tr>
