@@ -5,19 +5,20 @@
 <nav class="navbar-custom">
     <div class="brand">🏠 Мой Дом</div>
     <div class="nav-links">
-        <button class="nav-link-custom" onclick="location.href='/'">📊 Дашборд</button>
-        <button class="nav-link-custom" onclick="location.href='/payments'">💳 Платежи</button>
-        <button class="nav-link-custom" onclick="location.href='/history'">📜 История</button>
-        <button class="nav-link-custom" onclick="location.href='/contractors'">🏢 Подрядчики</button>
-        <button class="nav-link-custom" onclick="location.href='/analytics'">📈 Аналитика</button>
-        <button class="nav-link-custom active" onclick="location.href='/settings'">⚙️ Настройки</button>
+        <a class="nav-link-custom" href="/">📊 Дашборд</a>
+        <a class="nav-link-custom" href="/payments">💳 Платежи</a>
+        <a class="nav-link-custom" href="/history">📜 История</a>
+        <a class="nav-link-custom" href="/contractors">🏢 Подрядчики</a>
+        <a class="nav-link-custom" href="/analytics">📈 Аналитика</a>
+        {% if user_role == 'admin' %}<a class="nav-link-custom" href="/backups">💾 Бекапы</a>{% endif %}
+        <a class="nav-link-custom active" href="/settings">⚙️ Настройки</a>
     </div>
     <div class="user-badge">
         {{ username }}
         <button class="btn-icon" title="Сменить имя" onclick="document.getElementById('changeNameModal').style.display='flex'">✏️</button>
         <button class="btn-icon" title="Сменить пароль" onclick="document.getElementById('changePassModal').style.display='flex'">🔑</button>
         <button class="btn-icon" title="Переключить тему" onclick="toggleTheme()">🌓</button>
-        <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button>
+        <a class="nav-link-custom" href="/logout" style="margin-left:8px;padding:4px 10px;">🚪</a>
     </div>
 </nav>
 
@@ -104,7 +105,6 @@
                     {% endif %}
                     <button class="btn-icon" title="Права" onclick="openEditUserModal({{ u.id }}, '{{ u.page_permissions or '' }}', '{{ u.role }}')">⚙️</button>
                     <button class="btn-icon" title="Сменить пароль" onclick="openChangePassModal({{ u.id }})">🔑</button>
-                    <form method="post" action="/settings/users/{{ u.id }}/delete" style="display:inline;" onsubmit="return confirm('Безвозвратно удалить {{ u.username }}?')"><button type="submit" class="btn-icon" title="Удалить">🗑️</button></form>
                     {% endif %}
                 </td>
             </tr>
