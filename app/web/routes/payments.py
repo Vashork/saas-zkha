@@ -227,6 +227,17 @@ def _parse_amount(raw: str) -> Decimal:
     return Decimal(value) if value else Decimal("0")
 
 
+def _new_payment_amount(contractor: Contractor, raw_amount: str, status: str) -> Decimal | None:
+    """Parse amount for manual payment creation and allow blank variable bills."""
+    value = (raw_amount or "").strip()
+    if not value:
+        if contractor.payment_type == "variable" and status != "paid":
+            return None
+        if contractor.payment_type == "fixed" and contractor.fixed_amount is not None:
+            return _as_decimal(contractor.fixed_amount)
+    return _parse_amount(raw_amount)
+
+
 def _redirect_to_period(year: int, month: int, status_filter: str = "") -> RedirectResponse:
     return RedirectResponse(url=_period_url(year, month, status_filter), status_code=303)
 
@@ -259,7 +270,7 @@ async def add_payment(
     request: Request,
     db: AsyncSession = Depends(get_db),
     contractor_id: str = Form(...),
-    amount: str = Form("0"),
+    amount: str = Form(""),
     status: str = Form("pending"),
     paid_date_str: str = Form(""),
     year: int = Form(None),
@@ -278,10 +289,31 @@ async def add_payment(
         ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Некорректный статус"})
         return templates.TemplateResponse("payments.html", ctx)
 
+    existing = await db.execute(
+        select(Payment).where(
+            Payment.contractor_id == contractor_id,
+            Payment.year == selected_year,
+            Payment.month == selected_month,
+        )
+    )
+    if existing.scalar_one_or_none():
+        ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Платеж за этот месяц уже существует"})
+        return templates.TemplateResponse("payments.html", ctx)
+
+    contractor_result = await db.execute(select(Contractor).where(Contractor.id == contractor_id))
+    contractor = contractor_result.scalar_one_or_none()
+    if not contractor:
+        ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Подрядчик не найден"})
+        return templates.TemplateResponse("payments.html", ctx)
+
     try:
-        paid_amt = _parse_amount(amount)
+        paid_amt = _new_payment_amount(contractor, amount, status)
     except (InvalidOperation, ValueError):
         ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Некорректная сумма"})
+        return templates.TemplateResponse("payments.html", ctx)
+
+    if status == "paid" and paid_amt is None:
+        ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Для оплаты нужно указать сумму начисления"})
         return templates.TemplateResponse("payments.html", ctx)
 
     receipt_path = None
@@ -310,23 +342,6 @@ async def add_payment(
         except ValueError:
             ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Некорректная дата оплаты"})
             return templates.TemplateResponse("payments.html", ctx)
-
-    existing = await db.execute(
-        select(Payment).where(
-            Payment.contractor_id == contractor_id,
-            Payment.year == selected_year,
-            Payment.month == selected_month,
-        )
-    )
-    if existing.scalar_one_or_none():
-        ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Платеж за этот месяц уже существует"})
-        return templates.TemplateResponse("payments.html", ctx)
-
-    contractor_result = await db.execute(select(Contractor).where(Contractor.id == contractor_id))
-    contractor = contractor_result.scalar_one_or_none()
-    if not contractor:
-        ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Подрядчик не найден"})
-        return templates.TemplateResponse("payments.html", ctx)
 
     due_day = min(contractor.due_day, 28)
     due_date = date(selected_year, selected_month, due_day)
