@@ -7,7 +7,6 @@ import io
 
 from fastapi import APIRouter, Request, Depends, Query
 from fastapi.responses import RedirectResponse, Response
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload
@@ -26,9 +25,9 @@ from app.web.routes.payment_helpers import (
     _status_css_class,
     _filter_by_effective_status,
 )
+from app.web.template_engine import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/web/templates")
 
 
 def _history_query(year: int | None, month: int | None, contractor_id: str = ""):
