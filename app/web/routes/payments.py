@@ -224,6 +224,36 @@ async def _page_context(
     return ctx
 
 
+async def _upload_receipt(
+    receipt: UploadFile,
+    year: int,
+    month: int,
+) -> tuple[str | None, str | None]:
+    """Validate and save an uploaded receipt file.
+
+    Returns (receipt_path, error_message).
+    If no file or valid upload, error_message is None.
+    """
+    if not receipt or not receipt.filename:
+        return None, None
+
+    if not is_allowed_file(receipt.filename):
+        return None, "Недопустимый формат файла (PDF, JPG, PNG)"
+
+    content = await receipt.read()
+    if len(content) > MAX_FILE_SIZE:
+        return None, "Файл слишком большой (макс. 10MB)"
+
+    upload_dir = get_upload_path(year, month, UPLOAD_DIR)
+    ext = os.path.splitext(receipt.filename)[1]
+    filename = f"{uuid.uuid4()}{ext}"
+    filepath = os.path.join(upload_dir, filename)
+    with open(filepath, "wb") as f:
+        f.write(content)
+
+    return f"{year}/{month:02d}/{filename}", None
+
+
 def _parse_amount(raw: str) -> Decimal:
     value = (raw or "0").replace(",", ".").strip()
     return Decimal(value) if value else Decimal("0")
@@ -372,22 +402,10 @@ async def add_payment(
 
     receipt_path = None
     if receipt and receipt.filename:
-        if not is_allowed_file(receipt.filename):
-            ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Недопустимый формат файла (PDF, JPG, PNG)"})
+        receipt_path, upload_err = await _upload_receipt(receipt, selected_year, selected_month)
+        if upload_err:
+            ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": upload_err})
             return templates.TemplateResponse("payments.html", ctx)
-
-        content = await receipt.read()
-        if len(content) > MAX_FILE_SIZE:
-            ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Файл слишком большой (макс. 10MB)"})
-            return templates.TemplateResponse("payments.html", ctx)
-
-        upload_dir = get_upload_path(selected_year, selected_month, UPLOAD_DIR)
-        ext = os.path.splitext(receipt.filename)[1]
-        filename = f"{uuid.uuid4()}{ext}"
-        filepath = os.path.join(upload_dir, filename)
-        with open(filepath, "wb") as f:
-            f.write(content)
-        receipt_path = f"{selected_year}/{selected_month:02d}/{filename}"
 
     paid_date = None
     if paid_date_str:
@@ -482,26 +500,12 @@ async def edit_payment(
             return templates.TemplateResponse("payments.html", ctx)
 
     if receipt and receipt.filename:
-        if not is_allowed_file(receipt.filename):
-            ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Недопустимый формат файла (PDF, JPG, PNG)"})
+        new_receipt_path, upload_err = await _upload_receipt(receipt, payment.year, payment.month)
+        if upload_err:
+            ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": upload_err})
             return templates.TemplateResponse("payments.html", ctx)
-        try:
-            content = await receipt.read()
-            if len(content) > MAX_FILE_SIZE:
-                ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Файл слишком большой (макс. 10MB)"})
-                return templates.TemplateResponse("payments.html", ctx)
-            upload_dir = get_upload_path(payment.year, payment.month, UPLOAD_DIR)
-            ext = os.path.splitext(receipt.filename)[1]
-            filename = f"{uuid.uuid4()}{ext}"
-            filepath = os.path.join(upload_dir, filename)
-            with open(filepath, "wb") as f:
-                f.write(content)
-            _remove_receipt_file(payment.receipt_file)
-            payment.receipt_file = f"{payment.year}/{payment.month:02d}/{filename}"
-        except Exception as e:
-            logger.error("Receipt upload error: %s", e)
-            ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Ошибка загрузки файла"})
-            return templates.TemplateResponse("payments.html", ctx)
+        _remove_receipt_file(payment.receipt_file)
+        payment.receipt_file = new_receipt_path
 
     await db.commit()
     return _redirect_to_period(payment.year, payment.month)

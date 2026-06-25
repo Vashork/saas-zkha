@@ -22,7 +22,7 @@ from app.backup_service import (
     safe_backup_path,
     validate_backup_archive,
 )
-from app.database import get_db, engine
+from app.database import get_db, async_session_factory
 from app.models import BackupHistory, Setting
 from app.web.routes.auth import get_current_user
 
@@ -223,13 +223,16 @@ async def upload_and_restore_backup(
         logger.warning("Uploaded backup validation failed: %s", message)
         return RedirectResponse(url="/backups?error=backup_invalid", status_code=303)
 
+    # Close current session and recreate DB from backup
     await db.close()
-    await engine.dispose()
     ok, restore_message = await run_in_threadpool(recover_from_backup, upload_path)
     if not ok:
         logger.warning("Uploaded backup recovery failed: %s", restore_message)
         return RedirectResponse(url="/backups?error=restore_failed", status_code=303)
 
+    # After restore, re-initialize tables and redirect
+    from app.database import init_db
+    await init_db()
     return RedirectResponse(url="/backups?success=restore_completed", status_code=303)
 
 
@@ -243,13 +246,16 @@ async def restore_backup(filename: str, request: Request, db: AsyncSession = Dep
     if not path:
         return RedirectResponse(url="/backups?error=backup_not_found", status_code=303)
 
+    # Close current session and recreate DB from backup
     await db.close()
-    await engine.dispose()
     ok, restore_message = await run_in_threadpool(recover_from_backup, path)
     if not ok:
         logger.warning("Backup recovery failed: %s", restore_message)
         return RedirectResponse(url="/backups?error=restore_failed", status_code=303)
 
+    # After restore, re-initialize tables and redirect
+    from app.database import init_db
+    await init_db()
     return RedirectResponse(url="/backups?success=restore_completed", status_code=303)
 
 
