@@ -11,7 +11,6 @@ from typing import Optional
 
 from fastapi import APIRouter, Request, Form, Depends, Body
 from fastapi.responses import RedirectResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,11 +19,11 @@ from app.database import get_db, async_session_factory
 from app.models import User
 from app.utils import verify_password, hash_password
 from app.rate_limiter import _is_rate_limited, _record_attempt
+from app.web.template_engine import templates
 
 logger = logging.getLogger("zhkh.auth")
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/web/templates")
 
 SESSION_COOKIE = "session"
 LEGACY_COOKIES = ("user_id", "username", "user_role", "page_permissions")
