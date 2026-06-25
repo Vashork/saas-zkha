@@ -49,6 +49,11 @@
             <div class="stat-value">{{ "{:,.0f}".format(paid) }} ₽</div>
         </div>
         <div class="stat-card soon">
+            <div class="stat-label">К оплате за {{ month_name }} {{ year }}</div>
+            <div class="stat-value">{{ "{:,.0f}".format(selected_unpaid_amount) }} ₽</div>
+            <div class="stat-sub">{{ selected_unpaid_subtext }}</div>
+        </div>
+        <div class="stat-card soon">
             <div class="stat-label">Всего к оплате по всем месяцам</div>
             <div class="stat-value">{{ "{:,.0f}".format(unpaid_amount) }} ₽</div>
             <div class="stat-sub">{{ unpaid_subtext }}</div>
