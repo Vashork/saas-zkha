@@ -81,6 +81,23 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
+// Clarify orphan receipt cleanup: normal payment deletion already removes attached receipts.
+document.addEventListener('DOMContentLoaded', () => {
+    const cleanupForm = document.querySelector('form[action="/payments/cleanup-receipts"]');
+    if (!cleanupForm) return;
+
+    cleanupForm.onsubmit = () => confirm(
+        'Проверить uploads и удалить только файлы чеков, которые уже не привязаны ни к одному платежу? ' +
+        'При обычном удалении платежа его чек удаляется сразу.'
+    );
+
+    const button = cleanupForm.querySelector('button[type="submit"]');
+    if (button) {
+        button.textContent = '🧹 Проверить сиротские чеки';
+        button.title = 'Обычное удаление платежа сразу удаляет его чек. Эта кнопка нужна только для оставшихся непривязанных файлов.';
+    }
+});
+
 // Theme toggle
 function toggleTheme() {
     const html = document.documentElement;
