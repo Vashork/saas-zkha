@@ -7,7 +7,6 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -15,9 +14,9 @@ from app.database import get_db
 from app.models import Payment, Contractor
 from app.utils import month_name
 from app.web.routes.auth import _require_page, get_current_user
+from app.web.template_engine import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/web/templates")
 
 
 def _month_conditions(year_val, month_val=None):
