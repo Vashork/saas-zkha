@@ -6,7 +6,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db, engine
@@ -55,6 +55,17 @@ configure_route_templates((auth, dashboard, payments, history, contractors, anal
 
 # Backward compatibility for payments.py context until the route is fully refactored.
 payments.payment_color_class = payment_color_class
+
+
+@app.middleware("http")
+async def enforce_page_permissions(request: Request, call_next):
+    """Close known route guard gaps while legacy routes are being refactored."""
+    if request.method.upper() == "GET" and request.url.path == "/settings":
+        redirect = await auth._require_page(request, "settings")
+        if redirect:
+            return redirect
+    return await call_next(request)
+
 
 # Include routers
 app.include_router(auth.router)
