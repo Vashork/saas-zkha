@@ -130,14 +130,14 @@ details.card-custom .form-group {
     min-height: 142px;
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
+    justify-content: flex-start;
 }
 .stat-label {
     color: var(--text-muted);
     font-size: 13px;
     line-height: 1.25;
     min-height: 34px;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
     display: flex;
     align-items: flex-start;
 }
@@ -154,7 +154,7 @@ details.card-custom .form-group {
     color: var(--text-muted);
     font-size: 13px;
     line-height: 1.25;
-    margin-top: 8px;
+    margin-top: 12px;
     min-height: 34px;
     display: flex;
     align-items: flex-start;
@@ -244,6 +244,26 @@ details.card-custom .form-group {
 }
 .btn-icon:hover { background: var(--primary-bg); color: var(--primary); }
 .btn-full { width: 100%; }
+
+/* === Backup actions === */
+.backup-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+}
+.backup-actions form {
+    width: auto;
+    margin: 0;
+    display: inline-flex;
+}
+.backup-actions .btn-secondary-custom {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+}
 
 /* === Inputs === */
 .input-custom {
@@ -370,6 +390,7 @@ code {
     .card-custom { padding: 16px; }
     .modal-overlay .card-custom { margin: 16px; }
     form[method="post"] > div[style*="grid"] { grid-template-columns: 1fr !important; }
+    .backup-actions { flex-wrap: wrap; }
 }
 
 @media (max-width: 480px) {
