@@ -13,6 +13,7 @@ from fastapi.responses import RedirectResponse
 
 from app.database import init_db, engine
 from app.scheduler import start_scheduler, stop_scheduler
+from app.csrf import CsrfMiddleware, CSRF_COOKIE
 from app.web.routes import auth, dashboard, payments, history, contractors, analytics, backups
 
 logging.basicConfig(level=logging.INFO)
@@ -53,6 +54,7 @@ app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 # Configure Jinja2 templates with context processor for theme
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals["user_theme"] = "dark"
+templates.env.globals["csrf_cookie_name"] = CSRF_COOKIE
 
 # Include routers
 app.include_router(auth.router)
@@ -62,6 +64,9 @@ app.include_router(history.router)
 app.include_router(contractors.router)
 app.include_router(analytics.router)
 app.include_router(backups.router)
+
+# CSRF middleware (after routers so that exempt paths like /login work)
+app.add_middleware(CsrfMiddleware)
 
 
 @app.get("/health")
