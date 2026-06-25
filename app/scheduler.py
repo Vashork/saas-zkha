@@ -14,6 +14,7 @@ from app.config import get_settings
 from app.database import async_session_factory
 from app.models import Contractor, Payment, BackupHistory, Setting
 from app.backup_service import create_local_backup, cleanup_old_backups
+from app.backup_settings import parse_retention, parse_frequency, parse_time
 
 logger = logging.getLogger("zhkh.scheduler")
 scheduler = AsyncIOScheduler()
@@ -172,36 +173,6 @@ def stop_scheduler():
 # Helpers for reading backup settings from the database
 # ---------------------------------------------------------------------------
 
-_DEFAULT_RETENTION_COUNT = 10
-_DEFAULT_BACKUP_FREQUENCY = "manual"
-_DEFAULT_BACKUP_TIME = "03:00"
-
-
-def _parse_retention(value: str | None) -> int:
-    try:
-        count = int(value or _DEFAULT_RETENTION_COUNT)
-    except (TypeError, ValueError):
-        return _DEFAULT_RETENTION_COUNT
-    return max(1, min(count, 100))
-
-
-def _parse_frequency(value: str | None) -> str:
-    if value in {"manual", "daily", "weekly", "monthly"}:
-        return value
-    return _DEFAULT_BACKUP_FREQUENCY
-
-
-def _parse_time(value: str | None) -> str:
-    value = value or _DEFAULT_BACKUP_TIME
-    try:
-        hour, minute = value.split(":")
-        h, m = int(hour), int(minute)
-    except (ValueError, AttributeError):
-        return _DEFAULT_BACKUP_TIME
-    if not (0 <= h <= 23 and 0 <= m <= 59):
-        return _DEFAULT_BACKUP_TIME
-    return f"{h:02d}:{m:02d}"
-
 
 async def _load_backup_settings() -> dict:
     """Read backup_frequency, backup_time, backup_retention_count from DB."""
@@ -214,9 +185,9 @@ async def _load_backup_settings() -> dict:
         values = {s.key: s.value for s in result.scalars().all()}
 
     return {
-        "retention_count": _parse_retention(values.get("backup_retention_count")),
-        "frequency": _parse_frequency(values.get("backup_frequency")),
-        "backup_time": _parse_time(values.get("backup_time")),
+        "retention_count": parse_retention(values.get("backup_retention_count")),
+        "frequency": parse_frequency(values.get("backup_frequency")),
+        "backup_time": parse_time(values.get("backup_time")),
     }
 
 

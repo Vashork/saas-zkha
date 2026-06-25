@@ -22,7 +22,8 @@ from app.backup_service import (
     safe_backup_path,
     validate_backup_archive,
 )
-from app.database import get_db, async_session_factory
+from app.backup_settings import parse_retention, parse_frequency, parse_time
+from app.database import get_db
 from app.models import BackupHistory, Setting
 from app.web.routes.auth import get_current_user
 
@@ -45,37 +46,6 @@ def _format_size(size_bytes: int) -> str:
     return f"{size_bytes} B"
 
 
-def _parse_retention(value: str | None) -> int:
-    try:
-        retention_count = int(value or DEFAULT_RETENTION_COUNT)
-    except (TypeError, ValueError):
-        return DEFAULT_RETENTION_COUNT
-    if retention_count < 1:
-        return 1
-    if retention_count > 100:
-        return 100
-    return retention_count
-
-
-def _parse_frequency(value: str | None) -> str:
-    if value in {"manual", "daily", "weekly", "monthly"}:
-        return value
-    return DEFAULT_BACKUP_FREQUENCY
-
-
-def _parse_time(value: str | None) -> str:
-    value = value or DEFAULT_BACKUP_TIME
-    try:
-        hour, minute = value.split(":")
-        hour_i = int(hour)
-        minute_i = int(minute)
-    except (ValueError, AttributeError):
-        return DEFAULT_BACKUP_TIME
-    if not (0 <= hour_i <= 23 and 0 <= minute_i <= 59):
-        return DEFAULT_BACKUP_TIME
-    return f"{hour_i:02d}:{minute_i:02d}"
-
-
 async def _get_backup_settings(db: AsyncSession) -> dict:
     result = await db.execute(select(Setting).where(Setting.key.in_([
         "backup_retention_count",
@@ -84,9 +54,9 @@ async def _get_backup_settings(db: AsyncSession) -> dict:
     ])))
     values = {setting.key: setting.value for setting in result.scalars().all()}
     return {
-        "retention_count": _parse_retention(values.get("backup_retention_count")),
-        "frequency": _parse_frequency(values.get("backup_frequency")),
-        "backup_time": _parse_time(values.get("backup_time")),
+        "retention_count": parse_retention(values.get("backup_retention_count")),
+        "frequency": parse_frequency(values.get("backup_frequency")),
+        "backup_time": parse_time(values.get("backup_time")),
     }
 
 

@@ -4,7 +4,6 @@ History route — all payments, filters, CSV export.
 
 import csv
 import io
-from datetime import date
 
 from fastapi import APIRouter, Request, Depends, Query
 from fastapi.responses import RedirectResponse, Response
@@ -18,7 +17,6 @@ from app.models import Payment, Contractor
 from app.utils import month_name, payment_color_class
 from app.web.routes.auth import _require_page, get_current_user
 from app.web.routes.payment_helpers import (
-    _as_decimal,
     _requires_amount,
     _planned_amount,
     _paid_amount,

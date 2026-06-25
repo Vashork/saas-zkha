@@ -25,7 +25,6 @@ from app.web.routes.payment_helpers import (
     _planned_amount,
     _paid_amount,
     _remaining_amount,
-    _is_open_payment,
     _effective_status,
     _status_label,
     _status_css_class,

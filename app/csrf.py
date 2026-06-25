@@ -9,12 +9,11 @@ GET/HEAD/OPTIONS are always allowed (safe methods).
 """
 
 import hmac
-import hashlib
 import secrets
 import logging
 from typing import Optional
 
-from fastapi import Request, Response
+from fastapi import Request
 from fastapi.responses import RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -101,7 +100,6 @@ class CsrfMiddleware(BaseHTTPMiddleware):
             return RedirectResponse(url="/?csrf=1", status_code=403)
 
         # Reconstruct request body so downstream Form() parsing still works
-        from starlette.requests import Request as SRequest
         request._body = body
 
         return await call_next(request)
