@@ -282,8 +282,8 @@ async def change_password(
         return RedirectResponse(url="/settings?error=Неверный+текущий+пароль", status_code=303)
     if new_password != confirm_password:
         return RedirectResponse(url="/settings?error=Пароли+не+совпадают", status_code=303)
-    if len(new_password) < 4:
-        return RedirectResponse(url="/settings?error=Минимум+4+символа", status_code=303)
+    if len(new_password) < 8:
+        return RedirectResponse(url="/settings?error=Минимум+8+символов", status_code=303)
 
     current_user.password_hash = hash_password(new_password)
     await db.commit()
@@ -313,8 +313,8 @@ async def create_user(
     username = username.strip()
     if not username:
         return RedirectResponse(url="/settings?error=Имя+не+может+быть+пустым", status_code=303)
-    if len(password) < 4:
-        return RedirectResponse(url="/settings?error=Минимум+4+символа", status_code=303)
+    if len(password) < 8:
+        return RedirectResponse(url="/settings?error=Минимум+8+символов", status_code=303)
     if role not in {"admin", "user"}:
         return RedirectResponse(url="/settings?error=Некорректная+роль", status_code=303)
 
@@ -517,8 +517,8 @@ async def change_user_password(
         return _login_redirect(request)
     if current_user.role != "admin":
         return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
-    if len(new_password) < 4:
-        return RedirectResponse(url="/settings?error=Минимум+4+символа", status_code=303)
+    if len(new_password) < 8:
+        return RedirectResponse(url="/settings?error=Минимум+8+символов", status_code=303)
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
