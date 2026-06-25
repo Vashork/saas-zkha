@@ -163,7 +163,23 @@ Using browser dev tools or curl:
 - Direct upload URL access is acceptable for the deployment model; if receipts are private, `/uploads` must be protected before production.
 - Security headers from nginx are present if the deployment uses nginx.
 
-## 9. Final go/no-go criteria
+## 9. Local developer checks
+
+If Python is available outside Docker, run:
+
+```bash
+python -m pip install -r requirements.txt
+python -m compileall app tests
+python -m pytest tests/ -v
+```
+
+Expected result:
+
+- Syntax check passes.
+- Existing tests pass.
+- If tests fail because of environment variables, set `SECRET_KEY`, `ADMIN_PASSWORD`, `USER_PASSWORD`, `DATABASE_URL`, `UPLOAD_DIR`, `LOG_DIR` and retry.
+
+## 10. Final go/no-go criteria
 
 Ready for internal pilot if:
 
