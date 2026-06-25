@@ -276,7 +276,6 @@ async def change_password(
 
     current_user.password_hash = hash_password(new_password)
     await db.commit()
-
     return RedirectResponse(url="/settings?success=Пароль+изменён", status_code=303)
 
 
@@ -385,10 +384,8 @@ async def delete_user(
     if not user:
         return RedirectResponse(url="/settings?error=Пользователь+не+найден", status_code=303)
 
-    if user.role == "admin" and user.is_active:
-        admin_count = await db.scalar(select(func.count(User.id)).where(User.role == "admin", User.is_active == True))
-        if admin_count <= 1:
-            return RedirectResponse(url="/settings?error=Нельзя+удалить+последнего+админа", status_code=303)
+    if user.role == "admin":
+        return RedirectResponse(url="/settings?error=Админа+нельзя+удалить,+можно+только+деактивировать", status_code=303)
 
     await db.delete(user)
     await db.commit()
