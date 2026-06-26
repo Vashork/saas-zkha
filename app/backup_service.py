@@ -13,6 +13,49 @@ from pathlib import Path
 logger = logging.getLogger("zhkh.backup_service")
 
 PROJECT_ROOT = Path("/app") if Path("/app").exists() else Path.cwd()
+
+# --- Non-blocking lock for backup/restore operations ---
+import threading
+
+_backup_lock = threading.Lock()
+_lock_owner_thread: int | None = None
+LOCKED_MESSAGE = "Другая операция backup/restore уже выполняется"
+
+
+def acquire_backup_lock() -> bool:
+    """Attempt to acquire the backup lock (non-blocking). Returns True if acquired."""
+    global _lock_owner_thread
+    acquired = _backup_lock.acquire(blocking=False)
+    if acquired:
+        _lock_owner_thread = threading.get_ident()
+    return acquired
+
+
+def release_backup_lock() -> None:
+    """Release the backup lock. No-op if not held by this thread."""
+    global _lock_owner_thread
+    if _lock_owner_thread != threading.get_ident():
+        return
+    try:
+        _backup_lock.release()
+    except RuntimeError:
+        pass
+    _lock_owner_thread = None
+
+
+def backup_locked() -> bool:
+    """Check whether the backup lock is currently held."""
+    return _backup_lock.locked()
+
+
+def _reset_lock_for_tests() -> None:
+    """Force-release the lock — only for tests."""
+    global _lock_owner_thread
+    _lock_owner_thread = None
+    try:
+        _backup_lock.release()
+    except RuntimeError:
+        pass
 BACKUP_DIR = PROJECT_ROOT / "backups"
 DATA_DIR = PROJECT_ROOT / "data"
 DEFAULT_RETENTION_COUNT = 10
@@ -70,6 +113,16 @@ def backup_archive_absolute_path(relative_path: str | Path) -> Path:
 
 def create_local_backup() -> tuple[str, int]:
     """Create a tar.gz archive of data/ and return relative path and size."""
+    if not acquire_backup_lock():
+        raise RuntimeError(LOCKED_MESSAGE)
+    try:
+        return _create_local_backup_impl()
+    finally:
+        release_backup_lock()
+
+
+def _create_local_backup_impl() -> tuple[str, int]:
+    """Internal implementation that assumes the lock is already held."""
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     backup_path = BACKUP_DIR / f"zhkh-data-backup-{timestamp}.tar.gz"
@@ -77,7 +130,6 @@ def create_local_backup() -> tuple[str, int]:
     with tarfile.open(backup_path, "w:gz") as archive:
         if DATA_DIR.exists():
             archive.add(DATA_DIR, arcname="data")
-
     return f"backups/{backup_path.name}", backup_path.stat().st_size
 
 
@@ -256,29 +308,36 @@ def _safety_backup_absolute_path(relative_path: str) -> Path:
 
 def recover_from_backup(path: Path) -> tuple[bool, str]:
     """Recover data/ from a validated backup archive and roll back on failure."""
-    valid, message = validate_backup_archive(path)
-    if not valid:
-        return False, message
+    if not acquire_backup_lock():
+        return False, LOCKED_MESSAGE
 
-    safety_backup_path: Path | None = None
     try:
-        safety_backup_rel, _ = create_local_backup()
-        safety_backup_path = _safety_backup_absolute_path(safety_backup_rel)
-        _restore_data_from_archive(path)
-    except OSError as exc:
-        logger.exception("Backup recovery filesystem error")
-        rollback_ok, rollback_message = _rollback_from_safety_backup(safety_backup_path)
-        if rollback_ok:
-            return False, f"Ошибка файловой системы при восстановлении, исходные данные возвращены: {exc}"
-        return False, f"Ошибка файловой системы при восстановлении: {exc}. Rollback failed: {rollback_message}"
-    except Exception as exc:
-        logger.exception("Backup recovery failed")
-        rollback_ok, rollback_message = _rollback_from_safety_backup(safety_backup_path)
-        if rollback_ok:
-            return False, f"Ошибка восстановления, исходные данные возвращены: {exc}"
-        return False, f"Ошибка восстановления: {exc}. Rollback failed: {rollback_message}"
+        valid, message = validate_backup_archive(path)
+        if not valid:
+            return False, message
 
-    return True, "ok"
+        safety_backup_path: Path | None = None
+        try:
+            # Safety backup uses the internal implementation (lock already held)
+            safety_backup_rel, _ = _create_local_backup_impl()
+            safety_backup_path = _safety_backup_absolute_path(safety_backup_rel)
+            _restore_data_from_archive(path)
+        except OSError as exc:
+            logger.exception("Backup recovery filesystem error")
+            rollback_ok, rollback_message = _rollback_from_safety_backup(safety_backup_path)
+            if rollback_ok:
+                return False, f"Ошибка файловой системы при восстановлении, исходные данные возвращены: {exc}"
+            return False, f"Ошибка файловой системы при восстановлении: {exc}. Rollback failed: {rollback_message}"
+        except Exception as exc:
+            logger.exception("Backup recovery failed")
+            rollback_ok, rollback_message = _rollback_from_safety_backup(safety_backup_path)
+            if rollback_ok:
+                return False, f"Ошибка восстановления, исходные данные возвращены: {exc}"
+            return False, f"Ошибка восстановления: {exc}. Rollback failed: {rollback_message}"
+
+        return True, "ok"
+    finally:
+        release_backup_lock()
 
 
 def _rollback_from_safety_backup(safety_backup_path: Path | None) -> tuple[bool, str]:

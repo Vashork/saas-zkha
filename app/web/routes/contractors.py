@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 from app.database import get_db
 from app.models import Contractor, Payment
 from app.utils import generate_uuid
+from app.audit import log_admin_action
 from app.web.routes.auth import _require_page, get_current_user
 from app.web.template_engine import templates
 
@@ -133,6 +134,10 @@ async def add_contractor(
     db.add(contractor)
     try:
         await db.commit()
+        await log_admin_action(
+            db, actor=current_user, action="contractor_create",
+            entity_type="contractor", entity_id=contractor.id, request=request,
+        )
     except IntegrityError:
         await db.rollback()
         result = await db.execute(
@@ -158,7 +163,7 @@ async def toggle_contractor(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    _, redirect = await _require_admin_user(request, db)
+    current_user, redirect = await _require_admin_user(request, db)
     if redirect:
         return redirect
 
@@ -167,6 +172,11 @@ async def toggle_contractor(
     if contractor:
         contractor.is_active = not contractor.is_active
         await db.commit()
+        await log_admin_action(
+            db, actor=current_user, action="contractor_toggle",
+            entity_type="contractor", entity_id=contractor_id,
+            details={"is_active": contractor.is_active}, request=request,
+        )
         return RedirectResponse(url=_contractors_url(archived=not contractor.is_active), status_code=303)
 
     return RedirectResponse(url="/contractors", status_code=303)
@@ -178,7 +188,7 @@ async def delete_contractor(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    _, redirect = await _require_admin_user(request, db)
+    current_user, redirect = await _require_admin_user(request, db)
     if redirect:
         return redirect
 
@@ -194,10 +204,19 @@ async def delete_contractor(
     if existing_payment_id:
         contractor.is_active = False
         await db.commit()
+        await log_admin_action(
+            db, actor=current_user, action="contractor_delete",
+            entity_type="contractor", entity_id=contractor_id,
+            details={"reason": "has_payments_archived"}, request=request,
+        )
         return _contractor_error("У подрядчика есть платежи. Он перенесён в архив", archived=True)
 
     await db.delete(contractor)
     await db.commit()
+    await log_admin_action(
+        db, actor=current_user, action="contractor_delete",
+        entity_type="contractor", entity_id=contractor_id, request=request,
+    )
 
     return RedirectResponse(url=_contractors_url(show_archived), status_code=303)
 
@@ -214,7 +233,7 @@ async def edit_contractor(
     account_number: str = Form(""),
     description: str = Form(""),
 ):
-    _, redirect = await _require_admin_user(request, db)
+    current_user, redirect = await _require_admin_user(request, db)
     if redirect:
         return redirect
 
@@ -246,4 +265,8 @@ async def edit_contractor(
     contractor.description = description or None
 
     await db.commit()
+    await log_admin_action(
+        db, actor=current_user, action="contractor_edit",
+        entity_type="contractor", entity_id=contractor_id, request=request,
+    )
     return RedirectResponse(url=_contractors_url(archived=not contractor.is_active), status_code=303)

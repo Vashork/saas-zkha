@@ -18,6 +18,7 @@ from app.backup_service import (
     cleanup_old_backups,
     copy_backup_to_remote_mount,
     create_local_backup,
+    backup_locked,
 )
 from app.backup_settings import (
     normalize_remote_path,
@@ -251,6 +252,11 @@ async def scheduled_backup_job():
     """Create a backup according to local/remote destination settings and log the result."""
     settings = await _load_backup_settings()
     retention = settings["retention_count"]
+
+    # Skip if a manual backup/restore is currently running
+    if backup_locked():
+        logger.info("Skipping scheduled backup: another backup/restore operation is running")
+        return
 
     try:
         file_path, size_bytes = await asyncio.to_thread(create_local_backup)

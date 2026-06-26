@@ -23,6 +23,8 @@ from app.backup_service import (
     list_backup_files,
     recover_from_backup,
     safe_backup_path,
+    LOCKED_MESSAGE,
+    backup_locked,
     validate_backup_archive,
 )
 from app.backup_settings import (
@@ -320,6 +322,17 @@ async def create_backup(request: Request, db: AsyncSession = Depends(get_db)):
     if redirect:
         return redirect
 
+    if backup_locked():
+        error = LOCKED_MESSAGE
+        return templates.TemplateResponse("backups.html", {
+            "request": request,
+            **_user_context(current_user),
+            "backups": [],
+            "settings": await _get_backup_settings(db),
+            "remote_mount_ok": None,
+            "error": error,
+        })
+
     settings = await _get_backup_settings(db)
     retention_count = settings["retention_count"]
 
@@ -431,6 +444,9 @@ async def upload_and_restore_backup(
     if redirect:
         return redirect
 
+    if backup_locked():
+        return RedirectResponse(url="/backups?error=" + LOCKED_MESSAGE.replace(" ", "+"), status_code=303)
+
     if not backup_file.filename or not backup_file.filename.endswith(".tar.gz"):
         return RedirectResponse(url="/backups?error=backup_invalid", status_code=303)
 
@@ -473,6 +489,9 @@ async def restore_backup(filename: str, request: Request, db: AsyncSession = Dep
     current_user, redirect = await _require_admin(request, db)
     if redirect:
         return redirect
+
+    if backup_locked():
+        return RedirectResponse(url="/backups?error=" + LOCKED_MESSAGE.replace(" ", "+"), status_code=303)
 
     path = safe_backup_path(filename)
     if not path:
