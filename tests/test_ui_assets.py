@@ -56,10 +56,28 @@ def test_payments_template_warns_about_partial_fixed_payment():
     assert "остаток будет показан как долг" in payments_html
 
 
-def test_receipt_link_is_visible_for_any_payment_with_receipt():
+def test_receipt_link_is_visible_before_paid_only_upload_button():
     payments_html = (ROOT / "app" / "web" / "templates" / "payments.html").read_text(encoding="utf-8")
 
-    receipt_condition_pos = payments_html.index("{% if p.receipt_file %}")
+    receipt_condition_pos = payments_html.index("{% if p.receipt_file and not p.transactions %}")
     status_condition_pos = payments_html.index("{% if current_status == 'paid' %}")
 
     assert receipt_condition_pos < status_condition_pos
+
+
+def test_payments_template_has_partial_payment_modal_and_route():
+    payments_html = (ROOT / "app" / "web" / "templates" / "payments.html").read_text(encoding="utf-8")
+
+    assert 'id="transactionModal"' in payments_html
+    assert 'openTransactionModal(' in payments_html
+    assert "/transactions/add" in payments_html
+    assert "Частично" in payments_html
+    assert "Частично просрочено" in payments_html
+
+
+def test_payments_template_renders_transaction_receipts():
+    payments_html = (ROOT / "app" / "web" / "templates" / "payments.html").read_text(encoding="utf-8")
+
+    assert "{% for tx in p.transactions %}" in payments_html
+    assert "tx.receipt_file" in payments_html
+    assert "Скачать чек оплаты" in payments_html
