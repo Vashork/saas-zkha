@@ -84,7 +84,7 @@
                 <td>{{ p.due_date.strftime('%d.%m.%Y') }}</td>
                 <td><span class="badge-status badge-{{ status_css_class(p) }}">{{ status_label(p) }}</span></td>
                 <td>
-                    {% if current_status == 'paid' and p.receipt_file %}
+                    {% if p.receipt_file %}
                     <a href="/uploads/{{ p.receipt_file }}" download class="btn-icon" title="Скачать чек">📎</a>
                     {% endif %}
                     {% if user_role == 'admin' %}
@@ -130,6 +130,7 @@
                 <div class="form-group">
                     <label>Сумма начисления (₽, можно оставить пустой для переменного платежа без начисления)</label>
                     <input type="text" name="amount" class="input-custom" placeholder="3200.50">
+                    <small style="color:var(--accent-warn);display:block;margin-top:6px;">Если у фиксированного подрядчика указать сумму меньше фиксированной, остаток будет показан как долг/просрочка.</small>
                 </div>
                 <div class="form-group">
                     <label>Статус при создании</label>
