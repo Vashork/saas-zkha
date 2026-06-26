@@ -3,6 +3,8 @@
 import tarfile
 from pathlib import Path
 
+import pytest
+
 from app import backup_service
 
 
@@ -93,3 +95,32 @@ def test_validate_backup_archive_rejects_path_traversal(tmp_path):
 
     assert ok is False
     assert "небезопасные пути" in message
+
+
+def test_copy_backup_to_remote_mount_copies_archive_atomically(tmp_path, monkeypatch):
+    project_root = tmp_path / "project"
+    local_dir = project_root / "backups"
+    remote_dir = tmp_path / "remote"
+    local_dir.mkdir(parents=True)
+    local_backup = local_dir / "zhkh-data-backup-test.tar.gz"
+    local_backup.write_bytes(b"backup-content")
+
+    monkeypatch.setattr(backup_service, "PROJECT_ROOT", project_root)
+
+    remote_path, size = backup_service.copy_backup_to_remote_mount(
+        "backups/zhkh-data-backup-test.tar.gz",
+        str(remote_dir),
+    )
+
+    assert size == len(b"backup-content")
+    assert Path(remote_path) == remote_dir / local_backup.name
+    assert Path(remote_path).read_bytes() == b"backup-content"
+    assert not list(remote_dir.glob("*.tmp"))
+
+
+def test_copy_backup_to_remote_mount_rejects_empty_path(tmp_path):
+    local_backup = tmp_path / "zhkh-data-backup-test.tar.gz"
+    local_backup.write_bytes(b"backup-content")
+
+    with pytest.raises(ValueError):
+        backup_service.copy_backup_to_remote_mount(local_backup, "")
