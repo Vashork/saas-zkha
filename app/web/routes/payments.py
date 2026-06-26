@@ -2,6 +2,7 @@
 Payments route — payments with CRUD, filters, manual add, and period selector.
 """
 
+import mimetypes
 import os
 import uuid
 import logging
@@ -366,7 +367,14 @@ async def download_receipt(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Authenticated receipt download — replaces direct /uploads links."""
+    """Authenticated receipt download — replaces direct /uploads links.
+
+    Validates:
+    1. User is authenticated and authorized
+    2. Path is safe (no traversal)
+    3. File exists on disk
+    4. File is owned by a payment or transaction (ownership check)
+    """
     redirect = await _require_page(request, "payments")
     if redirect:
         return redirect
@@ -376,10 +384,26 @@ async def download_receipt(
     if not safe_path or not os.path.isfile(safe_path):
         return RedirectResponse(url="/payments?error=Файл+не+найден", status_code=303)
 
+    # Ownership check: the file must be referenced by a Payment or PaymentTransaction
+    normalized = _normalize_receipt_ref(path)
+    ownership_check = await db.execute(
+        select(Payment.receipt_file).where(Payment.receipt_file == normalized)
+    )
+    if not ownership_check.scalar_one_or_none():
+        ownership_check = await db.execute(
+            select(PaymentTransaction.receipt_file).where(PaymentTransaction.receipt_file == normalized)
+        )
+        if not ownership_check.scalar_one_or_none():
+            return RedirectResponse(url="/payments?error=Файл+не+найден", status_code=303)
+
+    # Determine MIME type from file extension
+    guessed_type, _ = mimetypes.guess_type(safe_path)
+    media_type = guessed_type or "application/octet-stream"
+
     return FileResponse(
         path=safe_path,
         filename=os.path.basename(safe_path),
-        media_type="application/pdf",
+        media_type=media_type,
     )
 
 

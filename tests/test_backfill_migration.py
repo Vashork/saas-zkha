@@ -1,7 +1,8 @@
-"""Tests for the runtime backfill migration of PaymentTransaction records.
+"""Tests for the legacy backfill migration of PaymentTransaction records.
 
-The migration in app.database._run_migrations creates PaymentTransaction rows
+The backfill logic in app.database._run_legacy_migrations creates PaymentTransaction rows
 for legacy Payment records where paid_amount > 0 but no transactions exist.
+This is also covered by the Alembic migration d6ab942a8d7c_backfill_payment_transactions.
 """
 
 import pytest
@@ -11,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
 
-from app.database import Base, _run_migrations
+from app.database import Base, _run_legacy_migrations
 from app.models import Payment, PaymentTransaction, Contractor
 
 
@@ -63,7 +64,7 @@ async def test_backfill_creates_transactions_for_paid_payments(_tmp_engine):
         await session.commit()
 
     async with engine.begin() as conn:
-        await conn.run_sync(_run_migrations)
+        await conn.run_sync(_run_legacy_migrations)
 
     async with factory() as session:
         result = await session.execute(
@@ -101,7 +102,7 @@ async def test_backfill_skips_unpaid_payments(_tmp_engine):
         await session.commit()
 
     async with engine.begin() as conn:
-        await conn.run_sync(_run_migrations)
+        await conn.run_sync(_run_legacy_migrations)
 
     async with factory() as session:
         result = await session.execute(
@@ -140,7 +141,7 @@ async def test_backfill_skips_payments_that_already_have_transactions(_tmp_engin
         await session.commit()
 
     async with engine.begin() as conn:
-        await conn.run_sync(_run_migrations)
+        await conn.run_sync(_run_legacy_migrations)
 
     async with factory() as session:
         result = await session.execute(
@@ -174,9 +175,9 @@ async def test_backfill_is_idempotent(_tmp_engine):
         await session.commit()
 
     async with engine.begin() as conn:
-        await conn.run_sync(_run_migrations)
+        await conn.run_sync(_run_legacy_migrations)
     async with engine.begin() as conn:
-        await conn.run_sync(_run_migrations)
+        await conn.run_sync(_run_legacy_migrations)
 
     async with factory() as session:
         result = await session.execute(
@@ -209,7 +210,7 @@ async def test_backfill_uses_due_date_when_paid_date_is_none(_tmp_engine):
         await session.commit()
 
     async with engine.begin() as conn:
-        await conn.run_sync(_run_migrations)
+        await conn.run_sync(_run_legacy_migrations)
 
     async with factory() as session:
         result = await session.execute(
