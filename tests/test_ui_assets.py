@@ -47,3 +47,19 @@ def test_payments_template_uses_add_payment_modal():
     assert 'id="addPaymentModal"' in payments_html
     assert 'openAddPaymentModal()' in payments_html
     assert 'action="/payments/add"' in payments_html
+
+
+def test_payments_template_warns_about_partial_fixed_payment():
+    payments_html = (ROOT / "app" / "web" / "templates" / "payments.html").read_text(encoding="utf-8")
+
+    assert "сумму меньше фиксированной" in payments_html
+    assert "остаток будет показан как долг" in payments_html
+
+
+def test_receipt_link_is_visible_for_any_payment_with_receipt():
+    payments_html = (ROOT / "app" / "web" / "templates" / "payments.html").read_text(encoding="utf-8")
+
+    receipt_condition_pos = payments_html.index("{% if p.receipt_file %}")
+    status_condition_pos = payments_html.index("{% if current_status == 'paid' %}")
+
+    assert receipt_condition_pos < status_condition_pos
