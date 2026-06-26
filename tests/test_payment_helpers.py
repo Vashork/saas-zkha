@@ -13,6 +13,7 @@ from app.web.routes.payment_helpers import (
     _planned_amount,
     _paid_amount,
     _remaining_amount,
+    _is_partial_payment,
     _is_open_payment,
     _effective_status,
     _status_label,
@@ -175,6 +176,26 @@ def test_remaining_amount_clamped_to_zero():
     assert _remaining_amount(payment) == Decimal("0")
 
 
+# --- _is_partial_payment ---
+
+def test_is_partial_payment_true():
+    payment = MagicMock()
+    payment.amount = Decimal("5000")
+    payment.paid_amount = Decimal("4500")
+    payment.contractor = None
+    payment.status = "pending"
+    assert _is_partial_payment(payment) is True
+
+
+def test_is_partial_payment_false_when_not_paid_anything():
+    payment = MagicMock()
+    payment.amount = Decimal("5000")
+    payment.paid_amount = Decimal("0")
+    payment.contractor = None
+    payment.status = "pending"
+    assert _is_partial_payment(payment) is False
+
+
 # --- _is_open_payment ---
 
 def test_is_open_with_remaining():
@@ -234,6 +255,26 @@ def test_effective_status_pending():
     assert _effective_status(payment) == "pending"
 
 
+def test_effective_status_partial_before_due_date():
+    payment = MagicMock()
+    payment.amount = Decimal("5000")
+    payment.paid_amount = Decimal("4500")
+    payment.contractor = None
+    payment.status = "pending"
+    payment.due_date = date.today() + timedelta(days=10)
+    assert _effective_status(payment) == "partial"
+
+
+def test_effective_status_partial_overdue_after_due_date():
+    payment = MagicMock()
+    payment.amount = Decimal("5000")
+    payment.paid_amount = Decimal("4500")
+    payment.contractor = None
+    payment.status = "pending"
+    payment.due_date = date.today() - timedelta(days=1)
+    assert _effective_status(payment) == "partial_overdue"
+
+
 # --- _status_label ---
 
 def test_status_label_paid():
@@ -264,6 +305,26 @@ def test_status_label_overdue():
     assert _status_label(payment) == "просрочено"
 
 
+def test_status_label_partial():
+    payment = MagicMock()
+    payment.amount = Decimal("1000")
+    payment.paid_amount = Decimal("500")
+    payment.contractor = None
+    payment.status = "pending"
+    payment.due_date = date.today() + timedelta(days=1)
+    assert _status_label(payment) == "частично оплачено"
+
+
+def test_status_label_partial_overdue():
+    payment = MagicMock()
+    payment.amount = Decimal("1000")
+    payment.paid_amount = Decimal("500")
+    payment.contractor = None
+    payment.status = "pending"
+    payment.due_date = date.today() - timedelta(days=1)
+    assert _status_label(payment) == "частично оплачено, просрочено"
+
+
 # --- _filter_by_effective_status ---
 
 def test_filter_all():
@@ -289,3 +350,20 @@ def test_filter_specific():
     result = _filter_by_effective_status(payments, "paid")
     assert len(result) == 1
     assert result[0] is p1
+
+
+def test_filter_partial():
+    partial = MagicMock()
+    partial.amount = Decimal("1000")
+    partial.paid_amount = Decimal("500")
+    partial.contractor = None
+    partial.status = "pending"
+    partial.due_date = date.today() + timedelta(days=1)
+
+    paid = MagicMock()
+    paid.amount = Decimal("1000")
+    paid.paid_amount = Decimal("1000")
+    paid.contractor = None
+
+    result = _filter_by_effective_status([partial, paid], "partial")
+    assert result == [partial]
