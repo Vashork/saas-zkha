@@ -20,25 +20,27 @@ This roadmap keeps the remaining work ordered. Prefer small commits and run CI a
 
 Current `Payment` rows are unique per contractor/month. Do not simply allow duplicate monthly payments. Implement this as one monthly charge with multiple payment transactions/receipts.
 
-- [ ] Add a child model for payment transactions, for example `PaymentTransaction`:
+- [x] Add a child model for payment transactions, for example `PaymentTransaction`:
   - parent `payment_id`;
   - paid amount;
   - paid date;
   - receipt file;
   - notes;
   - created/updated timestamps.
-- [ ] Keep one parent monthly charge per `contractor_id + year + month`.
-- [ ] Calculate parent paid amount as the sum of child transactions.
-- [ ] Show grouped transactions directly under the parent charge, so payments like `4500 + 500` stay next to each other.
-- [ ] Allow adding another transaction only while the parent charge still has remaining debt.
-- [ ] Keep one receipt per transaction, not one receipt per whole monthly charge.
-- [ ] Add effective statuses:
+- [x] Keep one parent monthly charge per `contractor_id + year + month`.
+- [x] Calculate parent paid amount as the sum of child transactions.
+- [x] Show grouped transactions directly under the parent charge, so payments like `4500 + 500` stay next to each other.
+- [x] Allow adding another transaction only while the parent charge still has remaining debt.
+- [x] Keep one receipt per transaction, not one receipt per whole monthly charge.
+- [x] Add effective statuses:
   - `partial` / `partially paid` while there is remaining debt and the due date has not passed;
   - `partial_overdue` / `partially paid, overdue` when there is remaining debt and the due date has passed;
   - `paid` when the transaction sum covers the planned amount.
-- [ ] Update filters and badges so `partial` and `partial_overdue` are visible without hiding them inside plain `overdue`.
-- [ ] Add migration/backfill path: existing `paid_amount`, `paid_date`, `receipt_file` should become the first transaction during migration.
-- [ ] Add tests for partial payments, grouped receipt visibility and remaining debt calculation.
+- [x] Update filters and badges so `partial` and `partial_overdue` are visible without hiding them inside plain `overdue`.
+- [x] Add migration/backfill path: existing `paid_amount`, `paid_date`, `receipt_file` should become the first transaction during migration.
+- [x] Add tests for partial payments, grouped receipt visibility and remaining debt calculation.
+
+Implementation note: `payments.paid_amount` remains as a compatibility aggregate for dashboard/history while `payment_transactions` stores per-receipt payment rows.
 
 ## 3. Backup improvements — before Telegram bot work
 
