@@ -55,7 +55,7 @@ def _validate_remote_backup_target_dir(target_dir: Path) -> Path:
         resolved_forbidden = forbidden.resolve(strict=False)
         if resolved_target == resolved_forbidden or _is_relative_to(resolved_target, resolved_forbidden):
             raise ValueError(
-                f"Unsafe remote backup path points inside application storage: {resolved_target}"
+                f"Путь mounted share не должен указывать внутрь локальных данных приложения: {resolved_target}"
             )
     return resolved_target
 
