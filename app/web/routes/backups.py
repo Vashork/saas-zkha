@@ -3,7 +3,8 @@ Backups route — local backup UI, manual backup creation, upload and recovery.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Request, Depends, Form, File, UploadFile
 from fastapi.responses import RedirectResponse, FileResponse
@@ -34,6 +35,7 @@ router = APIRouter()
 DEFAULT_RETENTION_COUNT = 10
 DEFAULT_BACKUP_FREQUENCY = "manual"
 DEFAULT_BACKUP_TIME = "03:00"
+DEFAULT_TIMEZONE = "Europe/Moscow"
 
 
 def _format_size(size_bytes: int) -> str:
@@ -45,17 +47,41 @@ def _format_size(size_bytes: int) -> str:
     return f"{size_bytes} B"
 
 
+def _zoneinfo(timezone_name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(timezone_name or DEFAULT_TIMEZONE)
+    except ZoneInfoNotFoundError:
+        logger.warning("Unknown timezone %s, falling back to %s", timezone_name, DEFAULT_TIMEZONE)
+        return ZoneInfo(DEFAULT_TIMEZONE)
+
+
+def _format_datetime(value: datetime | None, timezone_name: str = DEFAULT_TIMEZONE) -> str:
+    """Format DB/file timestamps in the configured UI timezone.
+
+    SQLite CURRENT_TIMESTAMP and Docker file mtimes are treated as UTC unless they
+    already carry timezone info. This avoids showing raw container UTC time in GUI.
+    """
+    if value is None:
+        return "—"
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(_zoneinfo(timezone_name)).strftime("%d.%m.%Y %H:%M:%S")
+
+
 async def _get_backup_settings(db: AsyncSession) -> dict:
     result = await db.execute(select(Setting).where(Setting.key.in_([
         "backup_retention_count",
         "backup_frequency",
         "backup_time",
+        "notification_timezone",
     ])))
     values = {setting.key: setting.value for setting in result.scalars().all()}
+    timezone_name = values.get("notification_timezone") or DEFAULT_TIMEZONE
     return {
         "retention_count": parse_retention(values.get("backup_retention_count")),
         "frequency": parse_frequency(values.get("backup_frequency")),
         "backup_time": parse_time(values.get("backup_time")),
+        "timezone": timezone_name,
     }
 
 
@@ -93,6 +119,21 @@ async def _require_admin(request: Request, db: AsyncSession):
     return current_user, None
 
 
+async def _restore_and_reinitialize(backup_path) -> tuple[bool, str]:
+    """Restore a backup and force SQLAlchemy to reopen SQLite connections."""
+    from app.database import engine, init_db
+
+    await engine.dispose()
+    ok, restore_message = await run_in_threadpool(recover_from_backup, backup_path)
+    await engine.dispose()
+    if not ok:
+        return False, restore_message
+
+    await init_db()
+    await engine.dispose()
+    return True, "ok"
+
+
 @router.get("/backups")
 async def backups_page(request: Request, db: AsyncSession = Depends(get_db)):
     current_user, redirect = await _require_admin(request, db)
@@ -110,7 +151,9 @@ async def backups_page(request: Request, db: AsyncSession = Depends(get_db)):
         "history": history,
         "backup_files": list_backup_files(),
         "backup_settings": settings,
+        "backup_timezone": settings["timezone"],
         "format_size": _format_size,
+        "format_datetime": _format_datetime,
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),
     })
@@ -202,16 +245,12 @@ async def upload_and_restore_backup(
         logger.warning("Uploaded backup validation failed: %s", message)
         return RedirectResponse(url="/backups?error=backup_invalid", status_code=303)
 
-    # Close current session and recreate DB from backup
     await db.close()
-    ok, restore_message = await run_in_threadpool(recover_from_backup, upload_path)
+    ok, restore_message = await _restore_and_reinitialize(upload_path)
     if not ok:
         logger.warning("Uploaded backup recovery failed: %s", restore_message)
         return RedirectResponse(url="/backups?error=restore_failed", status_code=303)
 
-    # After restore, re-initialize tables and redirect
-    from app.database import init_db
-    await init_db()
     return RedirectResponse(url="/backups?success=restore_completed", status_code=303)
 
 
@@ -225,16 +264,12 @@ async def restore_backup(filename: str, request: Request, db: AsyncSession = Dep
     if not path:
         return RedirectResponse(url="/backups?error=backup_not_found", status_code=303)
 
-    # Close current session and recreate DB from backup
     await db.close()
-    ok, restore_message = await run_in_threadpool(recover_from_backup, path)
+    ok, restore_message = await _restore_and_reinitialize(path)
     if not ok:
         logger.warning("Backup recovery failed: %s", restore_message)
         return RedirectResponse(url="/backups?error=restore_failed", status_code=303)
 
-    # After restore, re-initialize tables and redirect
-    from app.database import init_db
-    await init_db()
     return RedirectResponse(url="/backups?success=restore_completed", status_code=303)
 
 
