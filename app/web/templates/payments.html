@@ -90,8 +90,8 @@
                     <a href="/uploads/{{ p.receipt_file }}" download class="btn-icon" title="Скачать чек">📎</a>
                     {% endif %}
                     {% if user_role == 'admin' %}
-                    {% if remaining > 0 and not needs_amount %}
-                    <button class="btn-icon" title="Добавить частичную оплату" onclick="openTransactionModal('{{ p.id }}', '{{ remaining }}')">➕💳</button>
+                    {% if (remaining > 0 and not needs_amount) or (p.contractor and p.contractor.payment_type == 'variable') %}
+                    <button class="btn-icon" title="Добавить частичную оплату / доначисление" onclick="openTransactionModal('{{ p.id }}', '{{ remaining }}')">➕💳</button>
                     {% endif %}
                     {% if current_status == 'paid' %}
                     <button class="btn-icon" title="Загрузить чек" onclick="openReceiptModal('{{ p.id }}')">📤</button>
@@ -277,9 +277,9 @@ function openTransactionModal(paymentId, remainingAmount) {
     const form = document.getElementById('transactionForm');
     form.action = '/payments/' + paymentId + '/transactions/add';
     const amountInput = document.getElementById('transactionAmount');
-    amountInput.value = remainingAmount || '';
+    amountInput.value = remainingAmount && remainingAmount !== '0' ? remainingAmount : '';
     const hint = document.getElementById('transactionHint');
-    if (hint) hint.textContent = 'Остаток к оплате: ' + remainingAmount + ' ₽';
+    if (hint) hint.textContent = remainingAmount && remainingAmount !== '0' ? 'Остаток к оплате: ' + remainingAmount + ' ₽' : 'Для переменного платежа сумма сверх остатка увеличит начисление.';
     document.getElementById('transactionModal').style.display = 'flex';
 }
 
