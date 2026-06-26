@@ -31,6 +31,8 @@ The branch is suitable for local/private testing behind VPN after rebuilding con
 - Added backup service regression tests for successful restore, failed restore rollback and unsafe archive rejection.
 - Manual QA confirmed backup/restore on a real Docker volume: local restore works without container restart, and downloaded backup upload/restore works.
 - Added mounted remote backup first phase: UI settings, local/remote destination validation, manual copy to mounted remote path, scheduler support and separate local/remote history rows.
+- Added database-backed `/health`: it now pings SQLite and reports degraded status with HTTP 500 if the DB check fails.
+- Added `audit_log` model and helper, plus audit rows for backup settings, backup create/delete, local restore and uploaded restore.
 
 ## Remaining blockers before production
 
@@ -42,12 +44,11 @@ No known P0 blockers for local/private pilot after the latest manual backup/rest
 
 1. Add production configuration flags for secure cookies when HTTPS is enabled.
 2. Make `SECRET_KEY`, `ADMIN_PASSWORD` and `USER_PASSWORD` fail-fast in production if left at defaults.
-3. Add structured audit logs for admin actions: user creation, permission updates, backup create/delete/restore.
+3. Complete structured audit logs for remaining admin actions: user creation, permission updates and contractor/payment mutations.
 4. Add DB migration tooling such as Alembic before future schema changes are made in future releases.
-5. Add health checks that validate database access, not only HTTP process liveness.
-6. Add security headers in nginx or FastAPI middleware: HSTS behind HTTPS, CSP, X-Frame-Options, Referrer-Policy.
-7. Validate uploaded receipt MIME/content in addition to extension and size.
-8. Add true SFTP/SMB transport code after migration tooling exists. Current remote backup phase expects the remote target to be mounted outside the application.
+5. Add security headers in nginx or FastAPI middleware: HSTS behind HTTPS, CSP, X-Frame-Options, Referrer-Policy.
+6. Validate uploaded receipt MIME/content in addition to extension and size.
+7. Add true SFTP/SMB transport code after migration tooling exists. Current remote backup phase expects the remote target to be mounted outside the application.
 
 ## CI status
 
@@ -56,7 +57,7 @@ CI is active and currently covers:
 - dependency installation from `requirements.txt`;
 - syntax check with `python -m compileall app tests`;
 - minimal FastAPI app import check;
-- unit tests with `python -m pytest tests/ -v`, including CSRF, permission, payment and backup-service regressions.
+- unit tests with `python -m pytest tests/ -v`, including CSRF, permission, payment, health, audit and backup-service regressions.
 
 ## Manual QA checklist
 
@@ -72,6 +73,7 @@ docker logs zhkh-web -f
 Check as admin:
 
 - Login works.
+- `/health` returns `database: ok` and HTTP 200.
 - `/payments` opens without 500.
 - Add payment works.
 - Edit payment works.
@@ -92,6 +94,7 @@ Check as admin:
 - Restore valid backup works without container restart.
 - Downloaded backup can be uploaded and restored.
 - Mounted remote backup copies archives to the configured path when that path is available to the container.
+- Backup create/settings/delete/restore operations create rows in `audit_log`.
 
 Check as non-admin:
 
