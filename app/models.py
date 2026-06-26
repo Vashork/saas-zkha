@@ -144,3 +144,22 @@ class BackupHistory(Base):
 
     def __repr__(self):
         return f"<BackupHistory(mode={self.mode}, status={self.status})>"
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, server_default=func.now())
+    actor_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    actor_username = Column(String, nullable=True)
+    action = Column(String, nullable=False)
+    entity_type = Column(String, nullable=False)
+    entity_id = Column(String, nullable=True)
+    details = Column(Text, nullable=True)
+    client_ip = Column(String, nullable=True)
+
+    actor = relationship("User")
+
+    def __repr__(self):
+        return f"<AuditLog(action={self.action}, entity_type={self.entity_type}, entity_id={self.entity_id})>"
