@@ -35,7 +35,7 @@
     {% elif success == 'settings_saved' %}
     <div style="background:var(--paid-bg);color:var(--paid);padding:12px;border-radius:12px;margin-bottom:16px;font-size:14px;">✅ Настройки бекапа сохранены</div>
     {% elif success == 'restore_completed' %}
-    <div style="background:var(--paid-bg);color:var(--paid);padding:12px;border-radius:12px;margin-bottom:16px;font-size:14px;">✅ Бекап восстановлен. Рекомендуется перезапустить контейнеры.</div>
+    <div style="background:var(--paid-bg);color:var(--paid);padding:12px;border-radius:12px;margin-bottom:16px;font-size:14px;">✅ Бекап восстановлен. Подключения к SQLite переоткрыты, ручной restart обычно не нужен.</div>
     {% endif %}
     {% if error == 'backup_failed' %}
     <div class="alert-error">❌ Не удалось создать бекап. Проверьте логи контейнера zhkh-web.</div>
@@ -44,12 +44,15 @@
     {% elif error == 'backup_invalid' %}
     <div class="alert-error">❌ Архив не прошёл валидацию. Нужен tar.gz с каталогом data/ и файлом data/zhkh.db.</div>
     {% elif error == 'restore_failed' %}
-    <div class="alert-error">❌ Не удалось восстановить бекап. Проверьте логи контейнера zhkh-web.</div>
+    <div class="alert-error">❌ Не удалось восстановить бекап. Исходные данные должны быть возвращены из страховочного бекапа. Проверьте логи контейнера zhkh-web.</div>
     {% endif %}
 
     <div class="card-custom" style="background:var(--accent-bg);">
         <p style="margin:0;color:var(--text);">
             Бекап создаёт архив каталога <code>data/</code>: SQLite-базу со всеми платежами, подрядчиками, пользователями, настройками и загруженными чеками. Архивы сохраняются в <code>./backups</code> на хосте через Docker volume.
+        </p>
+        <p style="margin:8px 0 0;color:var(--text-muted);font-size:13px;">
+            Время в списках ниже показывается в timezone <code>{{ backup_timezone }}</code>. Изменить её можно в настройках уведомлений / системной timezone приложения.
         </p>
     </div>
 
@@ -83,7 +86,7 @@
 
     <div class="card-custom">
         <h3 style="margin-bottom:16px;">⬆️ Загрузить и восстановить бекап</h3>
-        <form method="post" action="/backups/upload-restore" enctype="multipart/form-data" onsubmit="return confirm('Восстановить данные из выбранного архива? Перед восстановлением будет создан страховочный бекап текущих данных.')">
+        <form method="post" action="/backups/upload-restore" enctype="multipart/form-data" onsubmit="return confirm('Восстановить данные из выбранного архива? Перед восстановлением будет создан страховочный бекап текущих данных. После восстановления приложение переоткроет SQLite-подключения.')">
             <input type="hidden" name="_csrf" value="{{ _csrf }}">
             <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;max-width:680px;">
                 <div class="form-group" style="margin-bottom:0;">
@@ -108,10 +111,10 @@
             <tr>
                 <td>{{ f.name }}</td>
                 <td>{{ format_size(f.size_bytes) }}</td>
-                <td>{{ f.created_at.strftime('%d.%m.%Y %H:%M:%S') }}</td>
+                <td>{{ format_datetime(f.created_at, backup_timezone) }}</td>
                 <td class="backup-actions">
                     <a class="btn-secondary-custom" href="{{ f.download_url }}">Скачать</a>
-                    <form method="post" action="{{ f.restore_url }}" onsubmit="return confirm('Восстановить данные из {{ f.name }}? Перед восстановлением будет создан страховочный бекап текущих данных.')">
+                    <form method="post" action="{{ f.restore_url }}" onsubmit="return confirm('Восстановить данные из {{ f.name }}? Перед восстановлением будет создан страховочный бекап текущих данных. После восстановления приложение переоткроет SQLite-подключения.')">
                         <input type="hidden" name="_csrf" value="{{ _csrf }}">
                         <button type="submit" class="btn-secondary-custom">Восстановить</button>
                     </form>
@@ -139,7 +142,7 @@
             <tbody>
             {% for item in history %}
             <tr>
-                <td>{{ item.created_at.strftime('%d.%m.%Y %H:%M:%S') if item.created_at else '—' }}</td>
+                <td>{{ format_datetime(item.created_at, backup_timezone) }}</td>
                 <td>{{ item.mode }}</td>
                 <td>{{ item.backup_type }}</td>
                 <td>{{ item.storage }}</td>
