@@ -45,6 +45,8 @@
     {% endif %}
     {% if error == 'backup_failed' %}
     <div class="alert-error">❌ Не удалось создать бекап. Проверьте логи контейнера zhkh-web.</div>
+    {% elif error == 'backup_locked' %}
+    <div class="alert-error">⏳ Другая операция backup/restore уже выполняется. Дождитесь завершения и повторите действие.</div>
     {% elif error == 'backup_destination_required' %}
     <div class="alert-error">❌ Нужно выбрать хотя бы одно направление: локальное хранилище или mounted share.</div>
     {% elif error == 'remote_path_required' %}
@@ -57,6 +59,8 @@
     <div class="alert-error">❌ Не удалось восстановить бекап. Исходные данные должны быть возвращены из страховочного бекапа. Проверьте логи контейнера zhkh-web.</div>
     {% elif error == 'backup_discard_failed' %}
     <div class="alert-error">❌ Не удалось удалить файл бекапа. Проверьте права на каталог backups.</div>
+    {% elif error %}
+    <div class="alert-error">❌ {{ error }}</div>
     {% endif %}
 
     <div class="card-custom" style="background:var(--accent-bg);">
