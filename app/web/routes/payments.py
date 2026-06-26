@@ -263,6 +263,15 @@ def _cleanup_orphan_receipts(referenced_receipts: set[str]) -> int:
     return removed
 
 
+def _is_variable_payment(payment: Payment) -> bool:
+    contractor = getattr(payment, "contractor", None)
+    return contractor is not None and contractor.payment_type == "variable"
+
+
+def _transaction_total(payment: Payment) -> Decimal:
+    return sum((_as_decimal(tx.amount) for tx in getattr(payment, "transactions", []) or []), Decimal("0"))
+
+
 def _sync_payment_status_from_amounts(payment: Payment) -> None:
     """Keep the legacy status field useful while effective status is computed dynamically."""
     if _remaining_amount(payment) <= 0 and not _requires_amount(payment):
@@ -433,16 +442,17 @@ async def add_payment_transaction(
         ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Сумма оплаты должна быть больше нуля"})
         return templates.TemplateResponse("payments.html", ctx)
 
-    if _requires_amount(payment) or _planned_amount(payment) <= 0:
+    is_variable = _is_variable_payment(payment)
+    remaining = _remaining_amount(payment)
+    if (_requires_amount(payment) or _planned_amount(payment) <= 0) and not is_variable:
         ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Сначала укажите сумму начисления"})
         return templates.TemplateResponse("payments.html", ctx)
 
-    remaining = _remaining_amount(payment)
-    if remaining <= 0:
+    if remaining <= 0 and not is_variable:
         ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Платеж уже полностью оплачен"})
         return templates.TemplateResponse("payments.html", ctx)
 
-    if tx_amount > remaining:
+    if tx_amount > remaining and not is_variable:
         ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Сумма оплаты больше остатка"})
         return templates.TemplateResponse("payments.html", ctx)
 
@@ -469,7 +479,10 @@ async def add_payment_transaction(
         receipt_file=receipt_path,
     ))
 
-    payment.paid_amount = _paid_amount(payment) + tx_amount
+    new_paid_amount = _paid_amount(payment) + tx_amount
+    if is_variable and (payment.amount is None or _planned_amount(payment) < new_paid_amount):
+        payment.amount = new_paid_amount
+    payment.paid_amount = new_paid_amount
     payment.paid_date = paid_date
     if receipt_path and not payment.receipt_file:
         payment.receipt_file = receipt_path
@@ -529,8 +542,12 @@ async def edit_payment(
             payment.paid_date = date.today()
         payment.paid_amount = payment.amount
     elif status in {"pending", "overdue"}:
-        payment.paid_date = None
-        payment.paid_amount = None
+        tx_total = _transaction_total(payment)
+        if tx_total > 0:
+            payment.paid_amount = tx_total
+        else:
+            payment.paid_date = None
+            payment.paid_amount = None
     elif paid_date_str:
         try:
             payment.paid_date = date.fromisoformat(paid_date_str)
