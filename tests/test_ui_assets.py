@@ -75,6 +75,14 @@ def test_payments_template_has_partial_payment_modal_and_route():
     assert "Частично просрочено" in payments_html
 
 
+def test_payments_template_allows_variable_payment_top_ups():
+    payments_html = (ROOT / "app" / "web" / "templates" / "payments.html").read_text(encoding="utf-8")
+
+    assert "p.contractor.payment_type == 'variable'" in payments_html
+    assert "сумма сверх остатка увеличит начисление" in payments_html
+    assert "Добавить частичную оплату / доначисление" in payments_html
+
+
 def test_payments_template_renders_transaction_receipts():
     payments_html = (ROOT / "app" / "web" / "templates" / "payments.html").read_text(encoding="utf-8")
 
