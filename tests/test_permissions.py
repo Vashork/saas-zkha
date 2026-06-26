@@ -322,3 +322,42 @@ async def test_variable_payment_top_up_above_current_balance_increases_charge(pe
     ).scalars().all()
     assert len(transactions) == 1
     assert transactions[0].amount == Decimal("1000.00")
+
+
+@pytest.mark.asyncio
+async def test_legacy_payment_edit_paid_keeps_parent_total_equal_to_transactions(permission_db):
+    permission_db.payment.paid_amount = Decimal("40.00")
+    permission_db.payment.paid_date = date(2026, 6, 20)
+    permission_db.payment.status = "pending"
+    permission_db.session.add(PaymentTransaction(
+        id="tx-existing-partial",
+        payment_id=permission_db.payment.id,
+        amount=Decimal("40.00"),
+        paid_date=date(2026, 6, 20),
+    ))
+    await permission_db.session.commit()
+
+    response = await payments.edit_payment(
+        permission_db.payment.id,
+        _request("/payments/payment-1/edit", method="POST", user=permission_db.admin),
+        db=permission_db.session,
+        amount="100",
+        status="paid",
+        paid_date_str="2026-06-26",
+        receipt=None,
+    )
+
+    _assert_redirect(response, "/payments?year=2026&month=6")
+
+    payment = await permission_db.session.get(Payment, permission_db.payment.id)
+    transactions = (
+        await permission_db.session.execute(
+            select(PaymentTransaction).where(PaymentTransaction.payment_id == payment.id)
+        )
+    ).scalars().all()
+    tx_total = sum((tx.amount for tx in transactions), Decimal("0"))
+
+    assert tx_total == Decimal("100.00")
+    assert sorted(tx.amount for tx in transactions) == [Decimal("40.00"), Decimal("60.00")]
+    assert payment.paid_amount == tx_total
+    assert payment.status == "paid"
