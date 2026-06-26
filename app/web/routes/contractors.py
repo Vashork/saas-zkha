@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
-from app.models import Contractor, Payment
+from app.models import Contractor, Payment, Setting
 from app.utils import generate_uuid
 from app.audit import log_admin_action
 from app.web.routes.auth import _require_page, get_current_user
@@ -36,6 +36,16 @@ def _user_context(current_user):
         "username": current_user.username,
         "user_role": current_user.role,
     }
+
+
+async def _default_due_day(db: AsyncSession) -> int:
+    result = await db.execute(select(Setting).where(Setting.key == "default_due_day"))
+    setting = result.scalar_one_or_none()
+    try:
+        value = int(setting.value) if setting else 15
+    except (TypeError, ValueError):
+        value = 15
+    return min(max(value, 1), 28)
 
 
 def _parse_fixed_amount(payment_type: str, fixed_amount: str) -> Decimal | None:
@@ -90,6 +100,7 @@ async def contractors_page(
         **_user_context(current_user),
         "contractors": contractors,
         "show_archived": show_archived,
+        "default_due_day": await _default_due_day(db),
         "error": request.query_params.get("error"),
     })
 
@@ -151,6 +162,7 @@ async def add_contractor(
             **_user_context(current_user),
             "contractors": contractors,
             "show_archived": False,
+            "default_due_day": await _default_due_day(db),
             "error": "Конфликт: подрядчик с таким именем или slug уже существует",
         })
 
