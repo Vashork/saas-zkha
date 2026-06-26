@@ -70,9 +70,14 @@ Implementation note: `payments.paid_amount` remains as a compatibility aggregate
 ## 4. Production hardening
 
 - [ ] Add production configuration flags for secure cookies when HTTPS is enabled.
+  - Deferred: GitHub connector safety blocked edits to `app/config.py`; keep this item for a smaller follow-up.
 - [ ] Fail fast in production if `SECRET_KEY`, `ADMIN_PASSWORD` or `USER_PASSWORD` are left at defaults.
-- [ ] Add structured audit logs for admin actions: user creation, permission updates, backup create/delete/restore.
-- [ ] Add database-backed health checks, not only HTTP process liveness.
+  - Deferred: GitHub connector safety blocked edits to `app/config.py`; keep this item for a smaller follow-up.
+- [~] Add structured audit logs for admin actions: user creation, permission updates, backup create/delete/restore.
+  - Added `audit_log` table and helper.
+  - Implemented audit rows for backup settings, backup create, backup delete, local restore and uploaded restore.
+  - User management audit is still pending.
+- [x] Add database-backed health checks, not only HTTP process liveness.
 - [ ] Add migration tooling such as Alembic before future schema changes.
 - [ ] Validate uploaded receipt MIME/content in addition to extension and size.
 
