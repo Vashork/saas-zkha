@@ -24,14 +24,15 @@ The branch is not yet ready for an internet-facing production deployment. It can
 - Confirmed CI completed successfully after workflow setup.
 - Kept the earlier CSRF fixes for urlencoded and multipart form submissions.
 - Added automated permission tests for unauthenticated redirects, settings page denial, admin-only user management, contractor/payment mutation denial and admin positive paths.
+- Added automated CSRF middleware regression tests for urlencoded forms, multipart forms and AJAX `X-CSRF-Token` requests.
+- Added `docs/ROADMAP.md` and placed remote backup work before Telegram bot work.
 
 ## Remaining blockers before production
 
 ### P0 — must fix before production
 
-1. Add automated tests for CSRF on normal forms, multipart forms and AJAX theme save.
-2. Run backup/restore QA on a real Docker volume with an existing SQLite database.
-3. Verify restore rollback behavior when recovery fails after the safety backup is created.
+1. Run backup/restore QA on a real Docker volume with an existing SQLite database.
+2. Verify restore rollback behavior when recovery fails after the safety backup is created.
 
 ### P1 — should fix before public deployment
 
@@ -42,6 +43,7 @@ The branch is not yet ready for an internet-facing production deployment. It can
 5. Add health checks that validate database access, not only HTTP process liveness.
 6. Add security headers in nginx or FastAPI middleware: HSTS behind HTTPS, CSP, X-Frame-Options, Referrer-Policy.
 7. Validate uploaded receipt MIME/content in addition to extension and size.
+8. Add remote backup support from `docs/ROADMAP.md`: SFTP/SMB UI, scheduler destination checkboxes and at-least-one destination validation.
 
 ## CI status
 
@@ -50,7 +52,7 @@ CI is active and currently covers:
 - dependency installation from `requirements.txt`;
 - syntax check with `python -m compileall app tests`;
 - minimal FastAPI app import check;
-- unit tests with `python -m pytest tests/ -v`, including permission regressions in `tests/test_permissions.py`.
+- unit tests with `python -m pytest tests/ -v`, including CSRF and permission regressions.
 
 ## Manual QA checklist
 
