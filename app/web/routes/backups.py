@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
+from app.audit import log_admin_action
 from app.backup_service import (
     BACKUP_DIR,
     MAX_UPLOAD_SIZE,
@@ -239,7 +240,7 @@ async def save_backup_settings(
     backup_remote_path: str = Form(""),
     backup_keep_local_copy: str = Form(""),
 ):
-    _, redirect = await _require_admin(request, db)
+    current_user, redirect = await _require_admin(request, db)
     if redirect:
         return redirect
 
@@ -268,14 +269,31 @@ async def save_backup_settings(
         destination_local,
         destination_remote,
     )
+    await log_admin_action(
+        db,
+        actor=current_user,
+        action="backup_settings_update",
+        entity_type="backup_settings",
+        details={
+            "frequency": parsed_frequency,
+            "backup_time": parsed_time,
+            "destination_local": destination_local,
+            "destination_remote": destination_remote,
+            "remote_type": remote_type,
+            "keep_local_copy": keep_local_copy,
+            "remote_path_configured": bool(remote_path),
+        },
+        request=request,
+    )
     await run_in_threadpool(cleanup_old_backups, parsed_retention)
     await _reschedule_auto_backup()
+    await db.commit()
     return RedirectResponse(url="/backups?success=settings_saved", status_code=303)
 
 
 @router.post("/backups/create")
 async def create_backup(request: Request, db: AsyncSession = Depends(get_db)):
-    _, redirect = await _require_admin(request, db)
+    current_user, redirect = await _require_admin(request, db)
     if redirect:
         return redirect
 
@@ -337,6 +355,20 @@ async def create_backup(request: Request, db: AsyncSession = Depends(get_db)):
         else:
             await run_in_threadpool(_remove_local_archive_if_unneeded, file_path)
 
+        await log_admin_action(
+            db,
+            actor=current_user,
+            action="backup_create",
+            entity_type="backup",
+            entity_id=file_path,
+            details={
+                "local_kept": keep_local_archive,
+                "remote_enabled": settings["destination_remote"],
+                "remote_success": remote_ok,
+                "remote_error": remote_error,
+            },
+            request=request,
+        )
         await db.commit()
         if remote_ok is False:
             return RedirectResponse(url="/backups?success=backup_created_remote_failed", status_code=303)
@@ -354,6 +386,14 @@ async def create_backup(request: Request, db: AsyncSession = Depends(get_db)):
             error_message=str(exc),
             file_path=None,
         ))
+        await log_admin_action(
+            db,
+            actor=current_user,
+            action="backup_create_failed",
+            entity_type="backup",
+            details={"error": str(exc)},
+            request=request,
+        )
         await db.commit()
         return RedirectResponse(url="/backups?error=backup_failed", status_code=303)
 
@@ -364,7 +404,7 @@ async def upload_and_restore_backup(
     db: AsyncSession = Depends(get_db),
     backup_file: UploadFile = File(...),
 ):
-    _, redirect = await _require_admin(request, db)
+    current_user, redirect = await _require_admin(request, db)
     if redirect:
         return redirect
 
@@ -386,18 +426,33 @@ async def upload_and_restore_backup(
         logger.warning("Uploaded backup validation failed: %s", message)
         return RedirectResponse(url="/backups?error=backup_invalid", status_code=303)
 
+    actor_id = current_user.id
+    actor_username = current_user.username
     await db.close()
     ok, restore_message = await _restore_and_reinitialize(upload_path)
     if not ok:
         logger.warning("Uploaded backup recovery failed: %s", restore_message)
         return RedirectResponse(url="/backups?error=restore_failed", status_code=303)
 
+    async for fresh_db in get_db():
+        fake_actor = type("AuditActor", (), {"id": actor_id, "username": actor_username})()
+        await log_admin_action(
+            fresh_db,
+            actor=fake_actor,
+            action="backup_upload_restore",
+            entity_type="backup",
+            entity_id=upload_path.name,
+            details={"filename": backup_file.filename},
+            request=request,
+        )
+        break
+
     return RedirectResponse(url="/backups?success=restore_completed", status_code=303)
 
 
 @router.post("/backups/restore/{filename}")
 async def restore_backup(filename: str, request: Request, db: AsyncSession = Depends(get_db)):
-    _, redirect = await _require_admin(request, db)
+    current_user, redirect = await _require_admin(request, db)
     if redirect:
         return redirect
 
@@ -405,18 +460,32 @@ async def restore_backup(filename: str, request: Request, db: AsyncSession = Dep
     if not path:
         return RedirectResponse(url="/backups?error=backup_not_found", status_code=303)
 
+    actor_id = current_user.id
+    actor_username = current_user.username
     await db.close()
     ok, restore_message = await _restore_and_reinitialize(path)
     if not ok:
         logger.warning("Backup recovery failed: %s", restore_message)
         return RedirectResponse(url="/backups?error=restore_failed", status_code=303)
 
+    async for fresh_db in get_db():
+        fake_actor = type("AuditActor", (), {"id": actor_id, "username": actor_username})()
+        await log_admin_action(
+            fresh_db,
+            actor=fake_actor,
+            action="backup_restore",
+            entity_type="backup",
+            entity_id=filename,
+            request=request,
+        )
+        break
+
     return RedirectResponse(url="/backups?success=restore_completed", status_code=303)
 
 
 @router.post("/backups/discard/{filename}")
 async def discard_backup(filename: str, request: Request, db: AsyncSession = Depends(get_db)):
-    _, redirect = await _require_admin(request, db)
+    current_user, redirect = await _require_admin(request, db)
     if redirect:
         return redirect
 
@@ -430,6 +499,15 @@ async def discard_backup(filename: str, request: Request, db: AsyncSession = Dep
         logger.warning("Backup discard failed: %s", exc)
         return RedirectResponse(url="/backups?error=backup_discard_failed", status_code=303)
 
+    await log_admin_action(
+        db,
+        actor=current_user,
+        action="backup_delete",
+        entity_type="backup",
+        entity_id=filename,
+        request=request,
+    )
+    await db.commit()
     return RedirectResponse(url="/backups?success=backup_discarded", status_code=303)
 
 
