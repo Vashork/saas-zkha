@@ -9,9 +9,9 @@
         <a class="nav-link-custom" href="/">📊 Дашборд</a>
         <a class="nav-link-custom active" href="/payments">💳 Платежи</a>
         <a class="nav-link-custom" href="/history">📜 История</a>
+        {% if user_role == 'admin' %}<a class="nav-link-custom" href="/backups">💾 Бекапы</a>{% endif %}
         <a class="nav-link-custom" href="/contractors">🏢 Подрядчики</a>
         <a class="nav-link-custom" href="/analytics">📈 Аналитика</a>
-        {% if user_role == 'admin' %}<a class="nav-link-custom" href="/backups">💾 Бекапы</a>{% endif %}
         <a class="nav-link-custom" href="/settings">⚙️ Настройки</a>
     </div>
     <div class="user-badge">
@@ -91,7 +91,7 @@
                     {% endif %}
                     {% if user_role == 'admin' %}
                     {% if (remaining > 0 and not needs_amount) or (p.contractor and p.contractor.payment_type == 'variable') %}
-                    <button class="btn-icon" title="Добавить частичную оплату / доначисление" onclick="openTransactionModal('{{ p.id }}', '{{ remaining }}')">➕💳</button>
+                    <button class="btn-icon" title="Добавить оплату" onclick="openTransactionModal('{{ p.id }}', '{{ remaining }}')">➕</button>
                     {% endif %}
                     {% if current_status == 'paid' %}
                     <button class="btn-icon" title="Загрузить чек" onclick="openReceiptModal('{{ p.id }}')">📤</button>
@@ -354,5 +354,13 @@ function toggleEditPaidFields() {
 function closeModal(id) {
     document.getElementById(id).style.display = 'none';
 }
+
+(function limitPaidDateInputsToToday() {
+    const now = new Date();
+    const today = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    document.querySelectorAll('input[name="paid_date_str"]').forEach(function(input) {
+        input.max = today;
+    });
+})();
 </script>
 {% endblock %}
