@@ -33,7 +33,7 @@ from app.backup_settings import (
     parse_retention,
     parse_time,
 )
-from app.database import get_db
+from app.database import async_session_factory, get_db
 from app.models import BackupHistory, Setting
 from app.web.routes.auth import get_current_user
 from app.web.template_engine import templates
@@ -192,6 +192,29 @@ async def _log_backup_history(
         file_path=file_path,
         error_message=error_message,
     ))
+
+
+async def _audit_after_restore(
+    *,
+    actor_id: int,
+    actor_username: str,
+    action: str,
+    entity_id: str,
+    details: dict | None,
+    request: Request,
+) -> None:
+    actor = type("AuditActor", (), {"id": actor_id, "username": actor_username})()
+    async with async_session_factory() as fresh_db:
+        await log_admin_action(
+            fresh_db,
+            actor=actor,
+            action=action,
+            entity_type="backup",
+            entity_id=entity_id,
+            details=details,
+            request=request,
+        )
+        await fresh_db.commit()
 
 
 def _remove_local_archive_if_unneeded(file_path: str) -> None:
@@ -434,19 +457,14 @@ async def upload_and_restore_backup(
         logger.warning("Uploaded backup recovery failed: %s", restore_message)
         return RedirectResponse(url="/backups?error=restore_failed", status_code=303)
 
-    async for fresh_db in get_db():
-        fake_actor = type("AuditActor", (), {"id": actor_id, "username": actor_username})()
-        await log_admin_action(
-            fresh_db,
-            actor=fake_actor,
-            action="backup_upload_restore",
-            entity_type="backup",
-            entity_id=upload_path.name,
-            details={"filename": backup_file.filename},
-            request=request,
-        )
-        break
-
+    await _audit_after_restore(
+        actor_id=actor_id,
+        actor_username=actor_username,
+        action="backup_upload_restore",
+        entity_id=upload_path.name,
+        details={"filename": backup_file.filename},
+        request=request,
+    )
     return RedirectResponse(url="/backups?success=restore_completed", status_code=303)
 
 
@@ -468,18 +486,14 @@ async def restore_backup(filename: str, request: Request, db: AsyncSession = Dep
         logger.warning("Backup recovery failed: %s", restore_message)
         return RedirectResponse(url="/backups?error=restore_failed", status_code=303)
 
-    async for fresh_db in get_db():
-        fake_actor = type("AuditActor", (), {"id": actor_id, "username": actor_username})()
-        await log_admin_action(
-            fresh_db,
-            actor=fake_actor,
-            action="backup_restore",
-            entity_type="backup",
-            entity_id=filename,
-            request=request,
-        )
-        break
-
+    await _audit_after_restore(
+        actor_id=actor_id,
+        actor_username=actor_username,
+        action="backup_restore",
+        entity_id=filename,
+        details=None,
+        request=request,
+    )
     return RedirectResponse(url="/backups?success=restore_completed", status_code=303)
 
 
