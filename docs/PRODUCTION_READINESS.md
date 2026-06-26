@@ -33,6 +33,7 @@ The branch is suitable for local/private testing behind VPN after rebuilding con
 - Added mounted remote backup first phase: UI settings, local/remote destination validation, manual copy to mounted remote path, scheduler support and separate local/remote history rows.
 - Added database-backed `/health`: it now pings SQLite and reports degraded status with HTTP 500 if the DB check fails.
 - Added `audit_log` model and helper, plus audit rows for backup settings, backup create/delete, local restore and uploaded restore.
+- Added audit rows for user create, user update, user activation toggle, user delete, admin password reset and app settings update.
 
 ## Remaining blockers before production
 
@@ -44,7 +45,7 @@ No known P0 blockers for local/private pilot after the latest manual backup/rest
 
 1. Add production configuration flags for secure cookies when HTTPS is enabled.
 2. Make `SECRET_KEY`, `ADMIN_PASSWORD` and `USER_PASSWORD` fail-fast in production if left at defaults.
-3. Complete structured audit logs for remaining admin actions: user creation, permission updates and contractor/payment mutations.
+3. Add structured audit logs for contractor/payment mutations if a full compliance trail is required.
 4. Add DB migration tooling such as Alembic before future schema changes are made in future releases.
 5. Add security headers in nginx or FastAPI middleware: HSTS behind HTTPS, CSP, X-Frame-Options, Referrer-Policy.
 6. Validate uploaded receipt MIME/content in addition to extension and size.
@@ -95,6 +96,7 @@ Check as admin:
 - Downloaded backup can be uploaded and restored.
 - Mounted remote backup copies archives to the configured path when that path is available to the container.
 - Backup create/settings/delete/restore operations create rows in `audit_log`.
+- User create/update/toggle/delete/password reset operations create rows in `audit_log`.
 
 Check as non-admin:
 
