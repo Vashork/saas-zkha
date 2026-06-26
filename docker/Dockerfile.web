@@ -11,5 +11,6 @@ COPY app/ ./app/
 COPY alembic.ini ./alembic.ini
 COPY alembic/ ./alembic/
 COPY init_db.py .
+COPY docker/start-web.sh ./docker/start-web.sh
 
-CMD ["python", "-m", "uvicorn", "app.web.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "./docker/start-web.sh"]
