@@ -9,9 +9,9 @@
         <a class="nav-link-custom" href="/">📊 Дашборд</a>
         <a class="nav-link-custom" href="/payments">💳 Платежи</a>
         <a class="nav-link-custom" href="/history">📜 История</a>
+        <a class="nav-link-custom active" href="/backups">💾 Бекапы</a>
         <a class="nav-link-custom" href="/contractors">🏢 Подрядчики</a>
         <a class="nav-link-custom" href="/analytics">📈 Аналитика</a>
-        <a class="nav-link-custom active" href="/backups">💾 Бекапы</a>
         <a class="nav-link-custom" href="/settings">⚙️ Настройки</a>
     </div>
     <div class="user-badge">
@@ -31,17 +31,17 @@
     </div>
 
     {% if success == 'backup_created' %}
-    <div style="background:var(--paid-bg);color:var(--paid);padding:12px;border-radius:12px;margin-bottom:16px;font-size:14px;">✅ Локальный бекап создан</div>
+    <div class="alert-success">✅ Локальный бекап создан</div>
     {% elif success == 'backup_created_remote' %}
-    <div style="background:var(--paid-bg);color:var(--paid);padding:12px;border-radius:12px;margin-bottom:16px;font-size:14px;">✅ Бекап создан и скопирован в mounted share</div>
+    <div class="alert-success">✅ Бекап создан и скопирован в mounted share</div>
     {% elif success == 'backup_created_remote_failed' %}
     <div style="background:var(--warn-bg);color:var(--accent-warn);padding:12px;border-radius:12px;margin-bottom:16px;font-size:14px;">⚠️ Локальный бекап создан, но копирование в mounted share не удалось. Проверьте путь и права на mounted папку.</div>
     {% elif success == 'settings_saved' %}
-    <div style="background:var(--paid-bg);color:var(--paid);padding:12px;border-radius:12px;margin-bottom:16px;font-size:14px;">✅ Настройки бекапа сохранены</div>
+    <div class="alert-success">✅ Настройки бекапа сохранены</div>
     {% elif success == 'restore_completed' %}
-    <div style="background:var(--paid-bg);color:var(--paid);padding:12px;border-radius:12px;margin-bottom:16px;font-size:14px;">✅ Бекап восстановлен. Подключения к SQLite переоткрыты, ручной restart обычно не нужен.</div>
+    <div class="alert-success">✅ Бекап восстановлен</div>
     {% elif success == 'backup_discarded' %}
-    <div style="background:var(--paid-bg);color:var(--paid);padding:12px;border-radius:12px;margin-bottom:16px;font-size:14px;">✅ Локальный файл бекапа удалён</div>
+    <div class="alert-success">✅ Локальный файл бекапа удалён</div>
     {% endif %}
     {% if error == 'backup_failed' %}
     <div class="alert-error">❌ Не удалось создать бекап. Проверьте логи контейнера zhkh-web.</div>
@@ -63,27 +63,15 @@
     <div class="alert-error">❌ {{ error }}</div>
     {% endif %}
 
-    <div class="card-custom" style="background:var(--accent-bg);">
-        <p style="margin:0;color:var(--text);">
-            Бекап создаёт архив каталога <code>data/</code>: SQLite-базу со всеми платежами, подрядчиками, пользователями, настройками и загруженными чеками.
-            Локальные архивы сохраняются в <code>./backups</code> на хосте через Docker volume.
-        </p>
-        <p style="margin:8px 0 0;color:var(--text-muted);font-size:13px;">
-            Время в списках ниже показывается в timezone <code>{{ backup_timezone }}</code>. Изменить её можно в настройках уведомлений / системной timezone приложения.
-        </p>
-    </div>
-
     <div class="card-custom">
-        <h3 style="margin-bottom:16px;">⚙️ Настройки бекапа</h3>
+        <h3 style="margin-bottom:16px;">⚙️ Настройка расписания и путей</h3>
 
         <form method="post" action="/backups/settings">
             <input type="hidden" name="_csrf" value="{{ _csrf }}">
-            {% if backup_settings.destination_local %}<input type="hidden" name="backup_destination_local" value="on">{% endif %}
-            {% if backup_settings.destination_remote %}<input type="hidden" name="backup_destination_remote" value="on">{% endif %}
             <input type="hidden" name="backup_remote_type" value="mounted_share">
-            <input type="hidden" name="backup_remote_path" value="{{ backup_settings.remote_path }}">
             {% if backup_settings.keep_local_copy %}<input type="hidden" name="backup_keep_local_copy" value="on">{% endif %}
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end;">
+
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end;margin-bottom:18px;">
                 <div class="form-group" style="margin-bottom:0;">
                     <label>Сколько последних локальных архивов хранить</label>
                     <input type="number" name="retention_count" class="input-custom" min="1" max="100" value="{{ backup_settings.retention_count }}">
@@ -101,52 +89,37 @@
                     <label>Время запуска</label>
                     <input type="time" name="backup_time" class="input-custom" value="{{ backup_settings.backup_time }}">
                 </div>
-                <button type="submit" class="btn-custom">💾 Сохранить расписание</button>
+                <button type="submit" class="btn-custom">💾 Сохранить</button>
             </div>
-        </form>
 
-        <details style="margin-top:18px;">
-            <summary style="cursor:pointer;font-weight:700;color:var(--text);">🌐 Куда сохранять бекап</summary>
-            <form method="post" action="/backups/settings" style="margin-top:14px;padding:14px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,0.03);display:flex;justify-content:flex-end;">
-                <input type="hidden" name="_csrf" value="{{ _csrf }}">
-                <input type="hidden" name="retention_count" value="{{ backup_settings.retention_count }}">
-                <input type="hidden" name="frequency" value="{{ backup_settings.frequency }}">
-                <input type="hidden" name="backup_time" value="{{ backup_settings.backup_time }}">
-                <input type="hidden" name="backup_remote_type" value="mounted_share">
-
-                <div style="display:flex;flex-direction:column;gap:10px;align-items:stretch;width:min(100%,430px);">
-                    <label style="display:flex;gap:10px;align-items:flex-start;color:var(--text);padding:10px;border:1px solid var(--border);border-radius:10px;">
-                        <input type="checkbox" name="backup_destination_local" {% if backup_settings.destination_local %}checked{% endif %}>
-                        <span>
-                            <strong>Локально: <code>./backups</code></strong>
-                            <small style="display:block;color:var(--text-muted);margin-top:2px;">Архив остаётся на хосте.</small>
-                        </span>
-                    </label>
-                    <label style="display:flex;gap:10px;align-items:flex-start;color:var(--text);padding:10px;border:1px solid var(--border);border-radius:10px;">
-                        <input type="checkbox" name="backup_destination_remote" {% if backup_settings.destination_remote %}checked{% endif %}>
-                        <span>
-                            <strong>Mounted share</strong>
-                            <small style="display:block;color:var(--text-muted);margin-top:2px;">Копировать архив в смонтированную папку.</small>
-                        </span>
-                    </label>
-                    <div class="form-group" style="margin-bottom:0;">
-                        <label>Путь к mounted share</label>
-                        <input type="text" name="backup_remote_path" class="input-custom" placeholder="/mnt/zhkh-backups" value="{{ backup_settings.remote_path }}">
-                        <small style="color:var(--text-muted);">Не указывайте <code>/app/data</code>, <code>/app/data/uploads</code> или <code>/app/backups</code>.</small>
-                    </div>
-                    {% if not backup_settings.destination_local and backup_settings.destination_remote %}
-                    <small style="color:var(--accent-warn);">Remote-only: при успешной копии локальный временный архив удаляется; при ошибке остаётся.</small>
-                    {% endif %}
-                    <button type="submit" class="btn-custom" style="align-self:flex-end;">Применить</button>
+            <div class="backup-destination-grid">
+                <label class="backup-destination-option">
+                    <input type="checkbox" name="backup_destination_local" {% if backup_settings.destination_local %}checked{% endif %}>
+                    <span>
+                        <strong>Локально: <code>./backups</code></strong>
+                        <small>Архив остаётся на хосте.</small>
+                    </span>
+                </label>
+                <label class="backup-destination-option">
+                    <input type="checkbox" name="backup_destination_remote" {% if backup_settings.destination_remote %}checked{% endif %}>
+                    <span>
+                        <strong>Mounted share</strong>
+                        <small>Копировать архив в смонтированную папку.</small>
+                    </span>
+                </label>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Путь к mounted share</label>
+                    <input type="text" name="backup_remote_path" class="input-custom" placeholder="/mnt/zhkh-backups" value="{{ backup_settings.remote_path }}">
+                    <small style="color:var(--text-muted);">Не указывайте <code>/app/data</code>, <code>/app/data/uploads</code> или <code>/app/backups</code>.</small>
                 </div>
-            </form>
-        </details>
-        <small style="color:var(--text-muted);display:block;margin-top:8px;">После создания нового бекапа старые локальные архивы сверх лимита будут удалены.</small>
+            </div>
+            <small style="color:var(--text-muted);display:block;margin-top:10px;">После создания нового бекапа старые локальные архивы сверх лимита будут удалены.</small>
+        </form>
     </div>
 
     <div class="card-custom">
         <h3 style="margin-bottom:16px;">⬆️ Загрузить и восстановить бекап</h3>
-        <form method="post" action="/backups/upload-restore" enctype="multipart/form-data" onsubmit="return confirm('Восстановить данные из выбранного архива? Перед восстановлением будет создан страховочный бекап текущих данных. После восстановления приложение переоткроет SQLite-подключения.')">
+        <form method="post" action="/backups/upload-restore" enctype="multipart/form-data" onsubmit="return confirm('Восстановить данные из выбранного архива? Перед восстановлением будет создан страховочный бекап текущих данных.')">
             <input type="hidden" name="_csrf" value="{{ _csrf }}">
             <div style="display:grid;grid-template-columns:1fr auto;gap:12px;align-items:end;max-width:680px;">
                 <div class="form-group" style="margin-bottom:0;">
@@ -174,7 +147,7 @@
                 <td>{{ format_datetime(f.created_at, backup_timezone) }}</td>
                 <td class="backup-actions">
                     <a class="btn-secondary-custom" href="{{ f.download_url }}">Скачать</a>
-                    <form method="post" action="{{ f.restore_url }}" onsubmit="return confirm('Восстановить данные из {{ f.name }}? Перед восстановлением будет создан страховочный бекап текущих данных. После восстановления приложение переоткроет SQLite-подключения.')">
+                    <form method="post" action="{{ f.restore_url }}" onsubmit="return confirm('Восстановить данные из {{ f.name }}? Перед восстановлением будет создан страховочный бекап текущих данных.')">
                         <input type="hidden" name="_csrf" value="{{ _csrf }}">
                         <button type="submit" class="btn-secondary-custom">Восстановить</button>
                     </form>
