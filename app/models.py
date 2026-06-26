@@ -2,10 +2,6 @@
 SQLAlchemy 2.0 models for the zhkh-bot application.
 """
 
-import uuid
-from datetime import datetime, date
-from decimal import Decimal
-
 from sqlalchemy import (
     Column, Integer, String, Text, Boolean, DateTime, Date, Numeric, ForeignKey, CheckConstraint, UniqueConstraint
 )
@@ -75,6 +71,12 @@ class Payment(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     contractor = relationship("Contractor", back_populates="payments")
+    transactions = relationship(
+        "PaymentTransaction",
+        back_populates="payment",
+        cascade="all, delete-orphan",
+        order_by="PaymentTransaction.paid_date",
+    )
 
     __table_args__ = (
         UniqueConstraint("contractor_id", "year", "month", name="uq_contractor_period"),
@@ -84,6 +86,28 @@ class Payment(Base):
 
     def __repr__(self):
         return f"<Payment(contractor_id={self.contractor_id}, {self.year}-{self.month}, status={self.status})>"
+
+
+class PaymentTransaction(Base):
+    __tablename__ = "payment_transactions"
+
+    id = Column(String, primary_key=True)
+    payment_id = Column(String, ForeignKey("payments.id", ondelete="CASCADE"), nullable=False)
+    amount = Column(Numeric(10, 2), nullable=False)
+    paid_date = Column(Date, nullable=False)
+    receipt_file = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    payment = relationship("Payment", back_populates="transactions")
+
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_payment_transaction_amount_positive"),
+    )
+
+    def __repr__(self):
+        return f"<PaymentTransaction(payment_id={self.payment_id}, amount={self.amount})>"
 
 
 class Setting(Base):
@@ -120,3 +144,22 @@ class BackupHistory(Base):
 
     def __repr__(self):
         return f"<BackupHistory(mode={self.mode}, status={self.status})>"
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, server_default=func.now())
+    actor_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    actor_username = Column(String, nullable=True)
+    action = Column(String, nullable=False)
+    entity_type = Column(String, nullable=False)
+    entity_id = Column(String, nullable=True)
+    details = Column(Text, nullable=True)
+    client_ip = Column(String, nullable=True)
+
+    actor = relationship("User")
+
+    def __repr__(self):
+        return f"<AuditLog(action={self.action}, entity_type={self.entity_type}, entity_id={self.entity_id})>"

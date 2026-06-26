@@ -6,7 +6,6 @@ from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Request, Form, Depends
 from fastapi.responses import RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -15,9 +14,9 @@ from app.database import get_db
 from app.models import Contractor, Payment
 from app.utils import generate_uuid
 from app.web.routes.auth import _require_page, get_current_user
+from app.web.template_engine import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/web/templates")
 
 
 async def _require_admin_user(request: Request, db: AsyncSession):

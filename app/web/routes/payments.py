@@ -10,20 +10,29 @@ from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Request, Form, File, UploadFile, Depends
 from fastapi.responses import RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.database import get_db
-from app.models import Payment, Contractor
-from app.utils import month_name, payment_color_class, is_allowed_file, get_upload_path, MAX_FILE_SIZE
+from app.models import Payment, Contractor, PaymentTransaction
+from app.utils import month_name, is_allowed_file, get_upload_path, MAX_FILE_SIZE, payment_color_class
 from app.web.routes.auth import _require_page, get_current_user
+from app.web.routes.payment_helpers import (
+    _as_decimal,
+    _requires_amount,
+    _planned_amount,
+    _paid_amount,
+    _remaining_amount,
+    _effective_status,
+    _status_label,
+    _status_css_class,
+)
+from app.web.template_engine import templates
 
 logger = logging.getLogger("zhkh.payments")
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/web/templates")
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./data/uploads")
 
@@ -36,82 +45,6 @@ async def _require_admin_user(request: Request, db: AsyncSession):
     if current_user.role != "admin":
         return current_user, RedirectResponse(url="/payments?error=Только+для+админа", status_code=303)
     return current_user, None
-
-
-def _as_decimal(value) -> Decimal:
-    """Safely convert nullable numeric DB values to Decimal."""
-    if value is None:
-        return Decimal("0")
-    if isinstance(value, Decimal):
-        return value
-    return Decimal(str(value))
-
-
-def _requires_amount(payment: Payment) -> bool:
-    """Variable payment exists, but actual bill amount has not been entered yet."""
-    contractor = getattr(payment, "contractor", None)
-    return (
-        contractor is not None
-        and contractor.payment_type == "variable"
-        and payment.amount is None
-        and payment.paid_amount is None
-        and payment.status != "paid"
-    )
-
-
-def _planned_amount(payment: Payment) -> Decimal:
-    """Return expected charge using the same fixed-debt rule as dashboard."""
-    candidates: list[Decimal] = []
-    contractor = getattr(payment, "contractor", None)
-    if contractor and contractor.payment_type == "fixed" and contractor.fixed_amount is not None:
-        candidates.append(_as_decimal(contractor.fixed_amount))
-    if payment.amount is not None:
-        candidates.append(_as_decimal(payment.amount))
-    if payment.paid_amount is not None:
-        candidates.append(_as_decimal(payment.paid_amount))
-    return max(candidates) if candidates else Decimal("0")
-
-
-def _paid_amount(payment: Payment) -> Decimal:
-    return _as_decimal(payment.paid_amount)
-
-
-def _remaining_amount(payment: Payment) -> Decimal:
-    remaining = _planned_amount(payment) - _paid_amount(payment)
-    return remaining if remaining > 0 else Decimal("0")
-
-
-def _is_open_payment(payment: Payment) -> bool:
-    return _remaining_amount(payment) > 0 or _requires_amount(payment)
-
-
-def _effective_status(payment: Payment) -> str:
-    """Return visual/business status, not just raw DB status."""
-    if not _is_open_payment(payment):
-        return "paid"
-    if payment.status == "overdue":
-        return "overdue"
-    if payment.due_date and payment.due_date <= date.today():
-        return "overdue"
-    return "pending"
-
-
-def _status_label(payment: Payment) -> str:
-    status = _effective_status(payment)
-    if _requires_amount(payment):
-        return "ожидает начисления" if status == "pending" else "просрочено, нет суммы"
-    if status == "overdue":
-        return "просрочено"
-    if status == "pending":
-        return "к оплате"
-    return "оплачено"
-
-
-def _status_css_class(payment: Payment) -> str:
-    status = _effective_status(payment)
-    if status == "paid":
-        return "paid"
-    return payment_color_class(payment.due_date, status)
 
 
 def _shift_month(year: int, month: int, offset: int) -> tuple[int, int]:
@@ -181,9 +114,13 @@ async def _page_context(
     if year is None or month is None:
         year, month = _parse_period(request, today)
 
-    query = select(Payment).options(joinedload(Payment.contractor)).where(
-        Payment.year == year,
-        Payment.month == month,
+    query = (
+        select(Payment)
+        .options(joinedload(Payment.contractor), selectinload(Payment.transactions))
+        .where(
+            Payment.year == year,
+            Payment.month == month,
+        )
     )
 
     payments_result = await db.execute(query)
@@ -222,6 +159,36 @@ async def _page_context(
     if extra:
         ctx.update(extra)
     return ctx
+
+
+async def _upload_receipt(
+    receipt: UploadFile,
+    year: int,
+    month: int,
+) -> tuple[str | None, str | None]:
+    """Validate and save an uploaded receipt file.
+
+    Returns (receipt_path, error_message).
+    If no file or valid upload, error_message is None.
+    """
+    if not receipt or not receipt.filename:
+        return None, None
+
+    if not is_allowed_file(receipt.filename):
+        return None, "Недопустимый формат файла (PDF, JPG, PNG)"
+
+    content = await receipt.read()
+    if len(content) > MAX_FILE_SIZE:
+        return None, "Файл слишком большой (макс. 10MB)"
+
+    upload_dir = get_upload_path(year, month, UPLOAD_DIR)
+    ext = os.path.splitext(receipt.filename)[1]
+    filename = f"{uuid.uuid4()}{ext}"
+    filepath = os.path.join(upload_dir, filename)
+    with open(filepath, "wb") as f:
+        f.write(content)
+
+    return f"{year}/{month:02d}/{filename}", None
 
 
 def _parse_amount(raw: str) -> Decimal:
@@ -294,6 +261,55 @@ def _cleanup_orphan_receipts(referenced_receipts: set[str]) -> int:
             except OSError as exc:
                 logger.warning("Could not remove orphan receipt %s: %s", full_path, exc)
     return removed
+
+
+def _is_variable_payment(payment: Payment) -> bool:
+    contractor = getattr(payment, "contractor", None)
+    return contractor is not None and contractor.payment_type == "variable"
+
+
+def _transaction_total(payment: Payment) -> Decimal:
+    return sum((_as_decimal(tx.amount) for tx in getattr(payment, "transactions", []) or []), Decimal("0"))
+
+
+def _first_transaction_receipt(payment: Payment) -> str | None:
+    for tx in getattr(payment, "transactions", []) or []:
+        if tx.receipt_file:
+            return tx.receipt_file
+    return None
+
+
+def _latest_transaction_date(payment: Payment) -> date | None:
+    dates = [tx.paid_date for tx in getattr(payment, "transactions", []) or [] if tx.paid_date]
+    return max(dates) if dates else None
+
+
+def _sync_payment_status_from_amounts(payment: Payment) -> None:
+    """Keep the legacy status field useful while effective status is computed dynamically."""
+    if _remaining_amount(payment) <= 0 and not _requires_amount(payment):
+        payment.status = "paid"
+    elif payment.status == "paid":
+        payment.status = "pending"
+
+
+def _refresh_payment_from_transactions(payment: Payment, *, old_total: Decimal | None = None) -> None:
+    """Refresh legacy aggregate fields after child transaction changes."""
+    new_total = _transaction_total(payment)
+    previous_total = old_total if old_total is not None else _as_decimal(payment.paid_amount)
+
+    if _is_variable_payment(payment):
+        planned = _as_decimal(payment.amount)
+        if payment.amount is None or planned < new_total or planned <= previous_total:
+            payment.amount = new_total if new_total > 0 else None
+
+    payment.paid_amount = new_total if new_total > 0 else None
+    payment.paid_date = _latest_transaction_date(payment)
+    payment.receipt_file = _first_transaction_receipt(payment)
+    _sync_payment_status_from_amounts(payment)
+
+
+def _fixed_total_exceeds_planned(payment: Payment, total: Decimal) -> bool:
+    return not _is_variable_payment(payment) and total > _planned_amount(payment)
 
 
 @router.get("/payments")
@@ -372,22 +388,10 @@ async def add_payment(
 
     receipt_path = None
     if receipt and receipt.filename:
-        if not is_allowed_file(receipt.filename):
-            ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Недопустимый формат файла (PDF, JPG, PNG)"})
+        receipt_path, upload_err = await _upload_receipt(receipt, selected_year, selected_month)
+        if upload_err:
+            ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": upload_err})
             return templates.TemplateResponse("payments.html", ctx)
-
-        content = await receipt.read()
-        if len(content) > MAX_FILE_SIZE:
-            ctx = await _page_context(request, db, current_user, year=selected_year, month=selected_month, extra={"error": "Файл слишком большой (макс. 10MB)"})
-            return templates.TemplateResponse("payments.html", ctx)
-
-        upload_dir = get_upload_path(selected_year, selected_month, UPLOAD_DIR)
-        ext = os.path.splitext(receipt.filename)[1]
-        filename = f"{uuid.uuid4()}{ext}"
-        filepath = os.path.join(upload_dir, filename)
-        with open(filepath, "wb") as f:
-            f.write(content)
-        receipt_path = f"{selected_year}/{selected_month:02d}/{filename}"
 
     paid_date = None
     if paid_date_str:
@@ -421,9 +425,200 @@ async def add_payment(
         receipt_file=receipt_path,
     )
     db.add(payment)
+
+    if status == "paid" and paid_amount and paid_amount > 0:
+        db.add(PaymentTransaction(
+            id=f"tx-{payment.id}-{uuid.uuid4().hex[:8]}",
+            payment_id=payment.id,
+            amount=paid_amount,
+            paid_date=paid_date or today,
+            receipt_file=receipt_path,
+            notes="Initial payment transaction",
+        ))
+        _sync_payment_status_from_amounts(payment)
+
     await db.commit()
 
     return _redirect_to_period(selected_year, selected_month)
+
+
+@router.post("/payments/{payment_id}/transactions/add")
+async def add_payment_transaction(
+    payment_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    transaction_amount: str = Form(...),
+    paid_date_str: str = Form(""),
+    receipt: UploadFile = File(None),
+):
+    current_user, redirect = await _require_admin_user(request, db)
+    if redirect:
+        return redirect
+
+    result = await db.execute(
+        select(Payment)
+        .options(joinedload(Payment.contractor), selectinload(Payment.transactions))
+        .where(Payment.id == payment_id)
+    )
+    payment = result.scalar_one_or_none()
+    if not payment:
+        return RedirectResponse(url="/payments", status_code=303)
+
+    try:
+        tx_amount = _parse_amount(transaction_amount)
+    except (InvalidOperation, ValueError):
+        ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Некорректная сумма оплаты"})
+        return templates.TemplateResponse("payments.html", ctx)
+
+    if tx_amount <= 0:
+        ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Сумма оплаты должна быть больше нуля"})
+        return templates.TemplateResponse("payments.html", ctx)
+
+    is_variable = _is_variable_payment(payment)
+    remaining = _remaining_amount(payment)
+    if (_requires_amount(payment) or _planned_amount(payment) <= 0) and not is_variable:
+        ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Сначала укажите сумму начисления"})
+        return templates.TemplateResponse("payments.html", ctx)
+
+    if remaining <= 0 and not is_variable:
+        ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Платеж уже полностью оплачен"})
+        return templates.TemplateResponse("payments.html", ctx)
+
+    if tx_amount > remaining and not is_variable:
+        ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Сумма оплаты больше остатка"})
+        return templates.TemplateResponse("payments.html", ctx)
+
+    paid_date = date.today()
+    if paid_date_str:
+        try:
+            paid_date = date.fromisoformat(paid_date_str)
+        except ValueError:
+            ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Некорректная дата оплаты"})
+            return templates.TemplateResponse("payments.html", ctx)
+
+    receipt_path = None
+    if receipt and receipt.filename:
+        receipt_path, upload_err = await _upload_receipt(receipt, payment.year, payment.month)
+        if upload_err:
+            ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": upload_err})
+            return templates.TemplateResponse("payments.html", ctx)
+
+    db.add(PaymentTransaction(
+        id=f"tx-{payment.id}-{uuid.uuid4().hex[:8]}",
+        payment_id=payment.id,
+        amount=tx_amount,
+        paid_date=paid_date,
+        receipt_file=receipt_path,
+    ))
+
+    old_total = _paid_amount(payment)
+    new_paid_amount = old_total + tx_amount
+    if is_variable and (payment.amount is None or _planned_amount(payment) < new_paid_amount):
+        payment.amount = new_paid_amount
+    payment.paid_amount = new_paid_amount
+    payment.paid_date = paid_date
+    if receipt_path and not payment.receipt_file:
+        payment.receipt_file = receipt_path
+    _sync_payment_status_from_amounts(payment)
+
+    await db.commit()
+    return _redirect_to_period(payment.year, payment.month)
+
+
+@router.post("/payments/transactions/{transaction_id}/edit")
+async def edit_payment_transaction(
+    transaction_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    transaction_amount: str = Form(...),
+    paid_date_str: str = Form(""),
+    receipt: UploadFile = File(None),
+):
+    current_user, redirect = await _require_admin_user(request, db)
+    if redirect:
+        return redirect
+
+    tx = await db.get(PaymentTransaction, transaction_id)
+    if not tx:
+        return RedirectResponse(url="/payments", status_code=303)
+
+    result = await db.execute(
+        select(Payment)
+        .options(joinedload(Payment.contractor), selectinload(Payment.transactions))
+        .where(Payment.id == tx.payment_id)
+    )
+    payment = result.scalar_one_or_none()
+    if not payment:
+        return RedirectResponse(url="/payments", status_code=303)
+
+    old_total = _transaction_total(payment)
+    try:
+        new_amount = _parse_amount(transaction_amount)
+    except (InvalidOperation, ValueError):
+        ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Некорректная сумма оплаты"})
+        return templates.TemplateResponse("payments.html", ctx)
+
+    if new_amount <= 0:
+        ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Сумма оплаты должна быть больше нуля"})
+        return templates.TemplateResponse("payments.html", ctx)
+
+    new_total = old_total - _as_decimal(tx.amount) + new_amount
+    if _fixed_total_exceeds_planned(payment, new_total):
+        ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Сумма оплат больше начисления"})
+        return templates.TemplateResponse("payments.html", ctx)
+
+    if paid_date_str:
+        try:
+            tx.paid_date = date.fromisoformat(paid_date_str)
+        except ValueError:
+            ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Некорректная дата оплаты"})
+            return templates.TemplateResponse("payments.html", ctx)
+    tx.amount = new_amount
+
+    if receipt and receipt.filename:
+        new_receipt_path, upload_err = await _upload_receipt(receipt, payment.year, payment.month)
+        if upload_err:
+            ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": upload_err})
+            return templates.TemplateResponse("payments.html", ctx)
+        _remove_receipt_file(tx.receipt_file)
+        tx.receipt_file = new_receipt_path
+
+    _refresh_payment_from_transactions(payment, old_total=old_total)
+    await db.commit()
+    return _redirect_to_period(payment.year, payment.month)
+
+
+@router.post("/payments/transactions/{transaction_id}/delete")
+async def delete_payment_transaction(
+    transaction_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    _, redirect = await _require_admin_user(request, db)
+    if redirect:
+        return redirect
+
+    tx = await db.get(PaymentTransaction, transaction_id)
+    if not tx:
+        return RedirectResponse(url="/payments", status_code=303)
+
+    result = await db.execute(
+        select(Payment)
+        .options(joinedload(Payment.contractor), selectinload(Payment.transactions))
+        .where(Payment.id == tx.payment_id)
+    )
+    payment = result.scalar_one_or_none()
+    if not payment:
+        return RedirectResponse(url="/payments", status_code=303)
+
+    year, month = payment.year, payment.month
+    old_total = _transaction_total(payment)
+    _remove_receipt_file(tx.receipt_file)
+    await db.delete(tx)
+    payment.transactions = [existing_tx for existing_tx in payment.transactions if existing_tx.id != transaction_id]
+    _refresh_payment_from_transactions(payment, old_total=old_total)
+    await db.commit()
+    return _redirect_to_period(year, month)
 
 
 @router.post("/payments/{payment_id}/edit")
@@ -440,7 +635,11 @@ async def edit_payment(
     if redirect:
         return redirect
 
-    result = await db.execute(select(Payment).where(Payment.id == payment_id))
+    result = await db.execute(
+        select(Payment)
+        .options(selectinload(Payment.transactions))
+        .where(Payment.id == payment_id)
+    )
     payment = result.scalar_one_or_none()
     if not payment:
         return RedirectResponse(url="/payments", status_code=303)
@@ -472,8 +671,12 @@ async def edit_payment(
             payment.paid_date = date.today()
         payment.paid_amount = payment.amount
     elif status in {"pending", "overdue"}:
-        payment.paid_date = None
-        payment.paid_amount = None
+        tx_total = _transaction_total(payment)
+        if tx_total > 0:
+            payment.paid_amount = tx_total
+        else:
+            payment.paid_date = None
+            payment.paid_amount = None
     elif paid_date_str:
         try:
             payment.paid_date = date.fromisoformat(paid_date_str)
@@ -482,26 +685,22 @@ async def edit_payment(
             return templates.TemplateResponse("payments.html", ctx)
 
     if receipt and receipt.filename:
-        if not is_allowed_file(receipt.filename):
-            ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Недопустимый формат файла (PDF, JPG, PNG)"})
+        new_receipt_path, upload_err = await _upload_receipt(receipt, payment.year, payment.month)
+        if upload_err:
+            ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": upload_err})
             return templates.TemplateResponse("payments.html", ctx)
-        try:
-            content = await receipt.read()
-            if len(content) > MAX_FILE_SIZE:
-                ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Файл слишком большой (макс. 10MB)"})
-                return templates.TemplateResponse("payments.html", ctx)
-            upload_dir = get_upload_path(payment.year, payment.month, UPLOAD_DIR)
-            ext = os.path.splitext(receipt.filename)[1]
-            filename = f"{uuid.uuid4()}{ext}"
-            filepath = os.path.join(upload_dir, filename)
-            with open(filepath, "wb") as f:
-                f.write(content)
-            _remove_receipt_file(payment.receipt_file)
-            payment.receipt_file = f"{payment.year}/{payment.month:02d}/{filename}"
-        except Exception as e:
-            logger.error("Receipt upload error: %s", e)
-            ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Ошибка загрузки файла"})
-            return templates.TemplateResponse("payments.html", ctx)
+        _remove_receipt_file(payment.receipt_file)
+        payment.receipt_file = new_receipt_path
+
+    if status == "paid" and payment.paid_amount and payment.paid_amount > 0 and not payment.transactions:
+        db.add(PaymentTransaction(
+            id=f"tx-{payment.id}-{uuid.uuid4().hex[:8]}",
+            payment_id=payment.id,
+            amount=payment.paid_amount,
+            paid_date=payment.paid_date or date.today(),
+            receipt_file=payment.receipt_file,
+            notes="Created from legacy edit flow",
+        ))
 
     await db.commit()
     return _redirect_to_period(payment.year, payment.month)
@@ -523,10 +722,11 @@ async def cleanup_orphan_receipts(
     selected_year = year if year and 2000 <= year <= 2100 else today.year
     selected_month = month if month and 1 <= month <= 12 else today.month
 
-    refs_result = await db.execute(select(Payment.receipt_file).where(Payment.receipt_file.is_not(None)))
+    payment_refs_result = await db.execute(select(Payment.receipt_file).where(Payment.receipt_file.is_not(None)))
+    transaction_refs_result = await db.execute(select(PaymentTransaction.receipt_file).where(PaymentTransaction.receipt_file.is_not(None)))
     referenced_receipts = {
         _normalize_receipt_ref(receipt_file)
-        for receipt_file in refs_result.scalars().all()
+        for receipt_file in list(payment_refs_result.scalars().all()) + list(transaction_refs_result.scalars().all())
         if receipt_file
     }
     removed_count = _cleanup_orphan_receipts(referenced_receipts)
@@ -546,11 +746,17 @@ async def delete_payment(
     if redirect:
         return redirect
 
-    result = await db.execute(select(Payment).where(Payment.id == payment_id))
+    result = await db.execute(
+        select(Payment)
+        .options(selectinload(Payment.transactions))
+        .where(Payment.id == payment_id)
+    )
     payment = result.scalar_one_or_none()
     if payment:
         year, month = payment.year, payment.month
         _remove_receipt_file(payment.receipt_file)
+        for transaction in payment.transactions:
+            _remove_receipt_file(transaction.receipt_file)
         await db.delete(payment)
         await db.commit()
         return _redirect_to_period(year, month)

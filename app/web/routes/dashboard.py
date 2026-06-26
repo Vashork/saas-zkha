@@ -8,7 +8,6 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -17,11 +16,11 @@ from app.database import get_db
 from app.models import Payment
 from app.utils import month_name, payment_color_class
 from app.web.routes.auth import _require_page, get_current_user
+from app.web.template_engine import templates
 
 logger = logging.getLogger("zhkh.dashboard")
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/web/templates")
 
 
 def _as_decimal(value) -> Decimal:

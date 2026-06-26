@@ -7,7 +7,6 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
@@ -15,9 +14,9 @@ from app.database import get_db
 from app.models import Payment, Contractor
 from app.utils import month_name
 from app.web.routes.auth import _require_page, get_current_user
+from app.web.template_engine import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/web/templates")
 
 
 def _month_conditions(year_val, month_val=None):
@@ -103,6 +102,28 @@ async def analytics_page(
             for row in result.all()[:5]
         ]
 
+        # Trends: single query for all contractors x years
+        from collections import defaultdict
+        trends_raw = await db.execute(
+            select(
+                Contractor.name,
+                Payment.year,
+                func.sum(Payment.paid_amount),
+            )
+            .join(Payment, Payment.contractor_id == Contractor.id)
+            .where(
+                Contractor.is_active == True,
+                Payment.month == target_month,
+                Payment.paid_amount.is_not(None),
+                Payment.year >= target_year - 4,
+                Payment.year <= target_year,
+            )
+            .group_by(Contractor.name, Payment.year)
+        )
+        trend_map = defaultdict(dict)
+        for name, yr, total in trends_raw.all():
+            trend_map[name][yr] = float(total or Decimal("0"))
+
         trends = []
         contractors_result = await db.execute(select(Contractor).where(Contractor.is_active == True))
         for c in contractors_result.scalars().all():
@@ -110,15 +131,7 @@ async def analytics_page(
             yr_labels = []
             for yr_off in range(4, -1, -1):
                 yr = target_year - yr_off
-                result = await db.execute(
-                    select(func.sum(Payment.paid_amount)).where(
-                        Payment.contractor_id == c.id,
-                        Payment.year == yr,
-                        Payment.month == target_month,
-                        Payment.paid_amount.is_not(None),
-                    )
-                )
-                years_vals.append(float(result.scalar() or Decimal("0")))
+                years_vals.append(trend_map[c.name].get(yr, 0))
                 yr_labels.append(str(yr))
             trends.append({"name": c.name, "values": years_vals, "labels": yr_labels})
 
@@ -145,20 +158,30 @@ async def analytics_page(
             for row in result.all()[:5]
         ]
 
+        # Trends: single query for all contractors x months
+        from collections import defaultdict
+        trends_raw = await db.execute(
+            select(
+                Contractor.name,
+                Payment.month,
+                func.sum(Payment.paid_amount),
+            )
+            .join(Payment, Payment.contractor_id == Contractor.id)
+            .where(
+                Contractor.is_active == True,
+                Payment.year == target_year,
+                Payment.paid_amount.is_not(None),
+            )
+            .group_by(Contractor.name, Payment.month)
+        )
+        trend_map = defaultdict(dict)
+        for name, month_idx, total in trends_raw.all():
+            trend_map[name][month_idx] = float(total or Decimal("0"))
+
         trends = []
         contractors_result = await db.execute(select(Contractor).where(Contractor.is_active == True))
         for c in contractors_result.scalars().all():
-            months_vals = []
-            for m in range(1, 13):
-                result = await db.execute(
-                    select(func.sum(Payment.paid_amount)).where(
-                        Payment.contractor_id == c.id,
-                        Payment.year == target_year,
-                        Payment.month == m,
-                        Payment.paid_amount.is_not(None),
-                    )
-                )
-                months_vals.append(float(result.scalar() or Decimal("0")))
+            months_vals = [trend_map[c.name].get(m, 0) for m in range(1, 13)]
             trends.append({"name": c.name, "values": months_vals})
 
         current_total = await _sum_paid(db, target_year)

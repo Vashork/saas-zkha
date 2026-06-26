@@ -2,6 +2,7 @@
 Async database engine and session management (SQLite + aiosqlite).
 """
 
+import logging
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
@@ -31,6 +32,9 @@ async def get_db() -> AsyncSession:
             raise
 
 
+logger = logging.getLogger("zhkh.database")
+
+
 async def init_db():
     """Create all tables and run migrations."""
     from app import models  # noqa: F401 — import to register models
@@ -47,9 +51,9 @@ def _run_migrations(conn):
     if "page_permissions" not in columns:
         conn.execute(text("ALTER TABLE users ADD COLUMN page_permissions TEXT"))
         conn.commit()
-        print("Migration: added page_permissions to users")
+        logger.info("Migration: added page_permissions to users")
 
     if "is_active" not in columns:
         conn.execute(text("ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1"))
         conn.commit()
-        print("Migration: added is_active to users")
+        logger.info("Migration: added is_active to users")

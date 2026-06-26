@@ -11,19 +11,20 @@ from typing import Optional
 
 from fastapi import APIRouter, Request, Form, Depends, Body
 from fastapi.responses import RedirectResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.audit import log_admin_action
 from app.config import get_settings
 from app.database import get_db, async_session_factory
 from app.models import User
 from app.utils import verify_password, hash_password
+from app.rate_limiter import _is_rate_limited, _record_attempt
+from app.web.template_engine import templates
 
 logger = logging.getLogger("zhkh.auth")
 
 router = APIRouter()
-templates = Jinja2Templates(directory="app/web/templates")
 
 SESSION_COOKIE = "session"
 LEGACY_COOKIES = ("user_id", "username", "user_role", "page_permissions")
@@ -175,14 +176,24 @@ async def login(
     password: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
+    # Rate limit by client IP
+    client_ip = request.client.host if request.client else "unknown"
+    if _is_rate_limited(client_ip):
+        return templates.TemplateResponse("login.html", {
+            "request": request,
+            "error": "Слишком много попыток. Попробуйте через минуту.",
+        })
+
     result = await db.execute(select(User).where(User.username == username, User.is_active == True))
     user = result.scalar_one_or_none()
 
     if user and verify_password(password, user.password_hash):
+        _record_attempt(client_ip)  # Record successful attempt too
         response = RedirectResponse(url="/", status_code=303)
         _set_session_cookies(response, user)
         return response
 
+    _record_attempt(client_ip)
     return templates.TemplateResponse("login.html", {
         "request": request,
         "error": "Неверный логин или пароль",
@@ -271,8 +282,8 @@ async def change_password(
         return RedirectResponse(url="/settings?error=Неверный+текущий+пароль", status_code=303)
     if new_password != confirm_password:
         return RedirectResponse(url="/settings?error=Пароли+не+совпадают", status_code=303)
-    if len(new_password) < 4:
-        return RedirectResponse(url="/settings?error=Минимум+4+символа", status_code=303)
+    if len(new_password) < 8:
+        return RedirectResponse(url="/settings?error=Минимум+8+символов", status_code=303)
 
     current_user.password_hash = hash_password(new_password)
     await db.commit()
@@ -302,8 +313,8 @@ async def create_user(
     username = username.strip()
     if not username:
         return RedirectResponse(url="/settings?error=Имя+не+может+быть+пустым", status_code=303)
-    if len(password) < 4:
-        return RedirectResponse(url="/settings?error=Минимум+4+символа", status_code=303)
+    if len(password) < 8:
+        return RedirectResponse(url="/settings?error=Минимум+8+символов", status_code=303)
     if role not in {"admin", "user"}:
         return RedirectResponse(url="/settings?error=Некорректная+роль", status_code=303)
 
@@ -329,6 +340,16 @@ async def create_user(
         is_active=True,
     )
     db.add(new_user)
+    await db.flush()
+    await log_admin_action(
+        db,
+        actor=current_user,
+        action="user_create",
+        entity_type="user",
+        entity_id=new_user.id,
+        details={"username": username, "role": role, "page_permissions": allowed_pages},
+        request=request,
+    )
     await db.commit()
 
     return RedirectResponse(url="/settings?success=Пользователь+создан", status_code=303)
@@ -358,7 +379,17 @@ async def toggle_user_active(
         if admin_count <= 1:
             return RedirectResponse(url="/settings?error=Нельзя+деактивировать+последнего+админа", status_code=303)
 
+    old_active = bool(user.is_active)
     user.is_active = not user.is_active
+    await log_admin_action(
+        db,
+        actor=current_user,
+        action="user_toggle_active",
+        entity_type="user",
+        entity_id=user.id,
+        details={"username": user.username, "old_active": old_active, "new_active": bool(user.is_active)},
+        request=request,
+    )
     await db.commit()
 
     action = "деактивирован" if not user.is_active else "активирован"
@@ -387,6 +418,15 @@ async def delete_user(
     if user.role == "admin":
         return RedirectResponse(url="/settings?error=Админа+нельзя+удалить,+можно+только+деактивировать", status_code=303)
 
+    await log_admin_action(
+        db,
+        actor=current_user,
+        action="user_delete",
+        entity_type="user",
+        entity_id=user.id,
+        details={"username": user.username, "role": user.role},
+        request=request,
+    )
     await db.delete(user)
     await db.commit()
     return RedirectResponse(url="/settings?success=Пользователь+удалён", status_code=303)
@@ -422,6 +462,8 @@ async def update_user(
     if user.id == current_user.id and current_user.role == "admin" and role != "admin":
         return RedirectResponse(url="/settings?error=Нельзя+снять+админа+с+себя", status_code=303)
 
+    old_role = user.role
+    old_permissions = user.page_permissions
     user.role = role
     perms_map = {
         "dashboard": page_dashboard,
@@ -434,6 +476,21 @@ async def update_user(
     allowed_pages = [slug for slug, val in perms_map.items() if val == "on"]
     user.page_permissions = ",".join(allowed_pages) if allowed_pages else None
 
+    await log_admin_action(
+        db,
+        actor=current_user,
+        action="user_update",
+        entity_type="user",
+        entity_id=user.id,
+        details={
+            "username": user.username,
+            "old_role": old_role,
+            "new_role": role,
+            "old_page_permissions": old_permissions,
+            "new_page_permissions": user.page_permissions,
+        },
+        request=request,
+    )
     await db.commit()
     return RedirectResponse(url="/settings?success=Пользователь+обновлён", status_code=303)
 
@@ -462,10 +519,24 @@ async def save_settings(
         else:
             db.add(SettingModel(key=key, value=value, description=description))
 
+    normalized_theme = theme if theme in {"dark", "light"} else "dark"
+    normalized_notifications = "on" if notifications_enabled == "on" else "off"
     await _upsert("default_due_day", default_due_day, "День платежа по умолчанию (1-28)")
-    await _upsert("notifications_enabled", "on" if notifications_enabled == "on" else "off", "Включить уведомления")
-    await _upsert("ui_theme", theme if theme in {"dark", "light"} else "dark", "Тема интерфейса")
+    await _upsert("notifications_enabled", normalized_notifications, "Включить уведомления")
+    await _upsert("ui_theme", normalized_theme, "Тема интерфейса")
 
+    await log_admin_action(
+        db,
+        actor=current_user,
+        action="app_settings_update",
+        entity_type="settings",
+        details={
+            "default_due_day": default_due_day,
+            "notifications_enabled": normalized_notifications,
+            "ui_theme": normalized_theme,
+        },
+        request=request,
+    )
     await db.commit()
     return RedirectResponse(url="/settings?success=Настройки+сохранены", status_code=303)
 
@@ -506,8 +577,8 @@ async def change_user_password(
         return _login_redirect(request)
     if current_user.role != "admin":
         return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
-    if len(new_password) < 4:
-        return RedirectResponse(url="/settings?error=Минимум+4+символа", status_code=303)
+    if len(new_password) < 8:
+        return RedirectResponse(url="/settings?error=Минимум+8+символов", status_code=303)
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
@@ -515,5 +586,14 @@ async def change_user_password(
         return RedirectResponse(url="/settings?error=Пользователь+не+найден", status_code=303)
 
     user.password_hash = hash_password(new_password)
+    await log_admin_action(
+        db,
+        actor=current_user,
+        action="user_password_reset",
+        entity_type="user",
+        entity_id=user.id,
+        details={"username": user.username},
+        request=request,
+    )
     await db.commit()
     return RedirectResponse(url="/settings?success=Пароль+изменён", status_code=303)
