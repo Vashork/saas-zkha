@@ -15,23 +15,23 @@ The branch is not yet ready for an internet-facing production deployment. It can
 - Added shared template configuration in `app/web/template_engine.py`.
 - Moved route template globals wiring out of ad-hoc inline setup in `app/web/main.py`.
 - Migrated `dashboard`, `history`, `analytics`, `backups` and `contractors` routes to use the shared template engine directly.
+- Migrated remaining legacy `auth` and `payments` routes to the shared template engine directly.
+- Removed the temporary `payments.payment_color_class = payment_color_class` compatibility assignment from `app/web/main.py`.
 - Added a guard for `GET /settings` so page-level permissions are enforced while legacy routes are being refactored.
 - Fixed `/backups/settings`: it imported `parse_retention`, `parse_frequency`, `parse_time` but called missing `_parse_retention`, `_parse_frequency`, `_parse_time` functions.
 - Added a detailed manual QA plan in `docs/QA_PLAN.md`.
 - Added GitHub Actions CI in `.github/workflows/ci.yml`, `pytest.ini` and `docs/CI_SETUP.md`.
 - Confirmed CI completed successfully after workflow setup.
 - Kept the earlier CSRF fixes for urlencoded and multipart form submissions.
+- Added automated permission tests for unauthenticated redirects, settings page denial, admin-only user management, contractor/payment mutation denial and admin positive paths.
 
 ## Remaining blockers before production
 
 ### P0 — must fix before production
 
-1. Finish route template refactor for remaining legacy modules: `auth`, `payments`.
-2. Remove the temporary `payments.payment_color_class = payment_color_class` compatibility assignment from `app/web/main.py` by refactoring `payments.py` directly.
-3. Add automated tests for CSRF on normal forms, multipart forms and AJAX theme save.
-4. Add automated tests for page permissions, especially `/settings`, admin-only user management and contractor/payment mutations.
-5. Run backup/restore QA on a real Docker volume with an existing SQLite database.
-6. Verify restore rollback behavior when recovery fails after the safety backup is created.
+1. Add automated tests for CSRF on normal forms, multipart forms and AJAX theme save.
+2. Run backup/restore QA on a real Docker volume with an existing SQLite database.
+3. Verify restore rollback behavior when recovery fails after the safety backup is created.
 
 ### P1 — should fix before public deployment
 
@@ -50,7 +50,7 @@ CI is active and currently covers:
 - dependency installation from `requirements.txt`;
 - syntax check with `python -m compileall app tests`;
 - minimal FastAPI app import check;
-- unit tests with `python -m pytest tests/ -v`.
+- unit tests with `python -m pytest tests/ -v`, including permission regressions in `tests/test_permissions.py`.
 
 ## Manual QA checklist
 
