@@ -244,7 +244,43 @@ async def test_add_transaction_creates_audit_log(audit_db):
 
 
 @pytest.mark.asyncio
-async def test_edit_transaction_creates_audit_log(audit_db):
+async def test_delete_transaction_creates_audit_log(audit_db):
+    session, factory, engine, admin = audit_db
+
+    # Create a payment with a transaction to delete
+    async with factory() as session2:
+        payment = Payment(
+            id="p-del-tx",
+            contractor_id="c-1",
+            year=2026,
+            month=9,
+            amount=Decimal("500.00"),
+            paid_amount=Decimal("100.00"),
+            due_date=date(2026, 9, 10),
+            paid_date=date(2026, 9, 5),
+            status="pending",
+        )
+        tx = PaymentTransaction(
+            id="tx-del-test",
+            payment_id="p-del-tx",
+            amount=Decimal("100.00"),
+            paid_date=date(2026, 9, 5),
+        )
+        session2.add_all([payment, tx])
+        await session2.commit()
+
+    request = _request("/payments/transactions/tx-del-test/delete", user=admin)
+
+    response = await payments.delete_payment_transaction("tx-del-test", request, db=session)
+    assert response.status_code == 303
+
+    audit = await session.scalar(
+        select(AuditLog).order_by(AuditLog.id.desc())
+    )
+    assert audit is not None
+    assert audit.action == "transaction_delete"
+    assert audit.entity_type == "payment_transaction"
+    assert audit.entity_id == "tx-del-test"
     session, factory, engine, admin = audit_db
 
     # Create a payment with room for transactions

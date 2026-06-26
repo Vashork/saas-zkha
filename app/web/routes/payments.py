@@ -9,7 +9,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Request, Form, File, UploadFile, Depends
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import joinedload, selectinload
@@ -360,6 +360,29 @@ async def payments_page(
     )
 
 
+@router.get("/payments/receipts/{path:path}")
+async def download_receipt(
+    path: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Authenticated receipt download — replaces direct /uploads links."""
+    redirect = await _require_page(request, "payments")
+    if redirect:
+        return redirect
+
+    # Normalize and resolve safely
+    safe_path = _receipt_path(path)
+    if not safe_path or not os.path.isfile(safe_path):
+        return RedirectResponse(url="/payments?error=Файл+не+найден", status_code=303)
+
+    return FileResponse(
+        path=safe_path,
+        filename=os.path.basename(safe_path),
+        media_type="application/pdf",
+    )
+
+
 @router.post("/payments/add")
 async def add_payment(
     request: Request,
@@ -462,13 +485,13 @@ async def add_payment(
         ))
         _sync_payment_status_from_amounts(payment)
 
-    await db.commit()
     await log_admin_action(
         db, actor=current_user, action="payment_create",
         entity_type="payment", entity_id=payment.id,
         details={"contractor_id": contractor_id, "year": selected_year, "month": selected_month},
         request=request,
     )
+    await db.commit()
 
     return _redirect_to_period(selected_year, selected_month)
 
@@ -553,13 +576,13 @@ async def add_payment_transaction(
         payment.receipt_file = receipt_path
     _sync_payment_status_from_amounts(payment)
 
-    await db.commit()
     await log_admin_action(
         db, actor=current_user, action="transaction_create",
         entity_type="payment_transaction", entity_id=tx.id,
         details={"payment_id": payment_id, "amount": str(tx_amount)},
         request=request,
     )
+    await db.commit()
     return _redirect_to_period(payment.year, payment.month)
 
 
@@ -622,12 +645,12 @@ async def edit_payment_transaction(
         tx.receipt_file = new_receipt_path
 
     _refresh_payment_from_transactions(payment, old_total=old_total)
-    await db.commit()
     await log_admin_action(
         db, actor=current_user, action="transaction_edit",
         entity_type="payment_transaction", entity_id=transaction_id,
         request=request,
     )
+    await db.commit()
     return _redirect_to_period(payment.year, payment.month)
 
 
@@ -637,7 +660,7 @@ async def delete_payment_transaction(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    _, redirect = await _require_admin_user(request, db)
+    current_user, redirect = await _require_admin_user(request, db)
     if redirect:
         return redirect
 
@@ -660,6 +683,12 @@ async def delete_payment_transaction(
     await db.delete(tx)
     payment.transactions = [existing_tx for existing_tx in payment.transactions if existing_tx.id != transaction_id]
     _refresh_payment_from_transactions(payment, old_total=old_total)
+    await log_admin_action(
+        db, actor=current_user, action="transaction_delete",
+        entity_type="payment_transaction", entity_id=transaction_id,
+        details={"payment_id": tx.payment_id, "amount": str(tx.amount), "paid_date": str(tx.paid_date)},
+        request=request,
+    )
     await db.commit()
     return _redirect_to_period(year, month)
 
@@ -798,13 +827,13 @@ async def edit_payment(
         if payment.transactions:
             _refresh_payment_from_transactions(payment, old_total=old_total)
 
-    await db.commit()
     await log_admin_action(
         db, actor=current_user, action="payment_edit",
         entity_type="payment", entity_id=payment_id,
         details={"status": payment.status, "amount": str(payment.amount)},
         request=request,
     )
+    await db.commit()
     return _redirect_to_period(payment.year, payment.month)
 
 
@@ -860,12 +889,12 @@ async def delete_payment(
         for transaction in payment.transactions:
             _remove_receipt_file(transaction.receipt_file)
         await db.delete(payment)
-        await db.commit()
         await log_admin_action(
             db, actor=current_user,
             action="payment_delete",
             entity_type="payment", entity_id=payment_id, request=request,
         )
+        await db.commit()
         return _redirect_to_period(year, month)
 
     return RedirectResponse(url="/payments", status_code=303)

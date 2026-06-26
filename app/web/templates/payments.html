@@ -87,7 +87,7 @@
                 <td><span class="badge-status badge-{{ status_css_class(p) }}">{{ status_label(p) }}</span></td>
                 <td>
                     {% if p.receipt_file and not p.transactions %}
-                    <a href="/uploads/{{ p.receipt_file }}" download class="btn-icon" title="Скачать чек">📎</a>
+                    <a href="/payments/receipts/{{ p.receipt_file }}" download class="btn-icon" title="Скачать чек">📎</a>
                     {% endif %}
                     {% if user_role == 'admin' %}
                     {% if (remaining > 0 and not needs_amount) or (p.contractor and p.contractor.payment_type == 'variable') %}
@@ -114,7 +114,7 @@
                 <td><span class="badge-status badge-paid">чек оплаты</span></td>
                 <td>
                     {% if tx.receipt_file %}
-                    <a href="/uploads/{{ tx.receipt_file }}" download class="btn-icon" title="Скачать чек оплаты">📎</a>
+                    <a href="/payments/receipts/{{ tx.receipt_file }}" download class="btn-icon" title="Скачать чек оплаты">📎</a>
                     {% else %}
                     <span style="color:var(--text-muted);">без чека</span>
                     {% endif %}

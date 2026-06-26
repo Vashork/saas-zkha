@@ -1,6 +1,9 @@
 """Tests for backup/restore locking — prevents concurrent operations."""
 
 import asyncio
+import multiprocessing
+import os as _os
+import fcntl as _fcntl
 from pathlib import Path
 
 import pytest
@@ -11,6 +14,10 @@ from app.backup_service import (
     backup_locked,
     create_local_backup,
     recover_from_backup,
+    _acquire_file_lock,
+    _release_file_lock,
+    _check_file_lock,
+    _get_file_lock_path,
 )
 
 
@@ -23,10 +30,14 @@ def _write_data_tree(root: Path, db_content: str) -> None:
 @pytest.fixture(autouse=True)
 def reset_lock_state():
     """Ensure the lock is released before and after each test."""
-    from app.backup_service import _reset_lock_for_tests
+    from app.backup_service import _reset_lock_for_tests, _file_lock_path
     _reset_lock_for_tests()
+    # Also clear the file lock path so it re-resolves per tmp_path
+    import app.backup_service as bs
+    bs._file_lock_path = None
     yield
     _reset_lock_for_tests()
+    bs._file_lock_path = None
 
 
 def test_acquire_and_release_backup_lock():
@@ -148,3 +159,81 @@ async def test_concurrent_backups_serialized(tmp_path, monkeypatch):
 
     assert results["a"] is True
     assert results["b"] is False
+
+
+def test_file_lock_acquire_and_release(tmp_path, monkeypatch):
+    """File lock can be acquired and released."""
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir(parents=True)
+    monkeypatch.setattr("app.backup_service.BACKUP_DIR", backup_dir)
+
+    assert _acquire_file_lock() is True
+    _release_file_lock()
+    # After release, should be able to acquire again
+    assert _acquire_file_lock() is True
+    _release_file_lock()
+
+
+def test_file_lock_blocks_second_acquisition(tmp_path, monkeypatch):
+    """Second process cannot acquire file lock while first holds it."""
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir(parents=True)
+    monkeypatch.setattr("app.backup_service.BACKUP_DIR", backup_dir)
+
+    assert _acquire_file_lock() is True
+    assert _acquire_file_lock() is False  # non-blocking, should fail
+    _release_file_lock()
+    assert _acquire_file_lock() is True
+    _release_file_lock()
+
+
+def test_file_lock_check_when_free(tmp_path, monkeypatch):
+    """_check_file_lock returns False when no lock is held."""
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir(parents=True)
+    monkeypatch.setattr("app.backup_service.BACKUP_DIR", backup_dir)
+
+    assert _check_file_lock() is False
+
+
+def test_file_lock_check_when_held(tmp_path, monkeypatch):
+    """_check_file_lock returns True when lock is held by another process."""
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir(parents=True)
+    monkeypatch.setattr("app.backup_service.BACKUP_DIR", backup_dir)
+
+    # Open a file descriptor and lock it in a separate scope
+    lock_path = backup_dir / ".backup-operation.lock"
+    fd = _os.open(str(lock_path), _os.O_CREAT | _os.O_WRONLY, 0o644)
+    _fcntl.flock(fd, _fcntl.LOCK_EX)
+
+    try:
+        # The _check_file_lock should see the lock is held
+        # (since we hold it in this process but _file_lock is None, simulating another process)
+        assert _check_file_lock() is True
+    finally:
+        _fcntl.flock(fd, _fcntl.LOCK_UN)
+        _os.close(fd)
+
+
+def test_combined_lock_requires_both(tmp_path, monkeypatch):
+    """acquire_backup_lock requires both file lock and thread lock."""
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir(parents=True)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True)
+    monkeypatch.setattr("app.backup_service.BACKUP_DIR", backup_dir)
+    monkeypatch.setattr("app.backup_service.DATA_DIR", data_dir)
+
+    # Hold file lock externally (simulating another process)
+    lock_path = backup_dir / ".backup-operation.lock"
+    fd = _os.open(str(lock_path), _os.O_CREAT | _os.O_WRONLY, 0o644)
+    _fcntl.flock(fd, _fcntl.LOCK_EX)
+
+    try:
+        # acquire_backup_lock should fail because file lock is held
+        assert acquire_backup_lock() is False
+    finally:
+        _fcntl.flock(fd, _fcntl.LOCK_UN)
+        _os.close(fd)
+

@@ -132,12 +132,12 @@ async def add_contractor(
         is_active=True,
     )
     db.add(contractor)
+    await log_admin_action(
+        db, actor=current_user, action="contractor_create",
+        entity_type="contractor", entity_id=contractor.id, request=request,
+    )
     try:
         await db.commit()
-        await log_admin_action(
-            db, actor=current_user, action="contractor_create",
-            entity_type="contractor", entity_id=contractor.id, request=request,
-        )
     except IntegrityError:
         await db.rollback()
         result = await db.execute(
@@ -171,12 +171,12 @@ async def toggle_contractor(
     contractor = result.scalar_one_or_none()
     if contractor:
         contractor.is_active = not contractor.is_active
-        await db.commit()
         await log_admin_action(
             db, actor=current_user, action="contractor_toggle",
             entity_type="contractor", entity_id=contractor_id,
             details={"is_active": contractor.is_active}, request=request,
         )
+        await db.commit()
         return RedirectResponse(url=_contractors_url(archived=not contractor.is_active), status_code=303)
 
     return RedirectResponse(url="/contractors", status_code=303)
@@ -203,22 +203,20 @@ async def delete_contractor(
     )
     if existing_payment_id:
         contractor.is_active = False
-        await db.commit()
         await log_admin_action(
             db, actor=current_user, action="contractor_delete",
             entity_type="contractor", entity_id=contractor_id,
             details={"reason": "has_payments_archived"}, request=request,
         )
+        await db.commit()
         return _contractor_error("У подрядчика есть платежи. Он перенесён в архив", archived=True)
 
     await db.delete(contractor)
-    await db.commit()
     await log_admin_action(
         db, actor=current_user, action="contractor_delete",
         entity_type="contractor", entity_id=contractor_id, request=request,
     )
-
-    return RedirectResponse(url=_contractors_url(show_archived), status_code=303)
+    await db.commit()
 
 
 @router.post("/contractors/{contractor_id}/edit")
@@ -264,9 +262,9 @@ async def edit_contractor(
     contractor.account_number = account_number or None
     contractor.description = description or None
 
-    await db.commit()
     await log_admin_action(
         db, actor=current_user, action="contractor_edit",
         entity_type="contractor", entity_id=contractor_id, request=request,
     )
+    await db.commit()
     return RedirectResponse(url=_contractors_url(archived=not contractor.is_active), status_code=303)
