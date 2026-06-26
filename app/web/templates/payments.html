@@ -52,6 +52,8 @@
     <div class="toolbar">
         <a href="{{ period_url(year, month, 'all') }}" class="nav-link-custom {% if status_filter == 'all' or status_filter == '' %}active{% endif %}">Все</a>
         <a href="{{ period_url(year, month, 'pending') }}" class="nav-link-custom {% if status_filter == 'pending' %}active{% endif %}">Ожидает</a>
+        <a href="{{ period_url(year, month, 'partial') }}" class="nav-link-custom {% if status_filter == 'partial' %}active{% endif %}">Частично</a>
+        <a href="{{ period_url(year, month, 'partial_overdue') }}" class="nav-link-custom {% if status_filter == 'partial_overdue' %}active{% endif %}">Частично просрочено</a>
         <a href="{{ period_url(year, month, 'paid') }}" class="nav-link-custom {% if status_filter == 'paid' %}active{% endif %}">Оплачено</a>
         <a href="{{ period_url(year, month, 'overdue') }}" class="nav-link-custom {% if status_filter == 'overdue' %}active{% endif %}">Просрочено</a>
     </div>
@@ -84,21 +86,41 @@
                 <td>{{ p.due_date.strftime('%d.%m.%Y') }}</td>
                 <td><span class="badge-status badge-{{ status_css_class(p) }}">{{ status_label(p) }}</span></td>
                 <td>
-                    {% if p.receipt_file %}
+                    {% if p.receipt_file and not p.transactions %}
                     <a href="/uploads/{{ p.receipt_file }}" download class="btn-icon" title="Скачать чек">📎</a>
                     {% endif %}
                     {% if user_role == 'admin' %}
+                    {% if remaining > 0 and not needs_amount %}
+                    <button class="btn-icon" title="Добавить частичную оплату" onclick="openTransactionModal('{{ p.id }}', '{{ remaining }}')">➕💳</button>
+                    {% endif %}
                     {% if current_status == 'paid' %}
                     <button class="btn-icon" title="Загрузить чек" onclick="openReceiptModal('{{ p.id }}')">📤</button>
                     {% endif %}
                     <button class="btn-icon" title="Редактировать" onclick="openEditModal('{{ p.id }}', '{{ edit_amount }}', '{{ current_status }}', '{{ p.paid_date.isoformat() if p.paid_date else '' }}')">✏️</button>
-                    <form method="post" action="/payments/{{ p.id }}/delete" style="display:inline;" onsubmit="return confirm('Удалить платеж?')">
+                    <form method="post" action="/payments/{{ p.id }}/delete" style="display:inline;" onsubmit="return confirm('Удалить платеж и все частичные оплаты?')">
                         <input type="hidden" name="_csrf" value="{{ _csrf }}">
                         <button type="submit" class="btn-icon" title="Удалить">🗑</button>
                     </form>
                     {% endif %}
                 </td>
             </tr>
+            {% for tx in p.transactions %}
+            <tr style="background:rgba(255,255,255,0.03);">
+                <td style="padding-left:28px;color:var(--text-muted);">↳ Оплата {{ loop.index }}</td>
+                <td><span style="color:var(--text-muted);">—</span></td>
+                <td>{{ "{:,.2f}".format(tx.amount) }} ₽</td>
+                <td><span style="color:var(--text-muted);">—</span></td>
+                <td>{{ tx.paid_date.strftime('%d.%m.%Y') }}</td>
+                <td><span class="badge-status badge-paid">чек оплаты</span></td>
+                <td>
+                    {% if tx.receipt_file %}
+                    <a href="/uploads/{{ tx.receipt_file }}" download class="btn-icon" title="Скачать чек оплаты">📎</a>
+                    {% else %}
+                    <span style="color:var(--text-muted);">без чека</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
             {% endfor %}
             {% if not payments %}
             <tr><td colspan="7" style="text-align:center;color:var(--text-muted);">Нет платежей за выбранный месяц</td></tr>
@@ -158,6 +180,32 @@
         </div>
     </div>
     {% endif %}
+
+    <div id="transactionModal" class="modal-overlay" style="display:none;">
+        <div class="card-custom" style="max-width:420px;width:90%;">
+            <h3 style="margin-bottom:16px;">➕ Добавить частичную оплату</h3>
+            <form id="transactionForm" method="post" enctype="multipart/form-data">
+                <input type="hidden" name="_csrf" value="{{ _csrf }}">
+                <div class="form-group">
+                    <label>Сумма оплаты</label>
+                    <input type="text" name="transaction_amount" class="input-custom" id="transactionAmount" required>
+                    <small id="transactionHint" style="color:var(--text-muted);display:block;margin-top:6px;"></small>
+                </div>
+                <div class="form-group">
+                    <label>Дата оплаты</label>
+                    <input type="date" name="paid_date_str" class="input-custom">
+                </div>
+                <div class="form-group">
+                    <label>Чек (PDF, JPG, PNG)</label>
+                    <input type="file" name="receipt" class="input-custom" accept=".pdf,.jpg,.jpeg,.png">
+                </div>
+                <div style="display:flex;gap:8px;">
+                    <button type="submit" class="btn-custom">Добавить оплату</button>
+                    <button type="button" class="btn-secondary-custom" onclick="closeModal('transactionModal')">Отмена</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <div id="receiptModal" class="modal-overlay" style="display:none;">
         <div class="card-custom" style="max-width:400px;width:90%;">
@@ -223,6 +271,16 @@ function openAddPaymentModal() {
     if (status) status.value = 'pending';
     toggleAddPaidFields();
     return false;
+}
+
+function openTransactionModal(paymentId, remainingAmount) {
+    const form = document.getElementById('transactionForm');
+    form.action = '/payments/' + paymentId + '/transactions/add';
+    const amountInput = document.getElementById('transactionAmount');
+    amountInput.value = remainingAmount || '';
+    const hint = document.getElementById('transactionHint');
+    if (hint) hint.textContent = 'Остаток к оплате: ' + remainingAmount + ' ₽';
+    document.getElementById('transactionModal').style.display = 'flex';
 }
 
 function openReceiptModal(paymentId) {
