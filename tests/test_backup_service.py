@@ -106,6 +106,8 @@ def test_copy_backup_to_remote_mount_copies_archive_atomically(tmp_path, monkeyp
     local_backup.write_bytes(b"backup-content")
 
     monkeypatch.setattr(backup_service, "PROJECT_ROOT", project_root)
+    monkeypatch.setattr(backup_service, "BACKUP_DIR", local_dir)
+    monkeypatch.setattr(backup_service, "DATA_DIR", project_root / "data")
 
     remote_path, size = backup_service.copy_backup_to_remote_mount(
         "backups/zhkh-data-backup-test.tar.gz",
@@ -124,3 +126,41 @@ def test_copy_backup_to_remote_mount_rejects_empty_path(tmp_path):
 
     with pytest.raises(ValueError):
         backup_service.copy_backup_to_remote_mount(local_backup, "")
+
+
+def test_copy_backup_to_remote_mount_rejects_app_data_target(tmp_path, monkeypatch):
+    project_root = tmp_path / "project"
+    local_dir = project_root / "backups"
+    data_dir = project_root / "data"
+    local_dir.mkdir(parents=True)
+    data_dir.mkdir(parents=True)
+    local_backup = local_dir / "zhkh-data-backup-test.tar.gz"
+    local_backup.write_bytes(b"backup-content")
+
+    monkeypatch.setattr(backup_service, "PROJECT_ROOT", project_root)
+    monkeypatch.setattr(backup_service, "BACKUP_DIR", local_dir)
+    monkeypatch.setattr(backup_service, "DATA_DIR", data_dir)
+
+    with pytest.raises(ValueError, match="Unsafe remote backup path"):
+        backup_service.copy_backup_to_remote_mount(
+            "backups/zhkh-data-backup-test.tar.gz",
+            str(data_dir / "uploads" / "remote-copy"),
+        )
+
+
+def test_copy_backup_to_remote_mount_rejects_local_backup_target(tmp_path, monkeypatch):
+    project_root = tmp_path / "project"
+    local_dir = project_root / "backups"
+    local_dir.mkdir(parents=True)
+    local_backup = local_dir / "zhkh-data-backup-test.tar.gz"
+    local_backup.write_bytes(b"backup-content")
+
+    monkeypatch.setattr(backup_service, "PROJECT_ROOT", project_root)
+    monkeypatch.setattr(backup_service, "BACKUP_DIR", local_dir)
+    monkeypatch.setattr(backup_service, "DATA_DIR", project_root / "data")
+
+    with pytest.raises(ValueError, match="Unsafe remote backup path"):
+        backup_service.copy_backup_to_remote_mount(
+            "backups/zhkh-data-backup-test.tar.gz",
+            str(local_dir / "remote-copy"),
+        )
