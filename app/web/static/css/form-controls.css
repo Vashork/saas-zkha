@@ -1,0 +1,32 @@
+/* === Native form controls ===
+   Keep browser-owned controls from standing out against the app theme. */
+:root {
+    color-scheme: dark;
+}
+
+[data-theme="light"] {
+    color-scheme: light;
+}
+
+.input-custom,
+.select-custom {
+    color-scheme: dark;
+}
+
+[data-theme="light"] .input-custom,
+[data-theme="light"] .select-custom {
+    color-scheme: light;
+}
+
+/* Chromium paints native number steppers as bright controls in dark inputs.
+   Hide them for app-styled number fields and keep the input visually consistent. */
+input[type="number"].input-custom {
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+input[type="number"].input-custom::-webkit-outer-spin-button,
+input[type="number"].input-custom::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
