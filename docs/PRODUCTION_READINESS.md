@@ -26,13 +26,15 @@ The branch is not yet ready for an internet-facing production deployment. It can
 - Added automated permission tests for unauthenticated redirects, settings page denial, admin-only user management, contractor/payment mutation denial and admin positive paths.
 - Added automated CSRF middleware regression tests for urlencoded forms, multipart forms and AJAX `X-CSRF-Token` requests.
 - Added `docs/ROADMAP.md` and placed remote backup work before Telegram bot work.
+- Added partial payments with `PaymentTransaction` rows, grouped receipts, partial statuses and variable-payment top-up support.
+- Added restore rollback in `app/backup_service.py`: if restore fails after the safety backup is created, the original `data/` is restored from that safety backup.
+- Added backup service regression tests for successful restore, failed restore rollback and unsafe archive rejection.
 
 ## Remaining blockers before production
 
 ### P0 — must fix before production
 
 1. Run backup/restore QA on a real Docker volume with an existing SQLite database.
-2. Verify restore rollback behavior when recovery fails after the safety backup is created.
 
 ### P1 — should fix before public deployment
 
@@ -52,7 +54,7 @@ CI is active and currently covers:
 - dependency installation from `requirements.txt`;
 - syntax check with `python -m compileall app tests`;
 - minimal FastAPI app import check;
-- unit tests with `python -m pytest tests/ -v`, including CSRF and permission regressions.
+- unit tests with `python -m pytest tests/ -v`, including CSRF, permission, payment and backup-service regressions.
 
 ## Manual QA checklist
 
@@ -73,6 +75,8 @@ Check as admin:
 - Edit payment works.
 - Upload receipt works.
 - Delete payment works.
+- Partial payment transactions and separate receipts work.
+- Variable payment top-up above current balance increases the monthly charge.
 - `/settings/save` works without 403.
 - Create user works without 403.
 - Edit user permissions works.
@@ -93,4 +97,4 @@ Check as non-admin:
 
 ## Notes
 
-The application is a solid MVP for local/private use, but production release should wait until the P0 items above are closed and QA is performed against the actual deployment environment.
+The application is a solid MVP for local/private use, but production release should wait until the P0 item above is closed and QA is performed against the actual deployment environment.
