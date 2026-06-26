@@ -6,9 +6,9 @@ This file tracks architecture and production-readiness work that could not be fu
 
 ## Current verdict
 
-Status: **internal pilot only**.
+Status: **internal pilot ready after local rebuild**.
 
-The branch is not yet ready for an internet-facing production deployment. It can be tested locally or behind VPN after rebuilding containers and running manual QA.
+The branch is suitable for local/private testing behind VPN after rebuilding containers. Internet-facing production still needs the P1 hardening items below.
 
 ## Fixed in this branch session
 
@@ -29,23 +29,25 @@ The branch is not yet ready for an internet-facing production deployment. It can
 - Added partial payments with `PaymentTransaction` rows, grouped receipts, partial statuses and variable-payment top-up support.
 - Added restore rollback in `app/backup_service.py`: if restore fails after the safety backup is created, the original `data/` is restored from that safety backup.
 - Added backup service regression tests for successful restore, failed restore rollback and unsafe archive rejection.
+- Manual QA confirmed backup/restore on a real Docker volume: local restore works without container restart, and downloaded backup upload/restore works.
+- Added mounted remote backup first phase: UI settings, local/remote destination validation, manual copy to mounted remote path, scheduler support and separate local/remote history rows.
 
 ## Remaining blockers before production
 
 ### P0 — must fix before production
 
-1. Run backup/restore QA on a real Docker volume with an existing SQLite database.
+No known P0 blockers for local/private pilot after the latest manual backup/restore QA.
 
 ### P1 — should fix before public deployment
 
 1. Add production configuration flags for secure cookies when HTTPS is enabled.
 2. Make `SECRET_KEY`, `ADMIN_PASSWORD` and `USER_PASSWORD` fail-fast in production if left at defaults.
 3. Add structured audit logs for admin actions: user creation, permission updates, backup create/delete/restore.
-4. Add DB migration tooling such as Alembic before schema changes are made in future releases.
+4. Add DB migration tooling such as Alembic before future schema changes are made in future releases.
 5. Add health checks that validate database access, not only HTTP process liveness.
 6. Add security headers in nginx or FastAPI middleware: HSTS behind HTTPS, CSP, X-Frame-Options, Referrer-Policy.
 7. Validate uploaded receipt MIME/content in addition to extension and size.
-8. Add remote backup support from `docs/ROADMAP.md`: SFTP/SMB UI, scheduler destination checkboxes and at-least-one destination validation.
+8. Add true SFTP/SMB transport code after migration tooling exists. Current remote backup phase expects the remote target to be mounted outside the application.
 
 ## CI status
 
@@ -87,7 +89,9 @@ Check as admin:
 - Save backup settings works.
 - Delete backup works.
 - Upload invalid backup is rejected.
-- Restore valid backup works and app should be restarted after restore.
+- Restore valid backup works without container restart.
+- Downloaded backup can be uploaded and restored.
+- Mounted remote backup copies archives to the configured path when that path is available to the container.
 
 Check as non-admin:
 
@@ -97,4 +101,4 @@ Check as non-admin:
 
 ## Notes
 
-The application is a solid MVP for local/private use, but production release should wait until the P0 item above is closed and QA is performed against the actual deployment environment.
+The application is a solid MVP for local/private use. Public internet-facing production should wait until the P1 hardening items above are closed.
