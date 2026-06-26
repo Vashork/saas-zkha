@@ -24,12 +24,13 @@ def test_base_loads_modal_css_after_main_stylesheet():
     assert style_pos < modal_pos
 
 
-def test_form_controls_css_hides_number_input_spinners():
+def test_form_controls_css_keeps_number_input_steppers_visible_and_themed():
     form_controls_css = (ROOT / "app" / "web" / "static" / "css" / "form-controls.css").read_text(encoding="utf-8")
 
     assert 'input[type="number"].input-custom' in form_controls_css
-    assert '::-webkit-inner-spin-button' in form_controls_css
-    assert '-moz-appearance: textfield' in form_controls_css
+    assert 'color-scheme: dark' in form_controls_css
+    assert '::-webkit-inner-spin-button' not in form_controls_css
+    assert '-moz-appearance: textfield' not in form_controls_css
 
 
 def test_modal_css_contains_add_payment_modal_helpers():
