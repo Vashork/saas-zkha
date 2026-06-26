@@ -21,6 +21,45 @@ DEFAULT_BACKUP_TIME = "03:00"
 MAX_UPLOAD_SIZE = 500 * 1024 * 1024
 
 
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    """Python-version-safe Path.is_relative_to replacement."""
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def _forbidden_remote_backup_dirs() -> list[Path]:
+    """Directories that must never be used as a mounted remote backup target."""
+    return [
+        DATA_DIR,
+        DATA_DIR / "uploads",
+        BACKUP_DIR,
+        PROJECT_ROOT / "app",
+        PROJECT_ROOT / "docker",
+        PROJECT_ROOT / "scripts",
+    ]
+
+
+def _validate_remote_backup_target_dir(target_dir: Path) -> Path:
+    """Reject remote backup targets that point back into app/data/local storage.
+
+    Remote backup is intended for an already-mounted external directory. This
+    guard prevents accidental configuration such as /app/data, /app/backups or
+    /app/data/uploads, which could create recursive backups, leak receipts via
+    uploads, or fill the application volume.
+    """
+    resolved_target = target_dir.resolve(strict=False)
+    for forbidden in _forbidden_remote_backup_dirs():
+        resolved_forbidden = forbidden.resolve(strict=False)
+        if resolved_target == resolved_forbidden or _is_relative_to(resolved_target, resolved_forbidden):
+            raise ValueError(
+                f"Unsafe remote backup path points inside application storage: {resolved_target}"
+            )
+    return resolved_target
+
+
 def backup_archive_absolute_path(relative_path: str | Path) -> Path:
     """Resolve a backup archive path returned by create_local_backup()."""
     path = Path(relative_path)
@@ -59,6 +98,7 @@ def copy_backup_to_remote_mount(local_backup_path: str | Path, remote_dir: str) 
     target_dir = Path(remote_dir.strip())
     if not target_dir.is_absolute():
         target_dir = PROJECT_ROOT / target_dir
+    target_dir = _validate_remote_backup_target_dir(target_dir)
     target_dir.mkdir(parents=True, exist_ok=True)
 
     target = target_dir / source.name
