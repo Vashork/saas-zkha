@@ -14,6 +14,7 @@ import logging
 from typing import Optional
 from urllib.parse import parse_qs
 
+from app.config import get_settings
 from fastapi import Request
 from fastapi.responses import RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -112,12 +113,14 @@ class CsrfMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             existing = request.cookies.get(CSRF_COOKIE)
             if not existing:
+                settings = get_settings()
                 response.set_cookie(
                     key=CSRF_COOKIE,
                     value=_make_token(),
                     httponly=False,
-                    samesite="lax",
-                    max_age=7 * 24 * 60 * 60,
+                    samesite=settings.COOKIE_SAMESITE,
+                    max_age=settings.SESSION_COOKIE_MAX_AGE_SECONDS,
+                    secure=settings.COOKIE_SECURE,
                 )
             return response
 

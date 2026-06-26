@@ -75,31 +75,39 @@ def _login_redirect(request: Request) -> RedirectResponse:
 
 
 def _set_session_cookies(response: RedirectResponse, user: User) -> None:
-    max_age = 7 * 24 * 60 * 60
+    settings = get_settings()
+    max_age = settings.SESSION_COOKIE_MAX_AGE_SECONDS
     response.set_cookie(
         key=SESSION_COOKIE,
         value=_sign_user_id(user.id),
-        httponly=True,
+        httponly=settings.COOKIE_HTTPONLY,
         max_age=max_age,
-        samesite="lax",
+        samesite=settings.COOKIE_SAMESITE,
+        secure=settings.COOKIE_SECURE,
     )
     # Display-only legacy cookies. Authorization never trusts them.
-    response.set_cookie(key="user_id", value=str(user.id), httponly=True, max_age=max_age, samesite="lax")
-    response.set_cookie(key="username", value=user.username, httponly=True, max_age=max_age, samesite="lax")
-    response.set_cookie(key="user_role", value=user.role, httponly=True, max_age=max_age, samesite="lax")
-    response.set_cookie(
-        key="page_permissions",
-        value=getattr(user, "page_permissions", None) or "",
-        httponly=True,
-        max_age=max_age,
-        samesite="lax",
-    )
+    for name, value in (
+        ("user_id", str(user.id)),
+        ("username", user.username),
+        ("user_role", user.role),
+        ("page_permissions", getattr(user, "page_permissions", None) or ""),
+    ):
+        response.set_cookie(
+            key=name,
+            value=value,
+            httponly=True,
+            max_age=max_age,
+            samesite=settings.COOKIE_SAMESITE,
+            secure=settings.COOKIE_SECURE,
+        )
 
 
 def _clear_session_cookies(response: RedirectResponse) -> None:
-    response.delete_cookie(SESSION_COOKIE)
+    settings = get_settings()
+    kwargs = {"secure": settings.COOKIE_SECURE, "samesite": settings.COOKIE_SAMESITE}
+    response.delete_cookie(SESSION_COOKIE, **kwargs)
     for cookie_name in LEGACY_COOKIES:
-        response.delete_cookie(cookie_name)
+        response.delete_cookie(cookie_name, **kwargs)
 
 
 async def get_current_user(request: Request, db: AsyncSession) -> Optional[User]:
