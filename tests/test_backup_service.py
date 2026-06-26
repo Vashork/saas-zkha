@@ -141,7 +141,7 @@ def test_copy_backup_to_remote_mount_rejects_app_data_target(tmp_path, monkeypat
     monkeypatch.setattr(backup_service, "BACKUP_DIR", local_dir)
     monkeypatch.setattr(backup_service, "DATA_DIR", data_dir)
 
-    with pytest.raises(ValueError, match="Unsafe remote backup path"):
+    with pytest.raises(ValueError, match="Путь mounted share"):
         backup_service.copy_backup_to_remote_mount(
             "backups/zhkh-data-backup-test.tar.gz",
             str(data_dir / "uploads" / "remote-copy"),
@@ -159,7 +159,7 @@ def test_copy_backup_to_remote_mount_rejects_local_backup_target(tmp_path, monke
     monkeypatch.setattr(backup_service, "BACKUP_DIR", local_dir)
     monkeypatch.setattr(backup_service, "DATA_DIR", project_root / "data")
 
-    with pytest.raises(ValueError, match="Unsafe remote backup path"):
+    with pytest.raises(ValueError, match="Путь mounted share"):
         backup_service.copy_backup_to_remote_mount(
             "backups/zhkh-data-backup-test.tar.gz",
             str(local_dir / "remote-copy"),
