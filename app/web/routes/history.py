@@ -123,9 +123,8 @@ async def export_csv(
             str(p.paid_date) if p.paid_date else "",
         ])
 
-    csv_text = "\ufeff" + output.getvalue()
     return Response(
-        content=csv_text.encode("utf-8-sig"),
+        content=output.getvalue().encode("utf-8-sig"),
         media_type="text/csv; charset=utf-8-sig",
         headers={"Content-Disposition": "attachment; filename=payments_history.csv"},
     )
