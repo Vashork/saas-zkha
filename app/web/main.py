@@ -6,11 +6,12 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
-from app.database import init_db, engine
-from app.scheduler import start_scheduler, stop_scheduler
+from app.database import init_db, engine, async_session_factory
+from app.scheduler import start_scheduler, stop_scheduler, scheduler
 from app.csrf import CsrfMiddleware
 from app.web.template_engine import configure_route_templates
 from app.web.routes import auth, dashboard, payments, history, contractors, analytics, backups
@@ -77,5 +78,21 @@ app.add_middleware(CsrfMiddleware)
 
 
 @app.get("/health")
-async def health_check():
-    return {"status": "ok"}
+async def health_check(response: Response):
+    """Return process, database and scheduler health."""
+    health = {
+        "status": "ok",
+        "database": "ok",
+        "scheduler": "running" if scheduler.running else "stopped",
+    }
+
+    try:
+        async with async_session_factory() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception:
+        logger.exception("Health check database ping failed")
+        health["status"] = "degraded"
+        health["database"] = "error"
+        response.status_code = 500
+
+    return health
