@@ -217,6 +217,7 @@ async def delete_contractor(
         entity_type="contractor", entity_id=contractor_id, request=request,
     )
     await db.commit()
+    return RedirectResponse(url=_contractors_url(show_archived), status_code=303)
 
 
 @router.post("/contractors/{contractor_id}/edit")
