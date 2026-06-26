@@ -108,3 +108,18 @@ def test_backups_template_formats_timestamps_with_configured_timezone():
     assert "format_datetime(f.created_at, backup_timezone)" in backups_html
     assert "format_datetime(item.created_at, backup_timezone)" in backups_html
     assert "SQLite-подключения" in backups_html
+
+
+def test_backups_template_has_mounted_remote_backup_settings():
+    backups_html = (ROOT / "app" / "web" / "templates" / "backups.html").read_text(encoding="utf-8")
+
+    assert "Remote backup" in backups_html
+    assert 'name="backup_destination_local"' in backups_html
+    assert 'name="backup_destination_remote"' in backups_html
+    assert 'name="backup_remote_type"' in backups_html
+    assert 'name="backup_remote_path"' in backups_html
+    assert 'name="backup_keep_local_copy"' in backups_html
+    assert "SMB mounted folder" in backups_html
+    assert "SFTP mounted folder" in backups_html
+    assert "/mnt/zhkh-backups" in backups_html
+    assert "не хранит логины/пароли" in backups_html
