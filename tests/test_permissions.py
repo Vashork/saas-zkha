@@ -11,7 +11,7 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
 from app.database import Base
-from app.models import Contractor, Payment, User
+from app.models import Contractor, Payment, PaymentTransaction, User
 from app.utils import hash_password
 from app.web.main import enforce_page_permissions
 from app.web.routes import auth, contractors, payments
@@ -89,6 +89,15 @@ async def permission_db(tmp_path, monkeypatch):
             due_day=10,
             is_active=True,
         )
+        variable_contractor = Contractor(
+            id="contractor-variable",
+            name="Hot Water",
+            slug="hot-water",
+            payment_type="variable",
+            fixed_amount=None,
+            due_day=25,
+            is_active=True,
+        )
         payment = Payment(
             id="payment-1",
             contractor_id="contractor-1",
@@ -99,7 +108,18 @@ async def permission_db(tmp_path, monkeypatch):
             due_date=date(2026, 6, 10),
             status="pending",
         )
-        session.add_all([admin, restricted, settings_user, contractor, payment])
+        variable_payment = Payment(
+            id="payment-variable",
+            contractor_id="contractor-variable",
+            year=2026,
+            month=6,
+            amount=Decimal("6700.00"),
+            paid_amount=Decimal("6700.00"),
+            due_date=date(2026, 6, 25),
+            paid_date=date(2026, 6, 25),
+            status="paid",
+        )
+        session.add_all([admin, restricted, settings_user, contractor, variable_contractor, payment, variable_payment])
         await session.commit()
 
         yield SimpleNamespace(
@@ -108,7 +128,9 @@ async def permission_db(tmp_path, monkeypatch):
             restricted=restricted,
             settings_user=settings_user,
             contractor=contractor,
+            variable_contractor=variable_contractor,
             payment=payment,
+            variable_payment=variable_payment,
         )
 
     await engine.dispose()
@@ -273,3 +295,30 @@ async def test_admin_can_perform_expected_user_contractor_and_payment_actions(pe
     )
     assert created_payment is not None
     assert created_payment.amount == Decimal("250.50")
+
+
+@pytest.mark.asyncio
+async def test_variable_payment_top_up_above_current_balance_increases_charge(permission_db):
+    response = await payments.add_payment_transaction(
+        permission_db.variable_payment.id,
+        _request("/payments/payment-variable/transactions/add", method="POST", user=permission_db.admin),
+        db=permission_db.session,
+        transaction_amount="1000",
+        paid_date_str="2026-06-26",
+        receipt=None,
+    )
+
+    _assert_redirect(response, "/payments?year=2026&month=6")
+
+    payment = await permission_db.session.get(Payment, permission_db.variable_payment.id)
+    assert payment.amount == Decimal("7700.00")
+    assert payment.paid_amount == Decimal("7700.00")
+    assert payment.status == "paid"
+
+    transactions = (
+        await permission_db.session.execute(
+            select(PaymentTransaction).where(PaymentTransaction.payment_id == payment.id)
+        )
+    ).scalars().all()
+    assert len(transactions) == 1
+    assert transactions[0].amount == Decimal("1000.00")
