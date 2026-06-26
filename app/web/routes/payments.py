@@ -12,10 +12,10 @@ from fastapi import APIRouter, Request, Form, File, UploadFile, Depends
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.database import get_db
-from app.models import Payment, Contractor
+from app.models import Payment, Contractor, PaymentTransaction
 from app.utils import month_name, is_allowed_file, get_upload_path, MAX_FILE_SIZE, payment_color_class
 from app.web.routes.auth import _require_page, get_current_user
 from app.web.routes.payment_helpers import (
@@ -114,9 +114,13 @@ async def _page_context(
     if year is None or month is None:
         year, month = _parse_period(request, today)
 
-    query = select(Payment).options(joinedload(Payment.contractor)).where(
-        Payment.year == year,
-        Payment.month == month,
+    query = (
+        select(Payment)
+        .options(joinedload(Payment.contractor), selectinload(Payment.transactions))
+        .where(
+            Payment.year == year,
+            Payment.month == month,
+        )
     )
 
     payments_result = await db.execute(query)
@@ -259,6 +263,14 @@ def _cleanup_orphan_receipts(referenced_receipts: set[str]) -> int:
     return removed
 
 
+def _sync_payment_status_from_amounts(payment: Payment) -> None:
+    """Keep the legacy status field useful while effective status is computed dynamically."""
+    if _remaining_amount(payment) <= 0 and not _requires_amount(payment):
+        payment.status = "paid"
+    elif payment.status == "paid":
+        payment.status = "pending"
+
+
 @router.get("/payments")
 async def payments_page(
     request: Request,
@@ -372,9 +384,99 @@ async def add_payment(
         receipt_file=receipt_path,
     )
     db.add(payment)
+
+    if status == "paid" and paid_amount and paid_amount > 0:
+        db.add(PaymentTransaction(
+            id=f"tx-{payment.id}-{uuid.uuid4().hex[:8]}",
+            payment_id=payment.id,
+            amount=paid_amount,
+            paid_date=paid_date or today,
+            receipt_file=receipt_path,
+            notes="Initial payment transaction",
+        ))
+        _sync_payment_status_from_amounts(payment)
+
     await db.commit()
 
     return _redirect_to_period(selected_year, selected_month)
+
+
+@router.post("/payments/{payment_id}/transactions/add")
+async def add_payment_transaction(
+    payment_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    transaction_amount: str = Form(...),
+    paid_date_str: str = Form(""),
+    receipt: UploadFile = File(None),
+):
+    current_user, redirect = await _require_admin_user(request, db)
+    if redirect:
+        return redirect
+
+    result = await db.execute(
+        select(Payment)
+        .options(joinedload(Payment.contractor), selectinload(Payment.transactions))
+        .where(Payment.id == payment_id)
+    )
+    payment = result.scalar_one_or_none()
+    if not payment:
+        return RedirectResponse(url="/payments", status_code=303)
+
+    try:
+        tx_amount = _parse_amount(transaction_amount)
+    except (InvalidOperation, ValueError):
+        ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Некорректная сумма оплаты"})
+        return templates.TemplateResponse("payments.html", ctx)
+
+    if tx_amount <= 0:
+        ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Сумма оплаты должна быть больше нуля"})
+        return templates.TemplateResponse("payments.html", ctx)
+
+    if _requires_amount(payment) or _planned_amount(payment) <= 0:
+        ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Сначала укажите сумму начисления"})
+        return templates.TemplateResponse("payments.html", ctx)
+
+    remaining = _remaining_amount(payment)
+    if remaining <= 0:
+        ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Платеж уже полностью оплачен"})
+        return templates.TemplateResponse("payments.html", ctx)
+
+    if tx_amount > remaining:
+        ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Сумма оплаты больше остатка"})
+        return templates.TemplateResponse("payments.html", ctx)
+
+    paid_date = date.today()
+    if paid_date_str:
+        try:
+            paid_date = date.fromisoformat(paid_date_str)
+        except ValueError:
+            ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": "Некорректная дата оплаты"})
+            return templates.TemplateResponse("payments.html", ctx)
+
+    receipt_path = None
+    if receipt and receipt.filename:
+        receipt_path, upload_err = await _upload_receipt(receipt, payment.year, payment.month)
+        if upload_err:
+            ctx = await _page_context(request, db, current_user, year=payment.year, month=payment.month, extra={"error": upload_err})
+            return templates.TemplateResponse("payments.html", ctx)
+
+    db.add(PaymentTransaction(
+        id=f"tx-{payment.id}-{uuid.uuid4().hex[:8]}",
+        payment_id=payment.id,
+        amount=tx_amount,
+        paid_date=paid_date,
+        receipt_file=receipt_path,
+    ))
+
+    payment.paid_amount = _paid_amount(payment) + tx_amount
+    payment.paid_date = paid_date
+    if receipt_path and not payment.receipt_file:
+        payment.receipt_file = receipt_path
+    _sync_payment_status_from_amounts(payment)
+
+    await db.commit()
+    return _redirect_to_period(payment.year, payment.month)
 
 
 @router.post("/payments/{payment_id}/edit")
@@ -391,7 +493,11 @@ async def edit_payment(
     if redirect:
         return redirect
 
-    result = await db.execute(select(Payment).where(Payment.id == payment_id))
+    result = await db.execute(
+        select(Payment)
+        .options(selectinload(Payment.transactions))
+        .where(Payment.id == payment_id)
+    )
     payment = result.scalar_one_or_none()
     if not payment:
         return RedirectResponse(url="/payments", status_code=303)
@@ -440,6 +546,16 @@ async def edit_payment(
         _remove_receipt_file(payment.receipt_file)
         payment.receipt_file = new_receipt_path
 
+    if status == "paid" and payment.paid_amount and payment.paid_amount > 0 and not payment.transactions:
+        db.add(PaymentTransaction(
+            id=f"tx-{payment.id}-{uuid.uuid4().hex[:8]}",
+            payment_id=payment.id,
+            amount=payment.paid_amount,
+            paid_date=payment.paid_date or date.today(),
+            receipt_file=payment.receipt_file,
+            notes="Created from legacy edit flow",
+        ))
+
     await db.commit()
     return _redirect_to_period(payment.year, payment.month)
 
@@ -460,10 +576,11 @@ async def cleanup_orphan_receipts(
     selected_year = year if year and 2000 <= year <= 2100 else today.year
     selected_month = month if month and 1 <= month <= 12 else today.month
 
-    refs_result = await db.execute(select(Payment.receipt_file).where(Payment.receipt_file.is_not(None)))
+    payment_refs_result = await db.execute(select(Payment.receipt_file).where(Payment.receipt_file.is_not(None)))
+    transaction_refs_result = await db.execute(select(PaymentTransaction.receipt_file).where(PaymentTransaction.receipt_file.is_not(None)))
     referenced_receipts = {
         _normalize_receipt_ref(receipt_file)
-        for receipt_file in refs_result.scalars().all()
+        for receipt_file in list(payment_refs_result.scalars().all()) + list(transaction_refs_result.scalars().all())
         if receipt_file
     }
     removed_count = _cleanup_orphan_receipts(referenced_receipts)
@@ -483,11 +600,17 @@ async def delete_payment(
     if redirect:
         return redirect
 
-    result = await db.execute(select(Payment).where(Payment.id == payment_id))
+    result = await db.execute(
+        select(Payment)
+        .options(selectinload(Payment.transactions))
+        .where(Payment.id == payment_id)
+    )
     payment = result.scalar_one_or_none()
     if payment:
         year, month = payment.year, payment.month
         _remove_receipt_file(payment.receipt_file)
+        for transaction in payment.transactions:
+            _remove_receipt_file(transaction.receipt_file)
         await db.delete(payment)
         await db.commit()
         return _redirect_to_period(year, month)
