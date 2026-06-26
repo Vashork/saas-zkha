@@ -41,14 +41,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ZhKH Bot", lifespan=lifespan)
 
-# Mount static files
+# Public static assets only. Receipts in data/uploads are served through
+# authenticated routes such as /payments/receipts/{path}.
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-
-# Mount uploads
-import os
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./data/uploads")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # Apply shared template globals to remaining legacy route-local template engines.
 configure_route_templates((auth, dashboard, payments, history, contractors, analytics, backups))
