@@ -6,6 +6,7 @@ import logging
 import shutil
 import tarfile
 import tempfile
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -20,6 +21,14 @@ DEFAULT_BACKUP_TIME = "03:00"
 MAX_UPLOAD_SIZE = 500 * 1024 * 1024
 
 
+def backup_archive_absolute_path(relative_path: str | Path) -> Path:
+    """Resolve a backup archive path returned by create_local_backup()."""
+    path = Path(relative_path)
+    if path.is_absolute():
+        return path
+    return PROJECT_ROOT / path
+
+
 def create_local_backup() -> tuple[str, int]:
     """Create a tar.gz archive of data/ and return relative path and size."""
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
@@ -31,6 +40,36 @@ def create_local_backup() -> tuple[str, int]:
             archive.add(DATA_DIR, arcname="data")
 
     return f"backups/{backup_path.name}", backup_path.stat().st_size
+
+
+def copy_backup_to_remote_mount(local_backup_path: str | Path, remote_dir: str) -> tuple[str, int]:
+    """Copy a local backup archive to an already-mounted remote directory.
+
+    This first remote-backup phase deliberately avoids storing SMB/SFTP secrets in
+    the app. Mount the remote destination outside the app/container, then point
+    remote_dir to that mounted path.
+    """
+    if not remote_dir or not remote_dir.strip():
+        raise ValueError("Remote backup path is empty")
+
+    source = backup_archive_absolute_path(local_backup_path)
+    if not source.exists() or not source.is_file():
+        raise FileNotFoundError(f"Local backup archive not found: {source}")
+
+    target_dir = Path(remote_dir.strip())
+    if not target_dir.is_absolute():
+        target_dir = PROJECT_ROOT / target_dir
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    target = target_dir / source.name
+    tmp_target = target_dir / f".{source.name}.{uuid.uuid4().hex}.tmp"
+    try:
+        shutil.copy2(source, tmp_target)
+        tmp_target.replace(target)
+    finally:
+        tmp_target.unlink(missing_ok=True)
+
+    return str(target), target.stat().st_size
 
 
 def list_backup_files() -> list[dict]:
@@ -172,10 +211,7 @@ def _restore_data_from_archive(path: Path) -> None:
 
 def _safety_backup_absolute_path(relative_path: str) -> Path:
     """Resolve the relative path returned by create_local_backup()."""
-    path = Path(relative_path)
-    if path.is_absolute():
-        return path
-    return PROJECT_ROOT / path
+    return backup_archive_absolute_path(relative_path)
 
 
 def recover_from_backup(path: Path) -> tuple[bool, str]:
