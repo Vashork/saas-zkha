@@ -6,7 +6,7 @@ This roadmap keeps the remaining work ordered. Prefer small commits and run CI a
 
 ## 1. Production blockers
 
-- [ ] Finish automated CSRF regression tests:
+- [x] Finish automated CSRF regression tests:
   - normal urlencoded forms with valid `_csrf` pass;
   - normal urlencoded forms without/invalid `_csrf` fail;
   - multipart forms with valid `_csrf` pass;
