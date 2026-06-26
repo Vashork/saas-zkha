@@ -32,22 +32,16 @@ def _requires_amount(payment: Payment) -> bool:
 
 
 def _planned_amount(payment: Payment) -> Decimal:
-    """
-    Return expected charge for this exact payment.
-
-    A contractor fixed amount is a default for new payments. If a concrete
-    payment amount exists, that per-payment value takes priority.
-    """
-    paid_amount = _as_decimal(payment.paid_amount)
-
-    if payment.amount is not None:
-        return max(_as_decimal(payment.amount), paid_amount)
-
+    """Return expected charge using the same fixed-debt rule as dashboard."""
+    candidates: list[Decimal] = []
     contractor = getattr(payment, "contractor", None)
     if contractor and contractor.payment_type == "fixed" and contractor.fixed_amount is not None:
-        return max(_as_decimal(contractor.fixed_amount), paid_amount)
-
-    return paid_amount
+        candidates.append(_as_decimal(contractor.fixed_amount))
+    if payment.amount is not None:
+        candidates.append(_as_decimal(payment.amount))
+    if payment.paid_amount is not None:
+        candidates.append(_as_decimal(payment.paid_amount))
+    return max(candidates) if candidates else Decimal("0")
 
 
 def _paid_amount(payment: Payment) -> Decimal:
