@@ -10,18 +10,27 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-logger = logging.getLogger("zhkh.backup_service")
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows/dev fallback; Docker Linux uses fcntl.
+    fcntl = None
 
-PROJECT_ROOT = Path("/app") if Path("/app").exists() else Path.cwd()
-
-# --- Non-blocking lock for backup/restore operations ---
-import fcntl
 import os as _os
 import threading
 
+logger = logging.getLogger("zhkh.backup_service")
+
+PROJECT_ROOT = Path("/app") if Path("/app").exists() else Path.cwd()
+BACKUP_DIR = PROJECT_ROOT / "backups"
+DATA_DIR = PROJECT_ROOT / "data"
+DEFAULT_RETENTION_COUNT = 10
+DEFAULT_BACKUP_FREQUENCY = "manual"
+DEFAULT_BACKUP_TIME = "03:00"
+MAX_UPLOAD_SIZE = 500 * 1024 * 1024
+
 _backup_lock = threading.Lock()
 _lock_owner_thread: int | None = None
-_file_lock: "object | None" = None
+_file_lock: tuple[int, Path] | None = None
 _file_lock_path: Path | None = None
 LOCKED_MESSAGE = "Другая операция backup/restore уже выполняется"
 
@@ -35,8 +44,14 @@ def _get_file_lock_path() -> Path:
 
 
 def _acquire_file_lock() -> bool:
-    """Acquire a cross-process file lock using fcntl.flock (non-blocking)."""
+    """Acquire a cross-process file lock using fcntl.flock when available."""
     global _file_lock
+    if fcntl is None:
+        return True
+    if _file_lock is not None:
+        return False
+
+    fd: int | None = None
     try:
         lock_path = _get_file_lock_path()
         lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -45,58 +60,72 @@ def _acquire_file_lock() -> bool:
         _file_lock = (fd, lock_path)
         return True
     except (BlockingIOError, OSError):
+        if fd is not None:
+            try:
+                _os.close(fd)
+            except OSError:
+                pass
         return False
 
 
 def _release_file_lock() -> None:
-    """Release the cross-process file lock."""
+    """Release the cross-process file lock if this process holds it."""
     global _file_lock
-    if _file_lock is None:
+    if fcntl is None or _file_lock is None:
+        _file_lock = None
         return
+
+    fd, _ = _file_lock
     try:
-        fd, lock_path = _file_lock
         fcntl.flock(fd, fcntl.LOCK_UN)
+    except OSError:
+        pass
+    try:
         _os.close(fd)
-    except (OSError, ValueError):
+    except OSError:
         pass
     _file_lock = None
 
 
 def _check_file_lock() -> bool:
-    """Check if the cross-process file lock is held by another process."""
+    """Return True when the cross-process file lock is currently held."""
+    if fcntl is None:
+        return False
     if _file_lock is not None:
         return True
+
+    fd: int | None = None
     try:
         lock_path = _get_file_lock_path()
         if not lock_path.exists():
             return False
         fd = _os.open(str(lock_path), _os.O_CREAT | _os.O_WRONLY, 0o644)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
-            fcntl.flock(fd, fcntl.LOCK_UN)
-            _os.close(fd)
-            return False
-        except (BlockingIOError, OSError):
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return False
+    except (BlockingIOError, OSError):
+        return True
+    finally:
+        if fd is not None:
             try:
                 _os.close(fd)
             except OSError:
                 pass
-            return True
-    except OSError:
-        return False
 
 
 def acquire_backup_lock() -> bool:
-    """Attempt to acquire both in-process and cross-process locks (non-blocking)."""
+    """Attempt to acquire both cross-process and in-process locks."""
     global _lock_owner_thread
     if not _acquire_file_lock():
         return False
+
     acquired = _backup_lock.acquire(blocking=False)
-    if acquired:
-        _lock_owner_thread = threading.get_ident()
-    else:
+    if not acquired:
         _release_file_lock()
-    return acquired
+        return False
+
+    _lock_owner_thread = threading.get_ident()
+    return True
 
 
 def release_backup_lock() -> None:
@@ -104,6 +133,7 @@ def release_backup_lock() -> None:
     global _lock_owner_thread
     if _lock_owner_thread != threading.get_ident():
         return
+
     try:
         _backup_lock.release()
     except RuntimeError:
@@ -113,25 +143,19 @@ def release_backup_lock() -> None:
 
 
 def backup_locked() -> bool:
-    """Check whether the backup lock is currently held (in-process or cross-process)."""
+    """Check whether the backup lock is currently held."""
     return _backup_lock.locked() or _check_file_lock()
 
 
 def _reset_lock_for_tests() -> None:
     """Force-release all locks — only for tests."""
-    global _lock_owner_thread, _file_lock
+    global _lock_owner_thread
+    _release_file_lock()
     _lock_owner_thread = None
-    _file_lock = None
     try:
         _backup_lock.release()
     except RuntimeError:
         pass
-BACKUP_DIR = PROJECT_ROOT / "backups"
-DATA_DIR = PROJECT_ROOT / "data"
-DEFAULT_RETENTION_COUNT = 10
-DEFAULT_BACKUP_FREQUENCY = "manual"
-DEFAULT_BACKUP_TIME = "03:00"
-MAX_UPLOAD_SIZE = 500 * 1024 * 1024
 
 
 def _is_relative_to(path: Path, parent: Path) -> bool:
@@ -388,7 +412,6 @@ def recover_from_backup(path: Path) -> tuple[bool, str]:
 
         safety_backup_path: Path | None = None
         try:
-            # Safety backup uses the internal implementation (lock already held)
             safety_backup_rel, _ = _create_local_backup_impl()
             safety_backup_path = _safety_backup_absolute_path(safety_backup_rel)
             _restore_data_from_archive(path)
