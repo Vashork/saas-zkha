@@ -1,19 +1,18 @@
-"""Tests for the backfill migration of PaymentTransaction records.
+"""Tests for the runtime backfill migration of PaymentTransaction records.
 
-The migration in init_db._run_migrations creates PaymentTransaction rows
+The migration in app.database._run_migrations creates PaymentTransaction rows
 for legacy Payment records where paid_amount > 0 but no transactions exist.
 """
 
 import pytest
 from datetime import date
 from decimal import Decimal
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
 
-from app.database import Base
+from app.database import Base, _run_migrations
 from app.models import Payment, PaymentTransaction, Contractor
-from init_db import _run_migrations
 
 
 @pytest.fixture
@@ -174,10 +173,8 @@ async def test_backfill_is_idempotent(_tmp_engine):
         session.add(payment)
         await session.commit()
 
-    # Run migration first time
     async with engine.begin() as conn:
         await conn.run_sync(_run_migrations)
-    # Run migration second time
     async with engine.begin() as conn:
         await conn.run_sync(_run_migrations)
 
@@ -186,7 +183,7 @@ async def test_backfill_is_idempotent(_tmp_engine):
             select(PaymentTransaction).where(PaymentTransaction.payment_id == "pay-idem")
         )
         txs = result.scalars().all()
-        assert len(txs) == 1  # only one transaction, not two
+        assert len(txs) == 1
 
     await engine.dispose()
 
@@ -219,6 +216,6 @@ async def test_backfill_uses_due_date_when_paid_date_is_none(_tmp_engine):
             select(PaymentTransaction).where(PaymentTransaction.payment_id == "pay-no-date")
         )
         tx = result.scalar_one()
-        assert tx.paid_date == date(2025, 5, 15)  # falls back to due_date
+        assert tx.paid_date == date(2025, 5, 15)
 
     await engine.dispose()
