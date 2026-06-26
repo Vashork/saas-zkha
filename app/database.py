@@ -1,15 +1,15 @@
 """
 Async database engine and session management (SQLite + aiosqlite).
 
-Alembic handles schema migrations. init_db() runs Alembic upgrade head
-on startup so the DB is always up-to-date.
+The app keeps a legacy schema-bootstrap path for existing SQLite deployments,
+then registers that schema with Alembic so future migrations can run safely.
 """
 
 import logging
 import subprocess
 from pathlib import Path
 
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 
@@ -19,6 +19,8 @@ settings = get_settings()
 
 engine = create_async_engine(settings.DATABASE_URL, echo=False)
 async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+INITIAL_ALEMBIC_REVISION = "b3b26935f1bf"
 
 
 class Base(DeclarativeBase):
@@ -41,73 +43,80 @@ logger = logging.getLogger("zhkh.database")
 
 
 async def init_db():
-    """Run Alembic migrations to bring the database up to date.
+    """Initialize or migrate the database.
 
-    Falls back to legacy schema creation if alembic_version table
-    does not exist yet (first ever run on a brand-new DB).
+    Existing installations were created by SQLAlchemy create_all() plus ad-hoc
+    migrations. Running Alembic's initial schema revision directly against those
+    databases would fail with "table already exists". To make startup safe, we
+    first ensure the legacy schema shape exists, then stamp existing schemas to
+    the initial Alembic revision and upgrade to head.
     """
-    from app import models  # noqa: F401 — import to register models
+    await _ensure_sqlite_parent_dir()
+    await _legacy_init()
+    await _ensure_alembic_head()
 
-    # Ensure data directory exists
+
+async def _ensure_sqlite_parent_dir() -> None:
     db_path = settings.DATABASE_URL
-    if db_path.startswith("sqlite"):
-        # Extract path from sqlite:///... or sqlite+aiosqlite:///...
-        path_str = db_path.replace("sqlite+aiosqlite://", "").replace("sqlite://", "")
-        data_dir = Path(path_str).parent.resolve()
-        data_dir.mkdir(parents=True, exist_ok=True)
-
-    # Run Alembic upgrade to head
-    project_root = Path(__file__).resolve().parent.parent
-    try:
-        result = subprocess.run(
-            ["alembic", "-c", str(project_root / "alembic.ini"), "upgrade", "head"],
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            logger.warning("Alembic upgrade output: %s", result.stderr)
-            # If alembic_version doesn't exist yet, stamp and upgrade
-            _maybe_stamp_and_upgrade(project_root)
-        else:
-            logger.info("Alembic migrations applied successfully")
-    except FileNotFoundError:
-        logger.warning("alembic command not found, falling back to legacy init")
-        await _legacy_init()
-
-
-def _maybe_stamp_and_upgrade(project_root: Path):
-    """If the DB has no alembic_version, stamp to the initial migration and upgrade."""
-    try:
-        subprocess.run(
-            ["alembic", "-c", str(project_root / "alembic.ini"), "stamp", "base"],
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-        )
-        subprocess.run(
-            ["alembic", "-c", str(project_root / "alembic.ini"), "upgrade", "head"],
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-        )
-        logger.info("Alembic stamped to base and upgraded to head")
-    except FileNotFoundError:
-        pass
+    if not db_path.startswith("sqlite"):
+        return
+    path_str = db_path.replace("sqlite+aiosqlite://", "").replace("sqlite://", "")
+    if path_str:
+        Path(path_str).parent.resolve().mkdir(parents=True, exist_ok=True)
 
 
 async def _legacy_init():
-    """Fallback: create all tables and run ad-hoc migrations (legacy path)."""
-    from app import models  # noqa: F401
+    """Create missing tables and run idempotent legacy migrations."""
+    from app import models  # noqa: F401 — import to register models
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_run_legacy_migrations)
 
 
-def _run_legacy_migrations(conn):
-    """Legacy incremental migrations — kept for fallback only.
+async def _ensure_alembic_head() -> None:
+    """Register the current schema with Alembic and run remaining revisions."""
+    project_root = Path(__file__).resolve().parent.parent
+    if not (project_root / "alembic.ini").exists():
+        logger.warning("alembic.ini not found, using legacy DB init only")
+        return
 
-    New migrations should be added as Alembic revision files in alembic/versions/.
+    try:
+        if not await _has_alembic_version_table():
+            _run_alembic(project_root, "stamp", INITIAL_ALEMBIC_REVISION)
+        _run_alembic(project_root, "upgrade", "head")
+        logger.info("Alembic migrations applied successfully")
+    except FileNotFoundError:
+        logger.warning("alembic command not found, using legacy DB init only")
+    except RuntimeError as exc:
+        logger.exception("Alembic migration failed")
+        raise exc
+
+
+async def _has_alembic_version_table() -> bool:
+    async with engine.connect() as conn:
+        return await conn.run_sync(lambda sync_conn: inspect(sync_conn).has_table("alembic_version"))
+
+
+def _run_alembic(project_root: Path, *args: str) -> None:
+    result = subprocess.run(
+        ["alembic", "-c", str(project_root / "alembic.ini"), *args],
+        cwd=str(project_root),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Alembic {' '.join(args)} failed: stdout={result.stdout!r} stderr={result.stderr!r}"
+        )
+
+
+def _run_legacy_migrations(conn):
+    """Legacy incremental migrations kept for existing SQLite databases.
+
+    New structural changes should be added as Alembic revision files, but this
+    path remains necessary so old ad-hoc databases can be safely stamped into
+    Alembic without the initial schema migration trying to recreate tables.
     """
     result = conn.execute(text("PRAGMA table_info(users)"))
     columns = [row[1] for row in result.fetchall()]
