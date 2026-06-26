@@ -9,9 +9,9 @@
         <a class="nav-link-custom" href="/">📊 Дашборд</a>
         <a class="nav-link-custom" href="/payments">💳 Платежи</a>
         <a class="nav-link-custom" href="/history">📜 История</a>
+        {% if user_role == 'admin' %}<a class="nav-link-custom" href="/backups">💾 Бекапы</a>{% endif %}
         <a class="nav-link-custom" href="/contractors">🏢 Подрядчики</a>
         <a class="nav-link-custom" href="/analytics">📈 Аналитика</a>
-        {% if user_role == 'admin' %}<a class="nav-link-custom" href="/backups">💾 Бекапы</a>{% endif %}
         <a class="nav-link-custom active" href="/settings">⚙️ Настройки</a>
     </div>
     <div class="user-badge">
@@ -26,7 +26,7 @@
 <div class="container-main">
     <h1 class="page-title">⚙️ Настройки</h1>
     {% if error %}<div class="alert-error">{{ error }}</div>{% endif %}
-    {% if success %}<div style="background:var(--paid-bg);color:var(--paid);padding:12px;border-radius:12px;margin-bottom:16px;font-size:14px;">✅ {{ success }}</div>{% endif %}
+    {% if success %}<div class="alert-success">✅ {{ success }}</div>{% endif %}
 
     <div class="card-custom" style="margin-bottom:24px;">
         <h3 style="margin-bottom:16px;">👤 Мой профиль</h3>
@@ -44,6 +44,7 @@
             <div class="form-group">
                 <label>День платежа по умолчанию</label>
                 <input type="number" name="default_due_day" class="input-custom" value="{{ settings.get('default_due_day', '15') }}" min="1" max="28">
+                <small style="color:var(--text-muted);display:block;margin-top:6px;">Используется как подсказка/значение по умолчанию для новых подрядчиков. Уже созданные подрядчики не меняет.</small>
             </div>
             <div class="form-group">
                 <label>Тема оформления</label>
@@ -52,9 +53,12 @@
                     <option value="light" {% if settings.get('ui_theme','dark') == 'light' %}selected{% endif %}>Светлая</option>
                 </select>
             </div>
-            <div class="form-group" style="display:flex;align-items:center;gap:8px;padding-top:24px;">
+            <div class="form-group" style="display:flex;align-items:flex-start;gap:8px;padding-top:8px;">
                 <input type="checkbox" name="notifications_enabled" value="on" {% if settings.get('notifications_enabled','off') == 'on' %}checked{% endif %}>
-                <label style="margin:0;">Включить уведомления</label>
+                <div>
+                    <label style="margin:0;color:var(--text);">Включить уведомления</label>
+                    <small style="color:var(--text-muted);display:block;margin-top:4px;">Включает автоматические напоминания планировщика: ближайшие/просроченные платежи и системные уведомления, если настроен канал отправки.</small>
+                </div>
             </div>
             <div style="margin-top:16px;"><button type="submit" class="btn-custom">💾 Сохранить настройки</button></div>
         </form>
@@ -181,15 +185,17 @@ function openEditUserModal(userId, perms, role) {
     document.getElementById('editUserForm').action = '/settings/users/' + userId + '/update';
     document.getElementById('editUserRoleSelect').value = role;
     const permsList = perms ? perms.split(',') : [];
-    document.querySelectorAll('.edit-user-page-cb').forEach(cb => { cb.checked = permsList.includes(cb.dataset.slug); });
+    document.querySelectorAll('.edit-user-page-cb').forEach(cb => {
+        cb.checked = !perms || permsList.includes(cb.dataset.slug);
+    });
     document.getElementById('editUserModal').style.display = 'flex';
 }
 function openChangePassModal(userId) {
     document.getElementById('changeUserPassForm').action = '/settings/users/' + userId + '/change-password';
     document.getElementById('changeUserPassModal').style.display = 'flex';
 }
-function closeModal(id) { document.getElementById(id).style.display = 'none'; }
-document.addEventListener('click', function(e) { if (e.target.classList.contains('modal-overlay')) { e.target.style.display = 'none'; } });
-document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none'); } });
+function closeModal(id) {
+    document.getElementById(id).style.display = 'none';
+}
 </script>
 {% endblock %}
