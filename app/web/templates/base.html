@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="/static/css/style.css">
 <link rel="stylesheet" href="/static/css/form-controls.css">
 <link rel="stylesheet" href="/static/css/modal.css">
+<link rel="stylesheet" href="/static/css/qa-fixes.css">
 <script>
 // Load theme before page render to avoid flash
 (function() {
@@ -30,16 +31,16 @@
         return (item.getAttribute('href') === '/backups') || (item.getAttribute('onclick') || '').indexOf('/backups') !== -1;
     });
     if (hasBackups) return;
-    var analyticsItem = Array.from(nav.querySelectorAll('a,button')).find(function(item) {
-        return (item.getAttribute('href') === '/analytics') || (item.getAttribute('onclick') || '').indexOf('/analytics') !== -1;
+    var historyItem = Array.from(nav.querySelectorAll('a,button')).find(function(item) {
+        return (item.getAttribute('href') === '/history') || (item.getAttribute('onclick') || '').indexOf('/history') !== -1;
     });
     var backupButton = document.createElement('button');
     backupButton.className = 'nav-link-custom';
     backupButton.type = 'button';
     backupButton.textContent = '💾 Бекапы';
     backupButton.onclick = function() { location.href = '/backups'; };
-    if (analyticsItem && analyticsItem.nextSibling) {
-        nav.insertBefore(backupButton, analyticsItem.nextSibling);
+    if (historyItem && historyItem.nextSibling) {
+        nav.insertBefore(backupButton, historyItem.nextSibling);
     } else {
         nav.appendChild(backupButton);
     }
