@@ -13,7 +13,9 @@ This roadmap keeps the remaining work ordered. Prefer small commits and run CI a
   - multipart forms without/invalid `_csrf` fail;
   - AJAX `/settings/theme` with valid `X-CSRF-Token` passes;
   - AJAX `/settings/theme` without/invalid `X-CSRF-Token` fails.
-- [ ] Run backup/restore QA on a real Docker volume with an existing SQLite database.
+- [x] Run backup/restore QA on a real Docker volume with an existing SQLite database.
+  - Manual QA confirmed: local restore works without container restart.
+  - Manual QA confirmed: downloaded backup can be uploaded and restored.
 - [x] Verify or implement restore rollback if recovery fails after safety backup creation.
   - `recover_from_backup()` creates a safety backup and attempts automatic rollback if restore fails after `data/` was touched.
   - Regression tests cover successful restore, rollback after copy failure and unsafe archive rejection.
@@ -46,20 +48,24 @@ Implementation note: `payments.paid_amount` remains as a compatibility aggregate
 
 ## 3. Backup improvements — before Telegram bot work
 
-- [ ] Keep local backup enabled by default.
-- [ ] Add a collapsed UI block like `Remote backup` on the Backups page.
-- [ ] In `Remote backup`, add remote target type selection:
+- [x] Keep local backup enabled by default.
+- [x] Add a collapsed UI block like `Remote backup` on the Backups page.
+- [x] In `Remote backup`, add remote target type selection:
   - `SFTP`;
   - `SMB`.
-- [ ] Add a checkbox for remote backup mode: `Also keep a local backup copy`.
-- [ ] Add scheduler destination checkboxes:
+- [x] Add a checkbox for remote backup mode: `Also keep a local backup copy`.
+- [x] Add scheduler destination checkboxes:
   - `local`;
   - `remote-sftp`;
   - `remote-smb`.
-- [ ] Enforce that at least one scheduler destination is always enabled.
-- [ ] Prefer mounted SMB folder support first, then add true SFTP/SMB transport code.
-- [ ] Store secrets outside normal SQLite settings where possible: environment variables, mounted secret files, or deployment-level secret storage.
-- [ ] Record separate local/remote result states in backup history so a local success with remote failure is visible.
+- [x] Enforce that at least one scheduler destination is always enabled.
+- [x] Prefer mounted SMB folder support first, then add true SFTP/SMB transport code.
+  - First phase implemented: copy the local archive to an already-mounted remote folder, for example `/mnt/zhkh-backups`.
+- [x] Store secrets outside normal SQLite settings where possible: environment variables, mounted secret files, or deployment-level secret storage.
+  - First phase stores no SMB/SFTP credentials in the app; credentials stay in the external mount configuration.
+- [x] Record separate local/remote result states in backup history so a local success with remote failure is visible.
+  - Existing SQLite constraint supports `local` and `synology`; the UI displays `synology` history rows as `remote` until a future migration broadens the storage enum.
+- [ ] Add true SFTP/SMB transport code after migration tooling exists.
 
 ## 4. Production hardening
 
