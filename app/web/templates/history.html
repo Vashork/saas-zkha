@@ -8,9 +8,9 @@
         <a class="nav-link-custom" href="/">📊 Дашборд</a>
         <a class="nav-link-custom" href="/payments">💳 Платежи</a>
         <a class="nav-link-custom active" href="/history">📜 История</a>
+        {% if user_role == 'admin' %}<a class="nav-link-custom" href="/backups">💾 Бекапы</a>{% endif %}
         <a class="nav-link-custom" href="/contractors">🏢 Подрядчики</a>
         <a class="nav-link-custom" href="/analytics">📈 Аналитика</a>
-        {% if user_role == 'admin' %}<a class="nav-link-custom" href="/backups">💾 Бекапы</a>{% endif %}
         <a class="nav-link-custom" href="/settings">⚙️ Настройки</a>
     </div>
     <div class="user-badge">
@@ -75,7 +75,7 @@
                 <td><span class="badge-status badge-{{ status_css_class(p) }}">{{ status_label(p) }}</span></td>
                 <td>
                     {% if current_status == 'paid' and p.receipt_file %}
-                    <a href="/uploads/{{ p.receipt_file }}" download class="btn-icon" style="width:auto;padding:0 8px;" title="Скачать чек">📎</a>
+                    <a href="/payments/receipts/{{ p.receipt_file }}" download class="btn-icon" title="Скачать чек">📎</a>
                     {% else %}
                     <span style="color:var(--text-muted);">—</span>
                     {% endif %}
