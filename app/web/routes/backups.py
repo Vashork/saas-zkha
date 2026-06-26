@@ -23,7 +23,6 @@ from app.backup_service import (
     list_backup_files,
     recover_from_backup,
     safe_backup_path,
-    LOCKED_MESSAGE,
     backup_locked,
     validate_backup_archive,
 )
@@ -48,6 +47,7 @@ DEFAULT_RETENTION_COUNT = 10
 DEFAULT_BACKUP_FREQUENCY = "manual"
 DEFAULT_BACKUP_TIME = "03:00"
 DEFAULT_TIMEZONE = "Europe/Moscow"
+BACKUP_LOCKED_ERROR = "backup_locked"
 
 
 def _format_size(size_bytes: int) -> str:
@@ -134,7 +134,7 @@ async def _save_backup_settings(
     await _upsert_setting(db, "backup_retention_count", str(retention_count), "Сколько последних локальных архивов хранить")
     await _upsert_setting(db, "backup_frequency", frequency, "Частота автоматического локального бекапа")
     await _upsert_setting(db, "backup_time", backup_time, "Время автоматического локального бекапа")
-    await _upsert_setting(db, "backup_remote_type", remote_type, "Тип удалённого бекапа: smb или sftp")
+    await _upsert_setting(db, "backup_remote_type", remote_type, "Тип удалённого бекапа: mounted share")
     await _upsert_setting(db, "backup_remote_path", remote_path, "Путь к смонтированной удалённой папке")
     await _upsert_setting(db, "backup_keep_local_copy", str(keep_local_copy).lower(), "Сохранять локальную копию при удалённом бекапе")
     await _upsert_setting(db, "backup_destination_local", str(destination_local).lower(), "Писать бекап в локальное хранилище")
@@ -224,6 +224,10 @@ def _remove_local_archive_if_unneeded(file_path: str) -> None:
         backup_archive_absolute_path(file_path).unlink(missing_ok=True)
     except OSError:
         logger.warning("Could not remove local archive after remote-only backup: %s", file_path)
+
+
+def _locked_redirect() -> RedirectResponse:
+    return RedirectResponse(url=f"/backups?error={BACKUP_LOCKED_ERROR}", status_code=303)
 
 
 @router.get("/backups")
@@ -323,15 +327,7 @@ async def create_backup(request: Request, db: AsyncSession = Depends(get_db)):
         return redirect
 
     if backup_locked():
-        error = LOCKED_MESSAGE
-        return templates.TemplateResponse("backups.html", {
-            "request": request,
-            **_user_context(current_user),
-            "backups": [],
-            "settings": await _get_backup_settings(db),
-            "remote_mount_ok": None,
-            "error": error,
-        })
+        return _locked_redirect()
 
     settings = await _get_backup_settings(db)
     retention_count = settings["retention_count"]
@@ -445,7 +441,7 @@ async def upload_and_restore_backup(
         return redirect
 
     if backup_locked():
-        return RedirectResponse(url="/backups?error=" + LOCKED_MESSAGE.replace(" ", "+"), status_code=303)
+        return _locked_redirect()
 
     if not backup_file.filename or not backup_file.filename.endswith(".tar.gz"):
         return RedirectResponse(url="/backups?error=backup_invalid", status_code=303)
@@ -491,7 +487,7 @@ async def restore_backup(filename: str, request: Request, db: AsyncSession = Dep
         return redirect
 
     if backup_locked():
-        return RedirectResponse(url="/backups?error=" + LOCKED_MESSAGE.replace(" ", "+"), status_code=303)
+        return _locked_redirect()
 
     path = safe_backup_path(filename)
     if not path:
