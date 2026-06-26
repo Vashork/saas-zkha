@@ -14,7 +14,9 @@ This roadmap keeps the remaining work ordered. Prefer small commits and run CI a
   - AJAX `/settings/theme` with valid `X-CSRF-Token` passes;
   - AJAX `/settings/theme` without/invalid `X-CSRF-Token` fails.
 - [ ] Run backup/restore QA on a real Docker volume with an existing SQLite database.
-- [ ] Verify or implement restore rollback if recovery fails after safety backup creation.
+- [x] Verify or implement restore rollback if recovery fails after safety backup creation.
+  - `recover_from_backup()` creates a safety backup and attempts automatic rollback if restore fails after `data/` was touched.
+  - Regression tests cover successful restore, rollback after copy failure and unsafe archive rejection.
 
 ## 2. Partial payments and multiple receipts — before remote backup
 
