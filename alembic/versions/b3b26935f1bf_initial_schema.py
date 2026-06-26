@@ -28,6 +28,22 @@ def _column_exists(table_name: str, column_name: str) -> bool:
     return column_name in {column["name"] for column in sa.inspect(op.get_bind()).get_columns(table_name)}
 
 
+def _create_payment_transactions_table() -> None:
+    op.create_table('payment_transactions',
+    sa.Column('id', sa.String(), nullable=False),
+    sa.Column('payment_id', sa.String(), nullable=False),
+    sa.Column('amount', sa.Numeric(precision=10, scale=2), nullable=False),
+    sa.Column('paid_date', sa.Date(), nullable=False),
+    sa.Column('receipt_file', sa.String(), nullable=True),
+    sa.Column('notes', sa.Text(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
+    sa.CheckConstraint('amount > 0', name='ck_payment_transaction_amount_positive'),
+    sa.ForeignKeyConstraint(['payment_id'], ['payments.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+
+
 def _adopt_legacy_schema_if_present() -> bool:
     """Return True when an existing pre-Alembic schema was detected and adopted."""
     if not _table_exists("users"):
@@ -38,6 +54,8 @@ def _adopt_legacy_schema_if_present() -> bool:
         op.add_column("users", sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("1")))
     if _table_exists("contractors") and not _column_exists("contractors", "is_active"):
         op.add_column("contractors", sa.Column("is_active", sa.Boolean(), nullable=True, server_default=sa.text("1")))
+    if _table_exists("payments") and not _table_exists("payment_transactions"):
+        _create_payment_transactions_table()
     return True
 
 
@@ -132,19 +150,7 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('contractor_id', 'year', 'month', name='uq_contractor_period')
     )
-    op.create_table('payment_transactions',
-    sa.Column('id', sa.String(), nullable=False),
-    sa.Column('payment_id', sa.String(), nullable=False),
-    sa.Column('amount', sa.Numeric(precision=10, scale=2), nullable=False),
-    sa.Column('paid_date', sa.Date(), nullable=False),
-    sa.Column('receipt_file', sa.String(), nullable=True),
-    sa.Column('notes', sa.Text(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
-    sa.CheckConstraint('amount > 0', name='ck_payment_transaction_amount_positive'),
-    sa.ForeignKeyConstraint(['payment_id'], ['payments.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
-    )
+    _create_payment_transactions_table()
     # ### end Alembic commands ###
 
 
