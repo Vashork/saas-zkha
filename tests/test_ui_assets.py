@@ -89,3 +89,22 @@ def test_payments_template_renders_transaction_receipts():
     assert "{% for tx in p.transactions %}" in payments_html
     assert "tx.receipt_file" in payments_html
     assert "Скачать чек оплаты" in payments_html
+
+
+def test_payments_template_has_transaction_edit_and_delete_actions():
+    payments_html = (ROOT / "app" / "web" / "templates" / "payments.html").read_text(encoding="utf-8")
+
+    assert 'id="transactionEditModal"' in payments_html
+    assert 'openTransactionEditModal(' in payments_html
+    assert '/payments/transactions/{{ tx.id }}/delete' in payments_html
+    assert '/payments/transactions/' in payments_html
+    assert "Редактировать оплату" in payments_html
+
+
+def test_backups_template_formats_timestamps_with_configured_timezone():
+    backups_html = (ROOT / "app" / "web" / "templates" / "backups.html").read_text(encoding="utf-8")
+
+    assert "backup_timezone" in backups_html
+    assert "format_datetime(f.created_at, backup_timezone)" in backups_html
+    assert "format_datetime(item.created_at, backup_timezone)" in backups_html
+    assert "SQLite-подключения" in backups_html
