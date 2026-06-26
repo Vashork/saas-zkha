@@ -3,7 +3,6 @@
 import asyncio
 import multiprocessing
 import os as _os
-import fcntl as _fcntl
 from pathlib import Path
 
 import pytest
@@ -12,12 +11,11 @@ from app.backup_service import (
     acquire_backup_lock,
     release_backup_lock,
     backup_locked,
-    create_local_backup,
     recover_from_backup,
     _acquire_file_lock,
     _release_file_lock,
     _check_file_lock,
-    _get_file_lock_path,
+    fcntl,
 )
 
 
@@ -30,13 +28,12 @@ def _write_data_tree(root: Path, db_content: str) -> None:
 @pytest.fixture(autouse=True)
 def reset_lock_state():
     """Ensure the lock is released before and after each test."""
-    from app.backup_service import _reset_lock_for_tests, _file_lock_path
-    _reset_lock_for_tests()
-    # Also clear the file lock path so it re-resolves per tmp_path
     import app.backup_service as bs
+
+    bs._reset_lock_for_tests()
     bs._file_lock_path = None
     yield
-    _reset_lock_for_tests()
+    bs._reset_lock_for_tests()
     bs._file_lock_path = None
 
 
@@ -49,8 +46,10 @@ def test_acquire_and_release_backup_lock():
 
 def test_acquire_backup_lock_when_already_locked():
     acquire_backup_lock()
-    assert acquire_backup_lock() is False
-    release_backup_lock()
+    try:
+        assert acquire_backup_lock() is False
+    finally:
+        release_backup_lock()
 
 
 def test_backup_locked_returns_false_when_free():
@@ -59,16 +58,17 @@ def test_backup_locked_returns_false_when_free():
 
 def test_lock_message_on_contention():
     acquire_backup_lock()
-    expected_msg = "Другая операция backup/restore уже выполняется"
-    assert backup_locked() is True
-    # The message is returned by helper, not by the boolean check
-    from app.backup_service import LOCKED_MESSAGE
-    assert LOCKED_MESSAGE == expected_msg
-    release_backup_lock()
+    try:
+        expected_msg = "Другая операция backup/restore уже выполняется"
+        assert backup_locked() is True
+        from app.backup_service import LOCKED_MESSAGE
+        assert LOCKED_MESSAGE == expected_msg
+    finally:
+        release_backup_lock()
 
 
 def test_release_lock_when_not_locked_is_noop():
-    release_backup_lock()  # should not raise
+    release_backup_lock()
 
 
 @pytest.mark.asyncio
@@ -84,13 +84,10 @@ async def test_scheduled_backup_aborts_when_manual_is_running(tmp_path, monkeypa
     monkeypatch.setattr("app.backup_service.BACKUP_DIR", backup_dir)
     monkeypatch.setattr("app.backup_service.DATA_DIR", data_dir)
 
-    # Simulate a manual backup holding the lock
     acquire_backup_lock()
     try:
-        # Attempt another backup — should fail with contention message
         from app.backup_service import LOCKED_MESSAGE
-        locked = backup_locked()
-        assert locked is True
+        assert backup_locked() is True
         assert LOCKED_MESSAGE == "Другая операция backup/restore уже выполняется"
     finally:
         release_backup_lock()
@@ -118,7 +115,6 @@ async def test_recover_from_backup_aborts_when_locked(tmp_path, monkeypatch):
     monkeypatch.setattr("app.backup_service.BACKUP_DIR", backup_dir)
     monkeypatch.setattr("app.backup_service.DATA_DIR", data_dir)
 
-    # Hold the lock
     acquire_backup_lock()
     try:
         ok, message = recover_from_backup(archive_path)
@@ -144,8 +140,7 @@ async def test_concurrent_backups_serialized(tmp_path, monkeypatch):
     results = {}
 
     async def backup_a():
-        acquire_backup_lock()
-        results["a"] = True
+        results["a"] = acquire_backup_lock()
         await asyncio.sleep(0.1)
         release_backup_lock()
 
@@ -169,22 +164,21 @@ def test_file_lock_acquire_and_release(tmp_path, monkeypatch):
 
     assert _acquire_file_lock() is True
     _release_file_lock()
-    # After release, should be able to acquire again
     assert _acquire_file_lock() is True
     _release_file_lock()
 
 
-def test_file_lock_blocks_second_acquisition(tmp_path, monkeypatch):
-    """Second process cannot acquire file lock while first holds it."""
+def test_file_lock_blocks_second_acquisition_in_same_process(tmp_path, monkeypatch):
+    """The service refuses a second tracked file-lock acquisition in one process."""
     backup_dir = tmp_path / "backups"
     backup_dir.mkdir(parents=True)
     monkeypatch.setattr("app.backup_service.BACKUP_DIR", backup_dir)
 
     assert _acquire_file_lock() is True
-    assert _acquire_file_lock() is False  # non-blocking, should fail
-    _release_file_lock()
-    assert _acquire_file_lock() is True
-    _release_file_lock()
+    try:
+        assert _acquire_file_lock() is False
+    finally:
+        _release_file_lock()
 
 
 def test_file_lock_check_when_free(tmp_path, monkeypatch):
@@ -196,44 +190,96 @@ def test_file_lock_check_when_free(tmp_path, monkeypatch):
     assert _check_file_lock() is False
 
 
-def test_file_lock_check_when_held(tmp_path, monkeypatch):
-    """_check_file_lock returns True when lock is held by another process."""
-    backup_dir = tmp_path / "backups"
-    backup_dir.mkdir(parents=True)
-    monkeypatch.setattr("app.backup_service.BACKUP_DIR", backup_dir)
-
-    # Open a file descriptor and lock it in a separate scope
-    lock_path = backup_dir / ".backup-operation.lock"
-    fd = _os.open(str(lock_path), _os.O_CREAT | _os.O_WRONLY, 0o644)
-    _fcntl.flock(fd, _fcntl.LOCK_EX)
-
+def _try_lock_in_child(lock_file: str, queue) -> None:
+    if fcntl is None:
+        queue.put(True)
+        return
+    fd = _os.open(lock_file, _os.O_CREAT | _os.O_WRONLY, 0o644)
     try:
-        # The _check_file_lock should see the lock is held
-        # (since we hold it in this process but _file_lock is None, simulating another process)
-        assert _check_file_lock() is True
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        queue.put(True)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    except (BlockingIOError, OSError):
+        queue.put(False)
     finally:
-        _fcntl.flock(fd, _fcntl.LOCK_UN)
         _os.close(fd)
 
 
-def test_combined_lock_requires_both(tmp_path, monkeypatch):
-    """acquire_backup_lock requires both file lock and thread lock."""
+def _hold_lock_in_child(lock_file: str, ready, release) -> None:
+    if fcntl is None:
+        ready.put(True)
+        release.get(timeout=5)
+        return
+    fd = _os.open(lock_file, _os.O_CREAT | _os.O_WRONLY, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        ready.put(True)
+        release.get(timeout=5)
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        _os.close(fd)
+
+
+@pytest.mark.skipif(fcntl is None, reason="fcntl is not available on this platform")
+def test_file_lock_blocks_other_process(tmp_path, monkeypatch):
+    """A lock held by this process blocks a different process."""
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir(parents=True)
+    monkeypatch.setattr("app.backup_service.BACKUP_DIR", backup_dir)
+    lock_file = str(backup_dir / ".backup-operation.lock")
+
+    assert _acquire_file_lock() is True
+    try:
+        queue = multiprocessing.Queue()
+        process = multiprocessing.Process(target=_try_lock_in_child, args=(lock_file, queue))
+        process.start()
+        process.join(timeout=5)
+        assert process.exitcode == 0
+        assert queue.get(timeout=1) is False
+    finally:
+        _release_file_lock()
+
+
+@pytest.mark.skipif(fcntl is None, reason="fcntl is not available on this platform")
+def test_file_lock_check_when_held_by_other_process(tmp_path, monkeypatch):
+    """_check_file_lock returns True when a different process holds the lock."""
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir(parents=True)
+    monkeypatch.setattr("app.backup_service.BACKUP_DIR", backup_dir)
+    lock_file = str(backup_dir / ".backup-operation.lock")
+
+    ready = multiprocessing.Queue()
+    release = multiprocessing.Queue()
+    process = multiprocessing.Process(target=_hold_lock_in_child, args=(lock_file, ready, release))
+    process.start()
+    try:
+        assert ready.get(timeout=5) is True
+        assert _check_file_lock() is True
+    finally:
+        release.put(True)
+        process.join(timeout=5)
+        assert process.exitcode == 0
+
+
+@pytest.mark.skipif(fcntl is None, reason="fcntl is not available on this platform")
+def test_combined_lock_requires_file_lock(tmp_path, monkeypatch):
+    """acquire_backup_lock fails if another process holds the file lock."""
     backup_dir = tmp_path / "backups"
     backup_dir.mkdir(parents=True)
     data_dir = tmp_path / "data"
     data_dir.mkdir(parents=True)
     monkeypatch.setattr("app.backup_service.BACKUP_DIR", backup_dir)
     monkeypatch.setattr("app.backup_service.DATA_DIR", data_dir)
+    lock_file = str(backup_dir / ".backup-operation.lock")
 
-    # Hold file lock externally (simulating another process)
-    lock_path = backup_dir / ".backup-operation.lock"
-    fd = _os.open(str(lock_path), _os.O_CREAT | _os.O_WRONLY, 0o644)
-    _fcntl.flock(fd, _fcntl.LOCK_EX)
-
+    ready = multiprocessing.Queue()
+    release = multiprocessing.Queue()
+    process = multiprocessing.Process(target=_hold_lock_in_child, args=(lock_file, ready, release))
+    process.start()
     try:
-        # acquire_backup_lock should fail because file lock is held
+        assert ready.get(timeout=5) is True
         assert acquire_backup_lock() is False
     finally:
-        _fcntl.flock(fd, _fcntl.LOCK_UN)
-        _os.close(fd)
-
+        release.put(True)
+        process.join(timeout=5)
+        assert process.exitcode == 0
