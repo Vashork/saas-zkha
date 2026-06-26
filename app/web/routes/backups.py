@@ -15,14 +15,23 @@ from starlette.concurrency import run_in_threadpool
 from app.backup_service import (
     BACKUP_DIR,
     MAX_UPLOAD_SIZE,
+    backup_archive_absolute_path,
     cleanup_old_backups,
+    copy_backup_to_remote_mount,
     create_local_backup,
     list_backup_files,
     recover_from_backup,
     safe_backup_path,
     validate_backup_archive,
 )
-from app.backup_settings import parse_retention, parse_frequency, parse_time
+from app.backup_settings import (
+    normalize_remote_path,
+    parse_bool,
+    parse_frequency,
+    parse_remote_type,
+    parse_retention,
+    parse_time,
+)
 from app.database import get_db
 from app.models import BackupHistory, Setting
 from app.web.routes.auth import get_current_user
@@ -56,16 +65,18 @@ def _zoneinfo(timezone_name: str) -> ZoneInfo:
 
 
 def _format_datetime(value: datetime | None, timezone_name: str = DEFAULT_TIMEZONE) -> str:
-    """Format DB/file timestamps in the configured UI timezone.
-
-    SQLite CURRENT_TIMESTAMP and Docker file mtimes are treated as UTC unless they
-    already carry timezone info. This avoids showing raw container UTC time in GUI.
-    """
+    """Format DB/file timestamps in the configured UI timezone."""
     if value is None:
         return "—"
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.astimezone(_zoneinfo(timezone_name)).strftime("%d.%m.%Y %H:%M:%S")
+
+
+def _storage_label(storage: str) -> str:
+    if storage == "synology":
+        return "remote"
+    return storage
 
 
 async def _get_backup_settings(db: AsyncSession) -> dict:
@@ -74,14 +85,26 @@ async def _get_backup_settings(db: AsyncSession) -> dict:
         "backup_frequency",
         "backup_time",
         "notification_timezone",
+        "backup_remote_type",
+        "backup_remote_path",
+        "backup_keep_local_copy",
+        "backup_destination_local",
+        "backup_destination_remote",
     ])))
     values = {setting.key: setting.value for setting in result.scalars().all()}
     timezone_name = values.get("notification_timezone") or DEFAULT_TIMEZONE
+    destination_local = parse_bool(values.get("backup_destination_local"), True)
+    destination_remote = parse_bool(values.get("backup_destination_remote"), False)
     return {
         "retention_count": parse_retention(values.get("backup_retention_count")),
         "frequency": parse_frequency(values.get("backup_frequency")),
         "backup_time": parse_time(values.get("backup_time")),
         "timezone": timezone_name,
+        "remote_type": parse_remote_type(values.get("backup_remote_type")),
+        "remote_path": normalize_remote_path(values.get("backup_remote_path")),
+        "keep_local_copy": parse_bool(values.get("backup_keep_local_copy"), True),
+        "destination_local": destination_local,
+        "destination_remote": destination_remote,
     }
 
 
@@ -94,10 +117,25 @@ async def _upsert_setting(db: AsyncSession, key: str, value: str, description: s
         db.add(Setting(key=key, value=value, description=description))
 
 
-async def _save_backup_settings(db: AsyncSession, retention_count: int, frequency: str, backup_time: str) -> None:
+async def _save_backup_settings(
+    db: AsyncSession,
+    retention_count: int,
+    frequency: str,
+    backup_time: str,
+    remote_type: str,
+    remote_path: str,
+    keep_local_copy: bool,
+    destination_local: bool,
+    destination_remote: bool,
+) -> None:
     await _upsert_setting(db, "backup_retention_count", str(retention_count), "Сколько последних локальных архивов хранить")
     await _upsert_setting(db, "backup_frequency", frequency, "Частота автоматического локального бекапа")
     await _upsert_setting(db, "backup_time", backup_time, "Время автоматического локального бекапа")
+    await _upsert_setting(db, "backup_remote_type", remote_type, "Тип удалённого бекапа: smb или sftp")
+    await _upsert_setting(db, "backup_remote_path", remote_path, "Путь к смонтированной удалённой папке")
+    await _upsert_setting(db, "backup_keep_local_copy", str(keep_local_copy).lower(), "Сохранять локальную копию при удалённом бекапе")
+    await _upsert_setting(db, "backup_destination_local", str(destination_local).lower(), "Писать бекап в локальное хранилище")
+    await _upsert_setting(db, "backup_destination_remote", str(destination_remote).lower(), "Копировать бекап в удалённое хранилище")
     await db.commit()
 
 
@@ -134,6 +172,34 @@ async def _restore_and_reinitialize(backup_path) -> tuple[bool, str]:
     return True, "ok"
 
 
+async def _log_backup_history(
+    db: AsyncSession,
+    *,
+    mode: str,
+    storage: str,
+    status: str,
+    size_bytes: int,
+    file_path: str | None = None,
+    error_message: str | None = None,
+) -> None:
+    db.add(BackupHistory(
+        mode=mode,
+        backup_type="full",
+        size_bytes=size_bytes,
+        storage=storage,
+        status=status,
+        file_path=file_path,
+        error_message=error_message,
+    ))
+
+
+def _remove_local_archive_if_unneeded(file_path: str) -> None:
+    try:
+        backup_archive_absolute_path(file_path).unlink(missing_ok=True)
+    except OSError:
+        logger.warning("Could not remove local archive after remote-only backup: %s", file_path)
+
+
 @router.get("/backups")
 async def backups_page(request: Request, db: AsyncSession = Depends(get_db)):
     current_user, redirect = await _require_admin(request, db)
@@ -154,6 +220,7 @@ async def backups_page(request: Request, db: AsyncSession = Depends(get_db)):
         "backup_timezone": settings["timezone"],
         "format_size": _format_size,
         "format_datetime": _format_datetime,
+        "storage_label": _storage_label,
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),
     })
@@ -166,6 +233,11 @@ async def save_backup_settings(
     retention_count: str = Form("10"),
     frequency: str = Form("manual"),
     backup_time: str = Form("03:00"),
+    backup_destination_local: str = Form(""),
+    backup_destination_remote: str = Form(""),
+    backup_remote_type: str = Form("smb"),
+    backup_remote_path: str = Form(""),
+    backup_keep_local_copy: str = Form(""),
 ):
     _, redirect = await _require_admin(request, db)
     if redirect:
@@ -174,7 +246,28 @@ async def save_backup_settings(
     parsed_retention = parse_retention(retention_count)
     parsed_frequency = parse_frequency(frequency)
     parsed_time = parse_time(backup_time)
-    await _save_backup_settings(db, parsed_retention, parsed_frequency, parsed_time)
+    destination_local = parse_bool(backup_destination_local)
+    destination_remote = parse_bool(backup_destination_remote)
+    remote_type = parse_remote_type(backup_remote_type)
+    remote_path = normalize_remote_path(backup_remote_path)
+    keep_local_copy = parse_bool(backup_keep_local_copy, True)
+
+    if not destination_local and not destination_remote:
+        return RedirectResponse(url="/backups?error=backup_destination_required", status_code=303)
+    if destination_remote and not remote_path:
+        return RedirectResponse(url="/backups?error=remote_path_required", status_code=303)
+
+    await _save_backup_settings(
+        db,
+        parsed_retention,
+        parsed_frequency,
+        parsed_time,
+        remote_type,
+        remote_path,
+        keep_local_copy,
+        destination_local,
+        destination_remote,
+    )
     await run_in_threadpool(cleanup_old_backups, parsed_retention)
     await _reschedule_auto_backup()
     return RedirectResponse(url="/backups?success=settings_saved", status_code=303)
@@ -191,16 +284,64 @@ async def create_backup(request: Request, db: AsyncSession = Depends(get_db)):
 
     try:
         file_path, size_bytes = await run_in_threadpool(create_local_backup)
-        await run_in_threadpool(cleanup_old_backups, retention_count)
-        db.add(BackupHistory(
-            mode="C",
-            backup_type="full",
-            size_bytes=size_bytes,
-            storage="local",
-            status="success",
-            file_path=file_path,
-        ))
+        remote_ok = None
+        remote_error = None
+        remote_file_path = None
+        remote_size = 0
+
+        if settings["destination_remote"]:
+            try:
+                remote_file_path, remote_size = await run_in_threadpool(
+                    copy_backup_to_remote_mount,
+                    file_path,
+                    settings["remote_path"],
+                )
+                remote_ok = True
+                await _log_backup_history(
+                    db,
+                    mode="C",
+                    storage="synology",
+                    status="success",
+                    size_bytes=remote_size,
+                    file_path=remote_file_path,
+                )
+            except Exception as exc:
+                logger.exception("Remote backup copy failed")
+                remote_ok = False
+                remote_error = str(exc)
+                await _log_backup_history(
+                    db,
+                    mode="C",
+                    storage="synology",
+                    status="failed",
+                    size_bytes=0,
+                    error_message=remote_error,
+                )
+
+        keep_local_archive = (
+            settings["destination_local"]
+            or settings["keep_local_copy"]
+            or not settings["destination_remote"]
+            or remote_ok is False
+        )
+        if keep_local_archive:
+            await run_in_threadpool(cleanup_old_backups, retention_count)
+            await _log_backup_history(
+                db,
+                mode="C",
+                storage="local",
+                status="success",
+                size_bytes=size_bytes,
+                file_path=file_path,
+            )
+        else:
+            await run_in_threadpool(_remove_local_archive_if_unneeded, file_path)
+
         await db.commit()
+        if remote_ok is False:
+            return RedirectResponse(url="/backups?success=backup_created_remote_failed", status_code=303)
+        if remote_ok is True:
+            return RedirectResponse(url="/backups?success=backup_created_remote", status_code=303)
         return RedirectResponse(url="/backups?success=backup_created", status_code=303)
     except Exception as exc:
         logger.exception("Backup creation failed")
