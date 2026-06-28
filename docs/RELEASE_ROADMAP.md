@@ -2,8 +2,8 @@
 
 ## Вердикт
 
-1. Internal/private pilot: можно выпускать после успешного test run на текущей ветке и ручного QA.
-2. Public internet production: основные P1 по коду закрыты, но перед публичным выпуском нужно закрыть release-gate пункты ниже: CI на актуальной ветке, Telegram receipt validation и ручной QA.
+1. Internal/private pilot: можно выпускать после успешного test run и ручного QA.
+2. Public internet production: основные P1 по коду закрыты, но перед публичным выпуском нужно закрыть release-gate пункты ниже: Telegram receipt validation, успешный test run и ручной QA.
 3. Перед изменениями backup/restore, permissions и payment transactions нужен backup `data/`.
 
 ## Сделано
@@ -32,9 +32,8 @@
 3. [x] Добавить лимит распакованного размера backup-архива.
 4. [x] Исправить rate limit login за nginx/reverse proxy.
 5. [x] Добавить первичный admin-only контроль входящих сообщений Telegram-бота.
-6. [ ] Настроить CI на актуальную ветку `audit/main-hardening-followup` или на все push-ветки перед merge; текущий workflow слушает только `main` и старую audit-ветку.
-7. [ ] Прогнать полный test run на head текущей ветки и зафиксировать результат перед merge/release.
-8. [ ] В Telegram receipt workflows добавить такую же проверку размера и magic bytes, как в web upload; сейчас bot document upload доверяет расширению файла.
+6. [ ] Прогнать полный test run и зафиксировать результат перед merge/release.
+7. [ ] В Telegram receipt workflows добавить такую же проверку размера и magic bytes, как в web upload; сейчас bot document upload доверяет расширению файла.
 
 ## P2
 
@@ -61,8 +60,7 @@
 19. [x] Добавить regression test, что dashboard использует shared payment status helpers.
 20. [x] Добавить CSRF tests для `/login`.
 21. Добавить tests для Telegram receipt upload: invalid extension, spoofed PDF/JPG/PNG magic bytes, oversized document/photo.
-22. Добавить тест/проверку, что CI запускается для релизной ветки или для всех push branches.
-23. Добавить route/template tests для сохранения и отображения timezone.
+22. Добавить route/template tests для сохранения и отображения timezone.
 
 ## Расшифровка
 
@@ -80,4 +78,4 @@
 12. Docker images сейчас запускают процессы от root; для public production нужен non-root runtime user.
 13. Нужны не только helper/source tests, но и ASGI/route tests, которые проходят через middleware, templates и реальные form actions.
 14. Telegram document receipt path пока слабее web upload: web проверяет magic bytes, а bot receipt download проверяет только разрешённое имя/расширение.
-15. CI must be treated as a release gate: без зелёного run на текущей ветке нельзя считать ветку готовой к merge/public release.
+15. Успешный test run должен оставаться release gate: без зелёного результата нельзя считать релиз готовым к merge/public release.
