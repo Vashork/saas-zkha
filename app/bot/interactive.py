@@ -15,7 +15,13 @@ from sqlalchemy.orm import joinedload
 from app.database import async_session_factory
 from app.models import Contractor, Payment
 from app.bot.payment_actions import apply_bot_payment, default_bot_payment_amount, validate_bot_payment_amount
-from app.utils import get_upload_path, is_allowed_file, month_name
+from app.utils import (
+    MAX_FILE_SIZE,
+    get_upload_path,
+    is_allowed_file,
+    month_name,
+    validate_file_magic_bytes,
+)
 from app.web.routes.payment_helpers import _remaining_amount
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./data/uploads")
@@ -64,7 +70,7 @@ async def cancel_handler(message: Message, state: FSMContext):
 async def receipt_start_handler(message: Message, state: FSMContext):
     info = _receipt_info(message)
     if not info:
-        await message.answer("Недопустимый формат файла. Пришлите PDF, JPG или PNG.")
+        await message.answer("Недопустимый файл чека. Пришлите PDF, JPG или PNG до 10MB.")
         return
 
     async with async_session_factory() as session:
@@ -287,13 +293,21 @@ async def receipt_confirm_handler(message: Message, state: FSMContext):
 
 def _receipt_info(message: Message) -> dict | None:
     if message.photo:
-        return {"file_id": message.photo[-1].file_id, "file_ext": ".jpg"}
+        photo = message.photo[-1]
+        if _declared_file_too_large(photo):
+            return None
+        return {"file_id": photo.file_id, "file_ext": ".jpg"}
     if message.document:
         name = message.document.file_name or ""
-        if not is_allowed_file(name):
+        if not is_allowed_file(name) or _declared_file_too_large(message.document):
             return None
         return {"file_id": message.document.file_id, "file_ext": os.path.splitext(name)[1].lower()}
     return None
+
+
+def _declared_file_too_large(file_obj) -> bool:
+    declared_size = getattr(file_obj, "file_size", None)
+    return declared_size is not None and declared_size > MAX_FILE_SIZE
 
 
 def _to_decimal(raw: str) -> Decimal | None:
@@ -329,22 +343,20 @@ def _parse_period(raw: str, today: date | None = None) -> tuple[int | None, int 
     parts = [part for part in normalized.replace("-", " ").replace("/", " ").replace(".", " ").split() if part]
     if len(parts) == 2:
         first, second = parts
-        year = _parse_year(first) or _parse_year(second)
-        month = _parse_month(first) or _parse_month(second)
-        if year and month:
-            return year, month
+        first_year = _parse_year(first)
+        second_year = _parse_year(second)
+        first_month = _parse_month(first)
+        second_month = _parse_month(second)
 
-    for sep in ("-", ".", "/"):
-        if sep in normalized:
-            parts = normalized.split(sep)
-            if len(parts) != 2:
-                return None, None
-            try:
-                year, month = int(parts[0]), int(parts[1])
-            except ValueError:
-                return None, None
-            if 2000 <= year <= 2100 and 1 <= month <= 12:
-                return year, month
+        if len(first) == 4 and first_year and second_month:
+            return first_year, second_month
+        if len(second) == 4 and second_year and first_month:
+            return second_year, first_month
+        if first_month and second_year:
+            return second_year, first_month
+        if second_month and first_year:
+            return first_year, second_month
+
     return None, None
 
 
@@ -369,13 +381,32 @@ def _parse_year(value: str) -> int | None:
 
 
 async def _download_by_file_id(message: Message, file_id: str, ext: str, year: int, month: int) -> str | None:
+    tmp_filepath = None
     try:
         tg_file = await message.bot.get_file(file_id)
         upload_dir = get_upload_path(year, month, UPLOAD_DIR)
         filename = f"{uuid.uuid4()}{ext}"
         filepath = os.path.join(upload_dir, filename)
-        await message.bot.download_file(tg_file.file_path, destination=filepath)
+        tmp_filepath = f"{filepath}.tmp"
+
+        await message.bot.download_file(tg_file.file_path, destination=tmp_filepath)
+        with open(tmp_filepath, "rb") as uploaded:
+            content = uploaded.read(MAX_FILE_SIZE + 1)
+
+        if len(content) > MAX_FILE_SIZE:
+            return None
+        if not validate_file_magic_bytes(content, ext):
+            return None
+
+        os.replace(tmp_filepath, filepath)
+        tmp_filepath = None
         return f"{year}/{month:02d}/{filename}"
     except Exception as exc:
         logger.warning("Interactive receipt download error: %s", exc)
         return None
+    finally:
+        if tmp_filepath and os.path.exists(tmp_filepath):
+            try:
+                os.remove(tmp_filepath)
+            except OSError:
+                logger.warning("Could not remove temporary interactive receipt file: %s", tmp_filepath)
