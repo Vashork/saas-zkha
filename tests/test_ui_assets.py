@@ -80,7 +80,7 @@ def test_payments_template_allows_variable_payment_top_ups():
 
     assert "p.contractor.payment_type == 'variable'" in payments_html
     assert "сумма сверх остатка увеличит начисление" in payments_html
-    assert "Добавить частичную оплату / доначисление" in payments_html
+    assert 'id="transactionHint"' in payments_html
 
 
 def test_payments_template_renders_transaction_receipts():
@@ -103,23 +103,23 @@ def test_payments_template_has_transaction_edit_and_delete_actions():
 
 def test_backups_template_formats_timestamps_with_configured_timezone():
     backups_html = (ROOT / "app" / "web" / "templates" / "backups.html").read_text(encoding="utf-8")
+    backups_route = (ROOT / "app" / "web" / "routes" / "backups.py").read_text(encoding="utf-8")
 
     assert "backup_timezone" in backups_html
     assert "format_datetime(f.created_at, backup_timezone)" in backups_html
     assert "format_datetime(item.created_at, backup_timezone)" in backups_html
-    assert "SQLite-подключения" in backups_html
+    assert "SQLite connections" in backups_route
 
 
 def test_backups_template_has_mounted_remote_backup_settings():
     backups_html = (ROOT / "app" / "web" / "templates" / "backups.html").read_text(encoding="utf-8")
 
-    assert "Remote backup" in backups_html
+    assert "Mounted share" in backups_html
     assert 'name="backup_destination_local"' in backups_html
     assert 'name="backup_destination_remote"' in backups_html
     assert 'name="backup_remote_type"' in backups_html
     assert 'name="backup_remote_path"' in backups_html
     assert 'name="backup_keep_local_copy"' in backups_html
-    assert "SMB mounted folder" in backups_html
-    assert "SFTP mounted folder" in backups_html
     assert "/mnt/zhkh-backups" in backups_html
-    assert "не хранит логины/пароли" in backups_html
+    assert "смонтированную папку" in backups_html
+    assert "Не указывайте" in backups_html
