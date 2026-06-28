@@ -24,7 +24,13 @@ from app.bot.payment_actions import (
 from app.bot.parsers import parse_payment_message
 from app.bot.security import recent_telegram_messages
 from app.config import get_settings
-from app.utils import month_name, get_upload_path, is_allowed_file
+from app.utils import (
+    MAX_FILE_SIZE,
+    get_upload_path,
+    is_allowed_file,
+    month_name,
+    validate_file_magic_bytes,
+)
 from app.web.routes.payment_helpers import _remaining_amount, _requires_amount, _status_label
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./data/uploads")
@@ -232,8 +238,8 @@ async def paid_handler(message: Message):
             receipt_path = await _download_receipt(
                 message, session, target_year, target_month
             )
-            if message.document and receipt_path is None:
-                await message.answer("❌ Недопустимый формат файла. Пришлите PDF, JPG или PNG.")
+            if receipt_path is None:
+                await message.answer("❌ Недопустимый файл чека. Пришлите PDF, JPG или PNG до 10MB.")
                 return
 
         ok, apply_message = apply_bot_payment(
@@ -280,7 +286,8 @@ async def _download_receipt(
     year: int,
     month: int,
 ) -> str | None:
-    """Download attached photo or document as a receipt file."""
+    """Download, validate and save attached photo or document as a receipt file."""
+    tmp_filepath = None
     try:
         file_obj = message.document or message.photo[-1]
 
@@ -291,13 +298,34 @@ async def _download_receipt(
                 return None
             ext = os.path.splitext(original_name)[1].lower()
 
+        declared_size = getattr(file_obj, "file_size", None)
+        if declared_size is not None and declared_size > MAX_FILE_SIZE:
+            return None
+
         file = await message.bot.get_file(file_obj.file_id)
         upload_dir = get_upload_path(year, month, UPLOAD_DIR)
         filename = f"{uuid.uuid4()}{ext}"
         filepath = os.path.join(upload_dir, filename)
+        tmp_filepath = f"{filepath}.tmp"
 
-        await file.download_to_file(filepath)
+        await file.download_to_file(tmp_filepath)
+        with open(tmp_filepath, "rb") as uploaded:
+            content = uploaded.read(MAX_FILE_SIZE + 1)
+
+        if len(content) > MAX_FILE_SIZE:
+            return None
+        if not validate_file_magic_bytes(content, ext):
+            return None
+
+        os.replace(tmp_filepath, filepath)
+        tmp_filepath = None
         return f"{year}/{month:02d}/{filename}"
     except Exception as e:
         logger.warning("Bot receipt download error: %s", e)
         return None
+    finally:
+        if tmp_filepath and os.path.exists(tmp_filepath):
+            try:
+                os.remove(tmp_filepath)
+            except OSError:
+                logger.warning("Could not remove temporary bot receipt file: %s", tmp_filepath)
