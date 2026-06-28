@@ -34,7 +34,7 @@
 4. [x] Исправить rate limit login за nginx/reverse proxy.
 5. [x] Добавить первичный admin-only контроль входящих сообщений Telegram-бота.
 6. [ ] Прогнать полный test run и зафиксировать результат перед merge/release.
-   - Статус 2026-06-28: заблокировано в текущем окружении — `git clone` не работает из-за DNS (`Could not resolve host: github.com`), а у HEAD `0aaa7f955ebe666a9d27602a8103cb13d69cc59c` нет GitHub status checks/workflow runs.
+   - Статус 2026-06-28: заблокировано в текущем окружении — `git clone` не работает из-за DNS (`Could not resolve host: github.com`), а GitHub status checks/workflow runs для проверенной ветки отсутствуют.
 7. [x] В Telegram receipt workflows добавить такую же проверку размера и magic bytes, как в web upload; сейчас bot document upload доверяет расширению файла.
 
 ## P2
