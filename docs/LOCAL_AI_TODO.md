@@ -37,13 +37,11 @@
 
 ## Заблокировано / не получилось
 
-Пока пусто. Новые неуспешные попытки по roadmap записывать сюда с форматом:
-
-- Дата: YYYY-MM-DD
-- Задача:
-- Что пробовали:
-- Что не получилось:
-- Следующий шаг:
+- Дата: 2026-06-28
+- Задача: P1 — прогнать полный test run и зафиксировать результат перед merge/release.
+- Что пробовали: определить HEAD ветки через GitHub connector, проверить combined status и workflow runs; дополнительно попробовать `git clone --branch audit/main-hardening-followup --single-branch https://github.com/Vashork/saas-zkha.git` в локальный контейнер.
+- Что не получилось: у HEAD `9c456ff8ea3313f7086a092d37fa07fcc21f8838` нет GitHub status checks/workflow runs; локальный clone недоступен из-за DNS-ошибки `Could not resolve host: github.com`, поэтому полный `pytest` в этом окружении не запускался.
+- Следующий шаг: запустить полный test run в окружении с доступом к репозиторию: `python -m pytest`; после успешного результата обновить `docs/RELEASE_ROADMAP.md` и отметить P1 release-gate как `[x]`.
 
 ## Выполнено
 
