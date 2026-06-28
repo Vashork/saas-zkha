@@ -2,8 +2,8 @@
 
 ## Вердикт
 
-1. Internal/private pilot: можно выпускать после ручного QA.
-2. Public internet production: P1 закрыт по коду, перед выпуском нужны успешные тесты и ручной QA.
+1. Internal/private pilot: можно выпускать после успешного test run на текущей ветке и ручного QA.
+2. Public internet production: основные P1 по коду закрыты, но перед публичным выпуском нужно закрыть release-gate пункты ниже: CI на актуальной ветке, Telegram receipt validation и ручной QA.
 3. Перед изменениями backup/restore, permissions и payment transactions нужен backup `data/`.
 
 ## Сделано
@@ -22,6 +22,8 @@
 12. `contractors/edit` обрабатывает duplicate name/slug через `IntegrityError` без 500 и показывает ошибку в UI.
 13. Dashboard использует общий `payment_helpers` для effective status, labels и CSS, включая `partial` / `partial_overdue`.
 14. `/login` включён в CSRF protection: GET выдаёт token до рендера формы, POST требует `_csrf`.
+15. Второй проход аудита подтвердил, что local backup/restore имеет lock, path/link validation, unpacked-size limit и rollback через safety backup.
+16. Web receipt upload проверяет расширение, размер и magic bytes; скачивание чеков идёт через authenticated route с ownership check.
 
 ## P1
 
@@ -30,6 +32,9 @@
 3. [x] Добавить лимит распакованного размера backup-архива.
 4. [x] Исправить rate limit login за nginx/reverse proxy.
 5. [x] Добавить первичный admin-only контроль входящих сообщений Telegram-бота.
+6. [ ] Настроить CI на актуальную ветку `audit/main-hardening-followup` или на все push-ветки перед merge; текущий workflow слушает только `main` и старую audit-ветку.
+7. [ ] Прогнать полный test run на head текущей ветки и зафиксировать результат перед merge/release.
+8. [ ] В Telegram receipt workflows добавить такую же проверку размера и magic bytes, как в web upload; сейчас bot document upload доверяет расширению файла.
 
 ## P2
 
@@ -39,6 +44,10 @@
 9. Добавить non-root user в Docker images.
 10. Добавить web UI для журнала Telegram-сообщений на admin-only странице.
 11. Добавить настройки режима Telegram-журнала: логировать только blocked/allowed/all и срок хранения.
+12. Довести timezone до конца: поле в UI, сохранение `settings.notification_timezone`, использование на странице бекапов и в scheduler/notifications, где применимо.
+13. Подключить `app/web/static/css/local-ui-tweaks.css` в `base.html` или удалить файл, если правки больше не нужны.
+14. Решить scope темы оформления: сейчас `/settings/theme` доступен любому authenticated user, но пишет глобальный `ui_theme`; для multi-user лучше сделать per-user preference или admin-only global setting.
+15. Убрать или подключить `docker/start-web.sh`, чтобы в репозитории не было неиспользуемого runtime-скрипта.
 
 ## Tests
 
@@ -51,15 +60,18 @@
 18. [x] Добавить route-level test для duplicate contractor name при редактировании.
 19. [x] Добавить regression test, что dashboard использует shared payment status helpers.
 20. [x] Добавить CSRF tests для `/login`.
+21. Добавить tests для Telegram receipt upload: invalid extension, spoofed PDF/JPG/PNG magic bytes, oversized document/photo.
+22. Добавить тест/проверку, что CI запускается для релизной ветки или для всех push branches.
+23. Добавить route/template tests для сохранения и отображения timezone.
 
 ## Расшифровка
 
 1. Internal pilot допустим, потому что session cookie подписан, dangerous actions закрыты admin-only, receipts не отдаются через `/uploads`, backup restore валидирует tar paths и имеет rollback.
 2. P1-риски по access-control edge case, production secret defaults, proxy/rate-limit и лимиту распакованного backup закрыты по коду; выпуск наружу всё ещё требует успешного полного test run и ручного QA.
 3. Backup обязателен перед изменениями, которые меняют данные или restore-поведение: permissions semantics, backup extraction, payment transaction backfill/schema.
-4. Пустые permissions сейчас могут означать полный доступ к страницам. Нужно сделать управляемый пустой список равным no access, а legacy full-access отделить явно.
+4. Пустые permissions сейчас могут означать полный доступ к страницам. Управляемый пустой список должен означать no access, а legacy full-access отделён через `NULL`.
 5. Production validation должна блокировать не только `change-me-in-production`, но и `change-me-to-a-random-string` из `.env.example`.
-6. Backup upload ограничивает размер загруженного `.tar.gz`, но не суммарный размер файлов после распаковки.
+6. Backup upload ограничивает размер загруженного `.tar.gz`, а backup service дополнительно считает суммарный размер файлов после распаковки.
 7. Login rate limit берёт реальный клиентский IP из `X-Forwarded-For` / `X-Real-IP`, только если peer похож на доверенный локальный/private reverse proxy.
 8. Telegram-бот теперь принимает команды только от явно разрешённых Telegram user id. Управление несколькими аккаунтами: добавить их числовые id через запятую в `.env`, затем пересоздать контейнер `bot`.
 9. Dashboard использует общую status logic из `payment_helpers` и различает `partial` / `partial_overdue` так же, как payments/history.
@@ -67,3 +79,5 @@
 11. `/login` включён в CSRF middleware; форма получает `_csrf` из `request.state.csrf_token`.
 12. Docker images сейчас запускают процессы от root; для public production нужен non-root runtime user.
 13. Нужны не только helper/source tests, но и ASGI/route tests, которые проходят через middleware, templates и реальные form actions.
+14. Telegram document receipt path пока слабее web upload: web проверяет magic bytes, а bot receipt download проверяет только разрешённое имя/расширение.
+15. CI must be treated as a release gate: без зелёного run на текущей ветке нельзя считать ветку готовой к merge/public release.
