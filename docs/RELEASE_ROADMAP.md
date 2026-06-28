@@ -24,7 +24,8 @@
 14. `/login` включён в CSRF protection: GET выдаёт token до рендера формы, POST требует `_csrf`.
 15. Второй проход аудита подтвердил, что local backup/restore имеет lock, path/link validation, unpacked-size limit и rollback через safety backup.
 16. Web receipt upload проверяет расширение, размер и magic bytes; скачивание чеков идёт через authenticated route с ownership check.
-17. Telegram receipt upload теперь проверяет расширение, заявленный/фактический размер и magic bytes до финального сохранения; invalid/oversized document/photo receipts отклоняются.
+17. Telegram receipt upload теперь проверяет расширение, заявленный/фактический размер и magic bytes до финального сохранения; invalid/oversized document/photo receipts отклоняются в прямом `#оплачено` workflow и interactive receipt workflow.
+18. Full test run на Windows дошёл до выполнения тестов: было 254 collected, 236 passed, 11 failed, 7 skipped. Исправлены выявленные проблемы Windows/encoding/brittle tests/parser; требуется повторный полный прогон.
 
 ## P1
 
@@ -34,7 +35,7 @@
 4. [x] Исправить rate limit login за nginx/reverse proxy.
 5. [x] Добавить первичный admin-only контроль входящих сообщений Telegram-бота.
 6. [ ] Прогнать полный test run и зафиксировать результат перед merge/release.
-   - Статус 2026-06-28: заблокировано в текущем окружении — `git clone` не работает из-за DNS (`Could not resolve host: github.com`), а GitHub status checks/workflow runs для проверенной ветки отсутствуют.
+   - Статус 2026-06-29: полный прогон на Windows выполнен, но не зелёный: 254 collected, 236 passed, 11 failed, 7 skipped. Внесены follow-up fixes; нужен повторный `python -m pytest` после `git pull`.
 7. [x] В Telegram receipt workflows добавить такую же проверку размера и magic bytes, как в web upload; сейчас bot document upload доверяет расширению файла.
 
 ## P2
@@ -79,5 +80,5 @@
 11. `/login` включён в CSRF middleware; форма получает `_csrf` из `request.state.csrf_token`.
 12. Docker images сейчас запускают процессы от root; для public production нужен non-root runtime user.
 13. Нужны не только helper/source tests, но и ASGI/route tests, которые проходят через middleware, templates и реальные form actions.
-14. Telegram receipt upload теперь проверяет allowed extension, размер и magic bytes для документов и фото до финального сохранения файла.
+14. Telegram receipt upload теперь проверяет allowed extension, размер и magic bytes для документов и фото до финального сохранения файла в прямом и interactive workflows.
 15. Успешный test run должен оставаться release gate: без зелёного результата нельзя считать релиз готовым к merge/public release.
