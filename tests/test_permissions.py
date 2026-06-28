@@ -80,6 +80,13 @@ async def permission_db(tmp_path, monkeypatch):
             page_permissions="dashboard,settings",
             is_active=True,
         )
+        no_access_user = User(
+            username="no-access",
+            password_hash=hash_password("password123"),
+            role="user",
+            page_permissions="",
+            is_active=True,
+        )
         contractor = Contractor(
             id="contractor-1",
             name="Water",
@@ -119,7 +126,16 @@ async def permission_db(tmp_path, monkeypatch):
             paid_date=date(2026, 6, 25),
             status="paid",
         )
-        session.add_all([admin, restricted, settings_user, contractor, variable_contractor, payment, variable_payment])
+        session.add_all([
+            admin,
+            restricted,
+            settings_user,
+            no_access_user,
+            contractor,
+            variable_contractor,
+            payment,
+            variable_payment,
+        ])
         await session.commit()
 
         yield SimpleNamespace(
@@ -127,6 +143,7 @@ async def permission_db(tmp_path, monkeypatch):
             admin=admin,
             restricted=restricted,
             settings_user=settings_user,
+            no_access_user=no_access_user,
             contractor=contractor,
             variable_contractor=variable_contractor,
             payment=payment,
@@ -159,6 +176,16 @@ async def test_restricted_user_cannot_get_settings(permission_db):
 
     _assert_redirect(response, "/?denied=1")
     assert call_next_was_called is False
+
+
+@pytest.mark.asyncio
+async def test_empty_page_permissions_mean_no_access(permission_db):
+    response = await auth._require_page(
+        _request("/dashboard", user=permission_db.no_access_user),
+        "dashboard",
+    )
+
+    _assert_redirect(response, "/?denied=1")
 
 
 @pytest.mark.asyncio
@@ -199,6 +226,27 @@ async def test_non_admin_cannot_use_user_management_endpoints(permission_db):
 
     admin = await permission_db.session.get(User, permission_db.admin.id)
     assert admin.role == "admin"
+
+
+@pytest.mark.asyncio
+async def test_updating_user_with_no_checked_pages_stores_empty_permissions(permission_db):
+    response = await auth.update_user(
+        permission_db.restricted.id,
+        _request("/settings/users/update", method="POST", user=permission_db.admin),
+        db=permission_db.session,
+        role="user",
+        page_dashboard="off",
+        page_payments="off",
+        page_history="off",
+        page_contractors="off",
+        page_analytics="off",
+        page_settings="off",
+    )
+
+    _assert_redirect(response, "/settings?success=")
+
+    user = await permission_db.session.get(User, permission_db.restricted.id)
+    assert user.page_permissions == ""
 
 
 @pytest.mark.asyncio
@@ -295,6 +343,27 @@ async def test_admin_can_perform_expected_user_contractor_and_payment_actions(pe
     )
     assert created_payment is not None
     assert created_payment.amount == Decimal("250.50")
+
+
+@pytest.mark.asyncio
+async def test_edit_contractor_duplicate_name_returns_error_without_overwrite(permission_db):
+    response = await contractors.edit_contractor(
+        permission_db.contractor.id,
+        _request("/contractors/contractor-1/edit", method="POST", user=permission_db.admin),
+        db=permission_db.session,
+        name=permission_db.variable_contractor.name,
+        payment_type="fixed",
+        fixed_amount="100",
+        due_day="10",
+        account_number="",
+        description="",
+    )
+
+    assert response.status_code == 200
+    assert response.context["error"] == "Конфликт: подрядчик с таким именем или slug уже существует"
+
+    contractor = await permission_db.session.get(Contractor, permission_db.contractor.id)
+    assert contractor.name == "Water"
 
 
 @pytest.mark.asyncio

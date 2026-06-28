@@ -163,3 +163,22 @@ class AuditLog(Base):
 
     def __repr__(self):
         return f"<AuditLog(action={self.action}, entity_type={self.entity_type}, entity_id={self.entity_id})>"
+
+
+class TelegramMessageLog(Base):
+    __tablename__ = "telegram_message_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, server_default=func.now())
+    telegram_user_id = Column(Integer, nullable=True)
+    username = Column(String, nullable=True)
+    first_name = Column(String, nullable=True)
+    last_name = Column(String, nullable=True)
+    chat_id = Column(Integer, nullable=True)
+    message_type = Column(String, nullable=False, default="message")
+    text = Column(Text, nullable=True)
+    is_allowed = Column(Boolean, nullable=False, default=False)
+    is_admin = Column(Boolean, nullable=False, default=False)
+
+    def __repr__(self):
+        return f"<TelegramMessageLog(telegram_user_id={self.telegram_user_id}, is_allowed={self.is_allowed})>"

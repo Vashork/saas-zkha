@@ -2,23 +2,8 @@
 {% block title %}📈 Аналитика — Мой Дом{% endblock %}
 
 {% block content %}
-<nav class="navbar-custom">
-    <div class="brand">🏠 Мой Дом</div>
-    <div class="nav-links">
-        <button class="nav-link-custom" onclick="location.href='/'">📊 Дашборд</button>
-        <button class="nav-link-custom" onclick="location.href='/payments'">💳 Платежи</button>
-        <button class="nav-link-custom" onclick="location.href='/contractors'">🏢 Подрядчики</button>
-        <button class="nav-link-custom active" onclick="location.href='/analytics'">📈 Аналитика</button>
-        <button class="nav-link-custom" onclick="location.href='/history'">📜 История</button>
-        {% if user_role == 'admin' %}<button class="nav-link-custom" onclick="location.href='/backups'">💾 Бекапы</button>{% endif %}
-        <button class="nav-link-custom" onclick="location.href='/settings'">⚙️ Настройки</button>
-    </div>
-    <div class="user-badge">
-        {{ username }}
-        <button class="btn-icon" title="Переключить тему" onclick="toggleTheme()">🌓</button>
-        <button class="nav-link-custom" onclick="location.href='/logout'" style="margin-left:8px;padding:4px 10px;">🚪</button>
-    </div>
-</nav>
+{% set active_page = 'analytics' %}
+{% include "_navbar.html" %}
 
 <div class="container-main">
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:0;">

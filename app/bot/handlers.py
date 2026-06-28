@@ -2,19 +2,30 @@
 Telegram bot handlers — command and message handlers.
 """
 
+import html
 import logging
 import os
 import uuid
 from datetime import date
+from decimal import Decimal
 
 from aiogram.types import Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.database import async_session_factory
 from app.models import Contractor, Payment
+from app.bot.payment_actions import (
+    apply_bot_payment,
+    default_bot_payment_amount,
+    validate_bot_payment_amount,
+)
 from app.bot.parsers import parse_payment_message
+from app.bot.security import recent_telegram_messages
+from app.config import get_settings
 from app.utils import month_name, get_upload_path, is_allowed_file
+from app.web.routes.payment_helpers import _remaining_amount, _requires_amount, _status_label
 
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./data/uploads")
 logger = logging.getLogger("zhkh.bot.handlers")
@@ -27,6 +38,11 @@ def _message_text(message: Message) -> str:
 
 async def start_handler(message: Message):
     """Handle /start command."""
+    await help_handler(message)
+
+
+async def help_handler(message: Message):
+    """Handle /help command."""
     await message.answer(
         "🏠 Добро пожаловать в систему учета ЖКХ!\n\n"
         "💡 Как зафиксировать оплату:\n"
@@ -36,11 +52,53 @@ async def start_handler(message: Message):
         "<code>#оплачено #мосэнергосбыт #сумма:1000 #период:2026-06</code>\n\n"
         "Можно просто прислать чек без тегов — я спрошу подрядчика, сумму и период.\n\n"
         "📋 Команды:\n"
-        "/contractors — список подрядчиков\n"
-        "/cancel — отменить ввод\n"
-        "/start — это сообщение",
+        "/balance — остатки по платежам за текущий месяц\n"
+        "/contractors — список подрядчиков и их теги\n"
+        "/tglog [N] — журнал сообщений боту, только для Telegram-админа\n"
+        "/help — это сообщение",
         parse_mode="HTML",
     )
+
+
+async def balance_handler(message: Message):
+    """Handle /balance command — current month unpaid balances."""
+    today = date.today()
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(Payment)
+            .options(joinedload(Payment.contractor))
+            .where(Payment.year == today.year, Payment.month == today.month)
+            .order_by(Payment.due_date.asc())
+        )
+        payments = result.scalars().all()
+
+    if not payments:
+        await message.answer(
+            f"За {month_name(today.month)} {today.year} платежей пока нет."
+        )
+        return
+
+    open_payments = [p for p in payments if _remaining_amount(p) > 0 or _requires_amount(p)]
+    if not open_payments:
+        await message.answer(
+            f"За {month_name(today.month)} {today.year} всё оплачено."
+        )
+        return
+
+    total_remaining = sum((_remaining_amount(p) for p in open_payments), start=Decimal("0"))
+    lines = [
+        f"Остатки за {month_name(today.month)} {today.year}:",
+        f"Всего к оплате: {total_remaining} ₽",
+    ]
+    for payment in open_payments:
+        contractor_name = payment.contractor.name if payment.contractor else "Без подрядчика"
+        if _requires_amount(payment):
+            amount_text = "нужно ввести сумму начисления"
+        else:
+            amount_text = f"остаток {_remaining_amount(payment)} ₽"
+        lines.append(f"• {contractor_name}: {amount_text} ({_status_label(payment)})")
+
+    await message.answer("\n".join(lines))
 
 
 async def contractors_handler(message: Message):
@@ -69,6 +127,40 @@ async def contractors_handler(message: Message):
     lines.append("\n💡 Для оплаты текущего месяца: <code>#оплачено #[slug] #сумма:X</code>")
     lines.append("💡 Для старого долга: <code>#оплачено #[slug] #сумма:X #период:2026-06</code>")
     lines.append("💡 Или просто пришлите чек без тегов — бот задаст вопросы.")
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
+
+async def tglog_handler(message: Message):
+    """Admin-only command that shows recent inbound Telegram messages."""
+    settings = get_settings()
+    admin_id = _telegram_admin_id(settings.TELEGRAM_ADMIN_ID)
+    sender_id = message.from_user.id if message.from_user else None
+
+    if not admin_id or sender_id != admin_id:
+        await message.answer("Команда доступна только Telegram-админу.")
+        return
+
+    limit = _parse_tglog_limit(_message_text(message))
+    rows = await recent_telegram_messages(limit)
+    if not rows:
+        await message.answer("Журнал Telegram-сообщений пока пуст.")
+        return
+
+    lines = [f"Последние Telegram-сообщения: {len(rows)}"]
+    for row in rows:
+        name = row.username or "без username"
+        person = " ".join(part for part in (row.first_name, row.last_name) if part).strip()
+        status = "admin" if row.is_admin else ("allowed" if row.is_allowed else "blocked")
+        text = (row.text or "").replace("\n", " ")
+        if len(text) > 180:
+            text = text[:177] + "..."
+        lines.append(
+            f"\n#{row.id} [{status}] user_id={row.telegram_user_id} @{html.escape(name)}"
+            + (f" ({html.escape(person)})" if person else "")
+            + f"\nchat={row.chat_id} type={html.escape(str(row.message_type))}"
+            + f"\n{html.escape(text) if text else '<i>без текста</i>'}"
+        )
+
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 
@@ -101,22 +193,10 @@ async def paid_handler(message: Message):
             )
             return
 
-        amount = parsed.amount
-        if contractor.payment_type == "fixed" and not amount:
-            amount = contractor.fixed_amount
-        elif contractor.payment_type == "variable" and not amount:
-            await message.answer(
-                f"❌ Для «{contractor.name}» укажите сумму: <code>#сумма:[число]</code>",
-                parse_mode="HTML",
-            )
-            return
-
-        if amount is None:
-            await message.answer("❌ Не удалось определить сумму.")
-            return
-
         result = await session.execute(
-            select(Payment).where(
+            select(Payment)
+            .options(joinedload(Payment.contractor))
+            .where(
                 Payment.contractor_id == contractor.id,
                 Payment.year == target_year,
                 Payment.month == target_month,
@@ -132,6 +212,21 @@ async def paid_handler(message: Message):
             )
             return
 
+        amount = parsed.amount
+        if amount is None:
+            amount = default_bot_payment_amount(payment)
+            if amount is None:
+                await message.answer(
+                    f"❌ Для «{contractor.name}» укажите сумму: <code>#сумма:[число]</code>",
+                    parse_mode="HTML",
+                )
+                return
+
+        valid, error_message = validate_bot_payment_amount(payment, amount)
+        if not valid:
+            await message.answer(f"❌ {error_message}")
+            return
+
         receipt_path = None
         if message.document or message.photo:
             receipt_path = await _download_receipt(
@@ -141,13 +236,16 @@ async def paid_handler(message: Message):
                 await message.answer("❌ Недопустимый формат файла. Пришлите PDF, JPG или PNG.")
                 return
 
-        if payment.amount is None:
-            payment.amount = amount
-        payment.paid_amount = amount
-        payment.paid_date = today
-        payment.status = "paid"
-        if receipt_path:
-            payment.receipt_file = receipt_path
+        ok, apply_message = apply_bot_payment(
+            session,
+            payment=payment,
+            amount=amount,
+            paid_date=today,
+            receipt_path=receipt_path,
+        )
+        if not ok:
+            await message.answer(f"❌ {apply_message}")
+            return
         await session.commit()
 
     await message.answer(
@@ -157,6 +255,23 @@ async def paid_handler(message: Message):
         + ("\n📎 Чек сохранён" if receipt_path else ""),
         parse_mode="HTML",
     )
+
+
+def _telegram_admin_id(raw: str) -> int | None:
+    try:
+        return int(raw.strip()) if raw and raw.strip() else None
+    except ValueError:
+        return None
+
+
+def _parse_tglog_limit(text: str) -> int:
+    parts = text.split()
+    if len(parts) < 2:
+        return 20
+    try:
+        return min(max(int(parts[1]), 1), 50)
+    except ValueError:
+        return 20
 
 
 async def _download_receipt(

@@ -130,6 +130,7 @@ def _run_legacy_migrations(conn):
         logger.info("Legacy migration: added is_active to users")
 
     _backfill_legacy_payment_transactions(conn)
+    _ensure_telegram_message_log(conn)
 
 
 def _backfill_legacy_payment_transactions(conn) -> None:
@@ -166,3 +167,22 @@ def _backfill_legacy_payment_transactions(conn) -> None:
           )
     """))
     logger.info("Legacy migration: ensured legacy paid payments have payment_transactions")
+
+
+def _ensure_telegram_message_log(conn) -> None:
+    """Create Telegram inbound message log for legacy SQLite databases."""
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS telegram_message_log (
+            id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            telegram_user_id INTEGER,
+            username VARCHAR,
+            first_name VARCHAR,
+            last_name VARCHAR,
+            chat_id INTEGER,
+            message_type VARCHAR NOT NULL DEFAULT 'message',
+            text TEXT,
+            is_allowed BOOLEAN NOT NULL DEFAULT 0,
+            is_admin BOOLEAN NOT NULL DEFAULT 0
+        )
+    """))

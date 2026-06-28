@@ -87,6 +87,29 @@ def assert_blocked(response, called):
     assert called is False
 
 
+def make_get_request(path: str, *, cookie_token: str | None = None) -> Request:
+    headers = []
+    if cookie_token is not None:
+        headers.append((b"cookie", f"{CSRF_COOKIE}={cookie_token}".encode("ascii")))
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": path,
+            "headers": headers,
+            "query_string": b"",
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+            "scheme": "http",
+        },
+        receive=receive,
+    )
+
+
 @pytest.mark.asyncio
 async def test_urlencoded_form_with_hidden_field_succeeds():
     request = make_request(
@@ -99,6 +122,50 @@ async def test_urlencoded_form_with_hidden_field_succeeds():
 
     assert response.status_code == 200
     assert called is True
+
+
+@pytest.mark.asyncio
+async def test_login_post_without_csrf_fails():
+    request = make_request(
+        "/login",
+        b"username=admin&password=admin",
+        "application/x-www-form-urlencoded",
+        cookie_token=None,
+    )
+
+    response, called = await dispatch(request)
+
+    assert_blocked(response, called)
+
+
+@pytest.mark.asyncio
+async def test_login_post_with_hidden_field_succeeds():
+    request = make_request(
+        "/login",
+        f"{CSRF_FIELD}={TOKEN}&username=admin&password=admin".encode("utf-8"),
+        "application/x-www-form-urlencoded",
+    )
+
+    response, called = await dispatch(request)
+
+    assert response.status_code == 200
+    assert called is True
+
+
+@pytest.mark.asyncio
+async def test_login_get_sets_csrf_cookie_and_request_state():
+    middleware = CsrfMiddleware(app=lambda scope, receive, send: None)
+    captured_state_token = None
+
+    async def call_next(inner_request):
+        nonlocal captured_state_token
+        captured_state_token = inner_request.state.csrf_token
+        return Response("ok", status_code=200)
+
+    response = await middleware.dispatch(make_get_request("/login"), call_next)
+
+    assert captured_state_token
+    assert f"{CSRF_COOKIE}={captured_state_token}" in response.headers["set-cookie"]
 
 
 @pytest.mark.asyncio

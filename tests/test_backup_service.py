@@ -97,6 +97,42 @@ def test_validate_backup_archive_rejects_path_traversal(tmp_path):
     assert "небезопасные пути" in message
 
 
+def test_validate_backup_archive_rejects_unpacked_size_limit(tmp_path, monkeypatch):
+    archive_path = tmp_path / "oversized.tar.gz"
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "zhkh.db").write_text("db", encoding="utf-8")
+    payload = data_dir / "big.bin"
+    payload.write_bytes(b"x" * 16)
+
+    monkeypatch.setattr(backup_service, "MAX_UNPACKED_BACKUP_SIZE", 8)
+
+    with tarfile.open(archive_path, "w:gz") as archive:
+        archive.add(data_dir, arcname="data")
+
+    ok, message = backup_service.validate_backup_archive(archive_path)
+
+    assert ok is False
+    assert "превышает лимит" in message
+
+
+def test_safe_unpack_data_dir_enforces_unpacked_size_limit(tmp_path, monkeypatch):
+    archive_path = tmp_path / "oversized.tar.gz"
+    data_dir = tmp_path / "data"
+    target_root = tmp_path / "target"
+    data_dir.mkdir()
+    (data_dir / "zhkh.db").write_text("db", encoding="utf-8")
+    (data_dir / "big.bin").write_bytes(b"x" * 16)
+
+    monkeypatch.setattr(backup_service, "MAX_UNPACKED_BACKUP_SIZE", 8)
+
+    with tarfile.open(archive_path, "w:gz") as archive:
+        archive.add(data_dir, arcname="data")
+
+    with pytest.raises(ValueError, match="превышает лимит"):
+        backup_service._safe_unpack_data_dir(archive_path, target_root)
+
+
 def test_copy_backup_to_remote_mount_copies_archive_atomically(tmp_path, monkeypatch):
     project_root = tmp_path / "project"
     local_dir = project_root / "backups"

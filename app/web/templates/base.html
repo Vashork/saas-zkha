@@ -21,33 +21,6 @@
 <body>
 {% block content %}{% endblock %}
 <script src="/static/js/main.js"></script>
-<script>
-(function() {
-    var role = '{{ user_role | default("") }}';
-    if (role !== 'admin') return;
-    var nav = document.querySelector('.nav-links');
-    if (!nav) return;
-    var items = Array.from(nav.querySelectorAll('a,button'));
-    var historyItem = items.find(function(item) {
-        return (item.getAttribute('href') === '/history') || (item.getAttribute('onclick') || '').indexOf('/history') !== -1;
-    });
-    var backupItem = items.find(function(item) {
-        return (item.getAttribute('href') === '/backups') || (item.getAttribute('onclick') || '').indexOf('/backups') !== -1;
-    });
-    if (!backupItem) {
-        backupItem = document.createElement('button');
-        backupItem.className = 'nav-link-custom';
-        backupItem.type = 'button';
-        backupItem.textContent = '💾 Бекапы';
-        backupItem.onclick = function() { location.href = '/backups'; };
-    }
-    if (historyItem && historyItem.nextSibling !== backupItem) {
-        nav.insertBefore(backupItem, historyItem.nextSibling);
-    } else if (!historyItem && !backupItem.parentNode) {
-        nav.appendChild(backupItem);
-    }
-})();
-</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

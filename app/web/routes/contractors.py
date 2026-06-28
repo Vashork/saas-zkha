@@ -279,5 +279,24 @@ async def edit_contractor(
         db, actor=current_user, action="contractor_edit",
         entity_type="contractor", entity_id=contractor_id, request=request,
     )
-    await db.commit()
+    archived = not contractor.is_active
+    user_context = _user_context(current_user)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        result = await db.execute(
+            select(Contractor)
+            .where(Contractor.is_active == (not archived))
+            .order_by(Contractor.name)
+        )
+        contractors = result.scalars().all()
+        return templates.TemplateResponse("contractors.html", {
+            "request": request,
+            **user_context,
+            "contractors": contractors,
+            "show_archived": archived,
+            "default_due_day": await _default_due_day(db),
+            "error": "Конфликт: подрядчик с таким именем или slug уже существует",
+        })
     return RedirectResponse(url=_contractors_url(archived=not contractor.is_active), status_code=303)

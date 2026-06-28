@@ -3,25 +3,8 @@
 {% block title %}⚙️ Настройки — Мой Дом{% endblock %}
 
 {% block content %}
-<nav class="navbar-custom">
-    <div class="brand">🏠 Мой Дом</div>
-    <div class="nav-links">
-        <a class="nav-link-custom" href="/">📊 Дашборд</a>
-        <a class="nav-link-custom" href="/payments">💳 Платежи</a>
-        <a class="nav-link-custom" href="/history">📜 История</a>
-        {% if user_role == 'admin' %}<a class="nav-link-custom" href="/backups">💾 Бекапы</a>{% endif %}
-        <a class="nav-link-custom" href="/contractors">🏢 Подрядчики</a>
-        <a class="nav-link-custom" href="/analytics">📈 Аналитика</a>
-        <a class="nav-link-custom active" href="/settings">⚙️ Настройки</a>
-    </div>
-    <div class="user-badge">
-        {{ username }}
-        <button class="btn-icon" title="Сменить имя" onclick="document.getElementById('changeNameModal').style.display='flex'">✏️</button>
-        <button class="btn-icon" title="Сменить пароль" onclick="document.getElementById('changePassModal').style.display='flex'">🔑</button>
-        <button class="btn-icon" title="Переключить тему" onclick="toggleTheme()">🌓</button>
-        <a class="nav-link-custom" href="/logout" style="margin-left:8px;padding:4px 10px;">🚪</a>
-    </div>
-</nav>
+{% set active_page = 'settings' %}
+{% include "_navbar.html" %}
 
 <div class="container-main">
     <h1 class="page-title">⚙️ Настройки</h1>
@@ -100,7 +83,15 @@
                 <td><strong>{{ u.username }}</strong>{% if u.id == current_user_id %} (вы){% endif %}</td>
                 <td><span class="badge-status badge-{{ 'paid' if u.role == 'admin' else 'pending' }}">{{ '👑 Админ' if u.role == 'admin' else '👤 Пользователь' }}</span></td>
                 <td>{% if u.is_active %}<span style="color:var(--paid);">✅ Активен</span>{% else %}<span style="color:var(--text-muted);">⛔ Деактивирован</span>{% endif %}</td>
-                <td>{% if u.page_permissions %}<span style="font-size:12px;color:var(--text-muted);">{{ u.page_permissions | replace(',', ', ') }}</span>{% else %}<span style="font-size:12px;color:var(--text-muted);">все</span>{% endif %}</td>
+                <td>
+                    {% if u.role == 'admin' or u.page_permissions is none %}
+                    <span style="font-size:12px;color:var(--text-muted);">все</span>
+                    {% elif u.page_permissions %}
+                    <span style="font-size:12px;color:var(--text-muted);">{{ u.page_permissions | replace(',', ', ') }}</span>
+                    {% else %}
+                    <span style="font-size:12px;color:var(--text-muted);">нет доступа</span>
+                    {% endif %}
+                </td>
                 <td>
                     {% if u.id != current_user_id %}
                     {% if u.is_active %}
@@ -108,7 +99,7 @@
                     {% else %}
                     <form method="post" action="/settings/users/{{ u.id }}/toggle-active" style="display:inline;"><input type="hidden" name="_csrf" value="{{ _csrf }}"><button type="submit" class="btn-icon" title="Активировать">✅</button></form>
                     {% endif %}
-                    <button class="btn-icon" title="Права" onclick="openEditUserModal({{ u.id }}, '{{ u.page_permissions or '' }}', '{{ u.role }}')">⚙️</button>
+                    <button class="btn-icon" title="Права" onclick="openEditUserModal({{ u.id }}, '{{ '__ALL__' if u.page_permissions is none else u.page_permissions }}', '{{ u.role }}')">⚙️</button>
                     <button class="btn-icon" title="Сменить пароль" onclick="openChangePassModal({{ u.id }})">🔑</button>
                     {% if u.role != 'admin' %}
                     <form method="post" action="/settings/users/{{ u.id }}/delete" style="display:inline;" onsubmit="return confirm('Удалить {{ u.username }}?')"><input type="hidden" name="_csrf" value="{{ _csrf }}"><button type="submit" class="btn-icon" title="Удалить">🗑️</button></form>
@@ -184,9 +175,10 @@
 function openEditUserModal(userId, perms, role) {
     document.getElementById('editUserForm').action = '/settings/users/' + userId + '/update';
     document.getElementById('editUserRoleSelect').value = role;
-    const permsList = perms ? perms.split(',') : [];
+    const fullAccess = perms === '__ALL__';
+    const permsList = perms && !fullAccess ? perms.split(',') : [];
     document.querySelectorAll('.edit-user-page-cb').forEach(cb => {
-        cb.checked = !perms || permsList.includes(cb.dataset.slug);
+        cb.checked = fullAccess || permsList.includes(cb.dataset.slug);
     });
     document.getElementById('editUserModal').style.display = 'flex';
 }

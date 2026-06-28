@@ -27,6 +27,7 @@ DEFAULT_RETENTION_COUNT = 10
 DEFAULT_BACKUP_FREQUENCY = "manual"
 DEFAULT_BACKUP_TIME = "03:00"
 MAX_UPLOAD_SIZE = 500 * 1024 * 1024
+MAX_UNPACKED_BACKUP_SIZE = 2 * 1024 * 1024 * 1024
 
 _backup_lock = threading.Lock()
 _lock_owner_thread: int | None = None
@@ -320,6 +321,7 @@ def validate_backup_archive(path: Path) -> tuple[bool, str]:
         return False, "Архив пустой"
 
     names = []
+    total_unpacked_size = 0
     for member in members:
         member_path = Path(member.name)
         if member_path.is_absolute() or ".." in member_path.parts:
@@ -328,6 +330,12 @@ def validate_backup_archive(path: Path) -> tuple[bool, str]:
             return False, "Архив должен содержать только каталог data/"
         if member.issym() or member.islnk():
             return False, "Архив не должен содержать ссылки"
+        if member.isfile():
+            if member.size < 0:
+                return False, "В архиве есть файл с некорректным размером"
+            total_unpacked_size += member.size
+            if total_unpacked_size > MAX_UNPACKED_BACKUP_SIZE:
+                return False, "Суммарный размер данных в архиве превышает лимит"
         names.append(member.name)
 
     if "data/zhkh.db" not in names:
@@ -339,6 +347,7 @@ def validate_backup_archive(path: Path) -> tuple[bool, str]:
 def _safe_unpack_data_dir(archive_path: Path, target_root: Path) -> None:
     """Unpack only regular files and directories under data/."""
     with tarfile.open(archive_path, "r:gz") as archive:
+        total_unpacked_size = 0
         for member in archive.getmembers():
             member_path = Path(member.name)
             target_path = target_root / member_path
@@ -347,6 +356,11 @@ def _safe_unpack_data_dir(archive_path: Path, target_root: Path) -> None:
                 continue
             if not member.isfile():
                 continue
+            if member.size < 0:
+                raise ValueError("В архиве есть файл с некорректным размером")
+            total_unpacked_size += member.size
+            if total_unpacked_size > MAX_UNPACKED_BACKUP_SIZE:
+                raise ValueError("Суммарный размер данных в архиве превышает лимит")
             target_path.parent.mkdir(parents=True, exist_ok=True)
             source = archive.extractfile(member)
             if source is None:

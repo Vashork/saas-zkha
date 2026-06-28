@@ -1,0 +1,23 @@
+<nav class="navbar-custom">
+    <div class="brand">🏠 Мой Дом</div>
+    <div class="nav-links">
+        <a class="nav-link-custom {% if active_page == 'dashboard' %}active{% endif %}" href="/">📊 Дашборд</a>
+        <a class="nav-link-custom {% if active_page == 'payments' %}active{% endif %}" href="/payments">💳 Платежи</a>
+        <a class="nav-link-custom {% if active_page == 'contractors' %}active{% endif %}" href="/contractors">🏢 Подрядчики</a>
+        <a class="nav-link-custom {% if active_page == 'analytics' %}active{% endif %}" href="/analytics">📈 Аналитика</a>
+        <a class="nav-link-custom {% if active_page == 'history' %}active{% endif %}" href="/history">📜 История</a>
+        {% if user_role == 'admin' %}
+        <a class="nav-link-custom {% if active_page == 'backups' %}active{% endif %}" href="/backups">💾 Бекапы</a>
+        {% endif %}
+        <a class="nav-link-custom {% if active_page == 'settings' %}active{% endif %}" href="/settings">⚙️ Настройки</a>
+    </div>
+    <div class="user-badge">
+        {{ username }}
+        {% if active_page == 'settings' %}
+        <button class="btn-icon" title="Сменить имя" onclick="document.getElementById('changeNameModal').style.display='flex'">✏️</button>
+        <button class="btn-icon" title="Сменить пароль" onclick="document.getElementById('changePassModal').style.display='flex'">🔑</button>
+        {% endif %}
+        <button class="btn-icon" title="Переключить тему" onclick="toggleTheme()">🌓</button>
+        <a class="nav-link-custom" href="/logout" style="margin-left:8px;padding:4px 10px;">🚪</a>
+    </div>
+</nav>

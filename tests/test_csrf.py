@@ -16,8 +16,8 @@ from app.csrf import (
 
 # --- _EXEMPT_PATHS ---
 
-def test_exempt_paths_contains_login():
-    assert "/login" in _EXEMPT_PATHS
+def test_exempt_paths_does_not_contain_login():
+    assert "/login" not in _EXEMPT_PATHS
 
 
 def test_exempt_paths_contains_logout():

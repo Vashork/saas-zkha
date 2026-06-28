@@ -16,101 +16,22 @@ from app.database import get_db
 from app.models import Payment
 from app.utils import month_name, payment_color_class
 from app.web.routes.auth import _require_page, get_current_user
+from app.web.routes.payment_helpers import (
+    _as_decimal,
+    _requires_amount,
+    _planned_amount,
+    _paid_amount,
+    _remaining_amount,
+    _is_open_payment,
+    _effective_status,
+    _status_label,
+    _status_css_class,
+)
 from app.web.template_engine import templates
 
 logger = logging.getLogger("zhkh.dashboard")
 
 router = APIRouter()
-
-
-def _as_decimal(value) -> Decimal:
-    """Safely convert nullable numeric DB values to Decimal."""
-    if value is None:
-        return Decimal("0")
-    if isinstance(value, Decimal):
-        return value
-    return Decimal(str(value))
-
-
-def _requires_amount(payment: Payment) -> bool:
-    """Variable payment exists, but the actual bill amount has not been entered yet."""
-    contractor = getattr(payment, "contractor", None)
-    return (
-        contractor is not None
-        and contractor.payment_type == "variable"
-        and payment.amount is None
-        and payment.paid_amount is None
-        and payment.status != "paid"
-    )
-
-
-def _planned_amount(payment: Payment) -> Decimal:
-    """
-    Return the amount that should be treated as the expected charge.
-
-    For variable contractors without an entered bill amount this intentionally
-    returns 0; such payments are still tracked by _requires_amount().
-    """
-    candidates: list[Decimal] = []
-
-    contractor = getattr(payment, "contractor", None)
-    if contractor and contractor.payment_type == "fixed" and contractor.fixed_amount is not None:
-        candidates.append(_as_decimal(contractor.fixed_amount))
-
-    if payment.amount is not None:
-        candidates.append(_as_decimal(payment.amount))
-
-    if payment.paid_amount is not None:
-        candidates.append(_as_decimal(payment.paid_amount))
-
-    return max(candidates) if candidates else Decimal("0")
-
-
-def _paid_amount(payment: Payment) -> Decimal:
-    """Return paid amount for calculations."""
-    return _as_decimal(payment.paid_amount)
-
-
-def _remaining_amount(payment: Payment) -> Decimal:
-    """Return unpaid remainder, never below zero."""
-    remaining = _planned_amount(payment) - _paid_amount(payment)
-    return remaining if remaining > 0 else Decimal("0")
-
-
-def _is_open_payment(payment: Payment) -> bool:
-    """Open means real debt exists or a variable bill amount still needs to be entered."""
-    return _remaining_amount(payment) > 0 or _requires_amount(payment)
-
-
-def _effective_status(payment: Payment) -> str:
-    """Return effective status based on remaining debt, missing variable amount and due date."""
-    if not _is_open_payment(payment):
-        return "paid"
-    if payment.status == "overdue":
-        return "overdue"
-    if payment.due_date and payment.due_date <= date.today():
-        return "overdue"
-    return "pending"
-
-
-def _status_label(payment: Payment) -> str:
-    """Human-readable status label for the dashboard table."""
-    status = _effective_status(payment)
-    if _requires_amount(payment):
-        return "ожидает начисления" if status == "pending" else "просрочено, нет суммы"
-    if status == "overdue":
-        return "просрочено"
-    if status == "pending":
-        return "к оплате"
-    return "оплачено"
-
-
-def _status_css_class(payment: Payment) -> str:
-    """CSS class for dashboard status badges."""
-    status = _effective_status(payment)
-    if status == "paid":
-        return "paid"
-    return payment_color_class(payment.due_date, status)
 
 
 def _shift_month(year: int, month: int, offset: int) -> tuple[int, int]:

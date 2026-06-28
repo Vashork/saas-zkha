@@ -68,7 +68,7 @@ app.include_router(contractors.router)
 app.include_router(analytics.router)
 app.include_router(backups.router)
 
-# CSRF middleware (after routers so that exempt paths like /login work)
+# CSRF middleware (after routers; safe methods issue tokens, unsafe methods verify them)
 app.add_middleware(CsrfMiddleware)
 
 

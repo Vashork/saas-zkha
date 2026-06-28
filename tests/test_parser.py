@@ -5,6 +5,7 @@ Tests for bot message parser.
 import pytest
 from decimal import Decimal
 from app.bot.parsers import parse_payment_message
+from app.bot.interactive import _parse_period
 
 
 class TestParsePaymentMessage:
@@ -62,3 +63,21 @@ class TestParsePaymentMessage:
         result = parse_payment_message(msg)
         assert result.slug == "мосэнергосбыт"
         assert result.amount is None
+
+
+class TestInteractivePeriodParser:
+    def test_month_name_defaults_to_current_year(self):
+        from datetime import date
+
+        assert _parse_period("июнь", today=date(2026, 1, 1)) == (2026, 6)
+
+    @pytest.mark.parametrize("raw", [
+        "июнь 2026",
+        "июнь-2026",
+        "2026-июнь",
+        "2026 июнь",
+        "06.26",
+        "2026-06",
+    ])
+    def test_supported_period_formats(self, raw):
+        assert _parse_period(raw) == (2026, 6)
