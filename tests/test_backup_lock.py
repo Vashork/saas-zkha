@@ -168,6 +168,7 @@ def test_file_lock_acquire_and_release(tmp_path, monkeypatch):
     _release_file_lock()
 
 
+@pytest.mark.skipif(fcntl is None, reason="fcntl is not available on this platform")
 def test_file_lock_blocks_second_acquisition_in_same_process(tmp_path, monkeypatch):
     """The service refuses a second tracked file-lock acquisition in one process."""
     backup_dir = tmp_path / "backups"
