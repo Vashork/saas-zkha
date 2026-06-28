@@ -118,9 +118,8 @@ async def receipt_contractor_handler(message: Message, state: FSMContext):
     await state.set_state(ReceiptFlow.period)
 
     await message.answer(
-        f"Подрядчик: {contractor.name}\n"
-        "Введите период оплаты. Например: июнь, июнь 2026, июнь-2026, "
-        "2026-июнь, 2026 июнь, 06.26 или 2026-06.\n"
+        f"Подрядчик: {contractor.name}\n\n"
+        "Введите месяц оплаты.\n\n"
         "Для отмены отправьте /cancel."
     )
 
