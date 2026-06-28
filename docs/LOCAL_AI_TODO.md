@@ -37,11 +37,11 @@
 
 ## Заблокировано / не получилось
 
-- Дата: 2026-06-28
+- Дата: 2026-06-29
 - Задача: P1 — прогнать полный test run и зафиксировать результат перед merge/release.
-- Что пробовали: определить HEAD ветки через GitHub connector, проверить combined status и workflow runs; дополнительно попробовать `git clone --branch audit/main-hardening-followup --single-branch https://github.com/Vashork/saas-zkha.git` в локальный контейнер.
-- Что не получилось: GitHub status checks/workflow runs для проверенной ветки отсутствуют; локальный clone недоступен из-за DNS-ошибки `Could not resolve host: github.com`, поэтому полный `pytest` в этом окружении не запускался.
-- Следующий шаг: запустить полный test run в окружении с доступом к репозиторию: `python -m pytest`; после успешного результата обновить `docs/RELEASE_ROADMAP.md` и отметить P1 release-gate как `[x]`.
+- Что пробовали: пользователь выполнил `python -m pytest` на Windows/Python 3.13 после установки зависимостей. Прогон дошёл до выполнения тестов: 254 collected, 236 passed, 11 failed, 7 skipped.
+- Что не получилось: release-gate пока не зелёный. Падения были в Alembic subprocess на Windows, UTF-8 чтении source-файлов, low-level fcntl lock assertion на Windows, parser `06.26`, receipt ownership source assertion и UI asset assertions.
+- Следующий шаг: после внесённых follow-up fixes выполнить `git pull --ff-only origin audit/main-hardening-followup`, затем `python -m pip install -r requirements.txt` и повторить `python -m pytest`. Если зелёный — обновить `docs/RELEASE_ROADMAP.md` и отметить P1 release-gate как `[x]`; если останутся failures — приложить новый вывод.
 
 ## Выполнено
 
