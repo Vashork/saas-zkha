@@ -3,7 +3,7 @@
 ## Вердикт
 
 1. Internal/private pilot: можно выпускать после успешного test run и ручного QA.
-2. Public internet production: основные P1 по коду закрыты, но перед публичным выпуском всё ещё нужно закрыть release-gate: успешный полный test run и ручной QA.
+2. Public internet production: основные P1 по коду закрыты, но перед публичным выпуском остаётся ручной QA и P2-hardening.
 3. Перед изменениями backup/restore, permissions и payment transactions нужен backup `data/`.
 
 ## Сделано
@@ -25,7 +25,7 @@
 15. Второй проход аудита подтвердил, что local backup/restore имеет lock, path/link validation, unpacked-size limit и rollback через safety backup.
 16. Web receipt upload проверяет расширение, размер и magic bytes; скачивание чеков идёт через authenticated route с ownership check.
 17. Telegram receipt upload теперь проверяет расширение, заявленный/фактический размер и magic bytes до финального сохранения; invalid/oversized document/photo receipts отклоняются в прямом `#оплачено` workflow и interactive receipt workflow.
-18. Full test run на Windows дошёл до выполнения тестов: было 254 collected, 236 passed, 11 failed, 7 skipped. Исправлены выявленные проблемы Windows/encoding/brittle tests/parser; требуется повторный полный прогон.
+18. Full test run на Windows/Python 3.13 зелёный: `251 passed, 8 skipped, 5 warnings` за 69.76s.
 
 ## P1
 
@@ -34,8 +34,8 @@
 3. [x] Добавить лимит распакованного размера backup-архива.
 4. [x] Исправить rate limit login за nginx/reverse proxy.
 5. [x] Добавить первичный admin-only контроль входящих сообщений Telegram-бота.
-6. [ ] Прогнать полный test run и зафиксировать результат перед merge/release.
-   - Статус 2026-06-29: полный прогон на Windows выполнен, но не зелёный: 254 collected, 236 passed, 11 failed, 7 skipped. Внесены follow-up fixes; нужен повторный `python -m pytest` после `git pull`.
+6. [x] Прогнать полный test run и зафиксировать результат перед merge/release.
+   - Результат 2026-06-29, Windows/Python 3.13: `python -m pytest` — 259 collected, 251 passed, 8 skipped, 5 warnings, 0 failed, 69.76s.
 7. [x] В Telegram receipt workflows добавить такую же проверку размера и magic bytes, как в web upload; сейчас bot document upload доверяет расширению файла.
 
 ## P2
@@ -68,7 +68,7 @@
 ## Расшифровка
 
 1. Internal pilot допустим, потому что session cookie подписан, dangerous actions закрыты admin-only, receipts не отдаются через `/uploads`, backup restore валидирует tar paths и имеет rollback.
-2. P1-риски по access-control edge case, production secret defaults, proxy/rate-limit, лимиту распакованного backup и Telegram receipt validation закрыты по коду; выпуск наружу всё ещё требует успешного полного test run и ручного QA.
+2. P1-риски по access-control edge case, production secret defaults, proxy/rate-limit, лимиту распакованного backup и Telegram receipt validation закрыты по коду; full test run зелёный. Для публичного production остаются ручной QA и P2-hardening.
 3. Backup обязателен перед изменениями, которые меняют данные или restore-поведение: permissions semantics, backup extraction, payment transaction backfill/schema.
 4. Пустые permissions сейчас могут означать полный доступ к страницам. Управляемый пустой список должен означать no access, а legacy full-access отделён через `NULL`.
 5. Production validation должна блокировать не только `change-me-in-production`, но и `change-me-to-a-random-string` из `.env.example`.
@@ -81,4 +81,4 @@
 12. Docker images сейчас запускают процессы от root; для public production нужен non-root runtime user.
 13. Нужны не только helper/source tests, но и ASGI/route tests, которые проходят через middleware, templates и реальные form actions.
 14. Telegram receipt upload теперь проверяет allowed extension, размер и magic bytes для документов и фото до финального сохранения файла в прямом и interactive workflows.
-15. Успешный test run должен оставаться release gate: без зелёного результата нельзя считать релиз готовым к merge/public release.
+15. Full test run 2026-06-29 зелёный: 251 passed, 8 skipped, 0 failed.
