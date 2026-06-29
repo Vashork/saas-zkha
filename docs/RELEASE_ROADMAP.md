@@ -58,7 +58,7 @@
 13. [x] Подключить `app/web/static/css/local-ui-tweaks.css` в `base.html` или удалить файл, если правки больше не нужны.
 14. [x] Решить scope темы оформления: `/settings/theme` оставлен как admin-only global setting; обычные пользователи не могут менять глобальный `ui_theme`.
 15. [x] Убрать или подключить `docker/start-web.sh`, чтобы в репозитории не было неиспользуемого runtime-скрипта.
-16. [ ] P2-15 Расширить модель ролей и прав: отделить системного admin от обычного viewer и продвинутого оператора ЛК.
+16. [ ] P2-15 Расширить модель ролей и прав: role foundation (`admin/operator/viewer`) закоммичен, но не закрыт до локального test run.
 
 ## Tests
 
@@ -76,7 +76,7 @@
 23. [x] Добавить asset wiring test для `local-ui-tweaks.css`.
 24. [x] Добавить source-level tests для Docker non-root runtime и документации bind-mount прав.
 25. [x] Добавить route/source tests для admin-only global theme scope.
-26. [ ] Добавить route-level permission tests для viewer/operator/admin: просмотр, payments CRUD, contractors CRUD, receipts download/delete, Telegram/backups isolation.
+26. [ ] Добавить route-level permission tests для viewer/operator/admin: role-foundation tests добавлены, но полная matrix для action-level permissions остаётся в P2-16/P2-20.
 27. [ ] Прогнать обновлённый template compatibility test на Starlette 1.x после dependency bump.
 
 ## Расшифровка
@@ -144,13 +144,23 @@
 
 1. [ ] P2-15 Спроектировать и внедрить роли:
    - `admin`: системный администратор приложения; доступ к users/roles/settings, Telegram management, backups/restore, security/audit и всем бизнес-операциям;
-   - `operator`: продвинутый пользователь для полноценного ведения ЛК; доступ к dashboard/payments/contractors/history/analytics и бизнес-CRUD без доступа к Telegram/backups/users/system settings;
-   - `viewer`: обычный пользователь только для просмотра разрешённых страниц без мутаций.
+   - `operator`: продвинутый пользователь для полноценного ведения ЛК; role value и GUI уже добавлены, но бизнес-CRUD пока не расширен без P2-16 action-level permissions;
+   - `viewer`: обычный пользователь только для просмотра разрешённых страниц без мутаций;
+   - validation pending: `python -m pytest tests/test_permissions.py tests/test_theme_scope.py tests/test_telegram_gui.py`.
 2. [ ] P2-16 Добавить action-level permissions вместо page-only permissions.
 3. [ ] P2-17 Перевести текущие admin-only business routes на operator-capable checks, оставив Telegram/backups/restore/users/global settings/security только для `admin`.
 4. [ ] P2-18 Обновить GUI управления пользователями: роли, presets прав, предупреждение о page/action permissions, migration/backfill.
 5. [ ] P2-19 Добавить audit и защиту от self-lockout.
 6. [ ] P2-20 Добавить тесты матрицы доступа.
+
+### P2-15 attempt 2026-06-29 через GitHub connector
+
+- Добавлены роли `admin`, `operator`, `viewer` на существующем поле `users.role`, без миграции схемы.
+- Legacy `role == "user"` сохраняется как читаемый legacy state, но новые create/update нормализуют `user -> viewer`.
+- User management UI теперь показывает выбор `admin/operator/viewer` и предупреждает, что page permissions дают только видимость страниц, а action-level permissions будут отдельным блоком.
+- Operator не получил доступ к Telegram/backups/users/system settings и не получил business CRUD до P2-16/P2-17.
+- Добавлены tests в `tests/test_permissions.py` на роли, legacy normalization, создание operator и запрет operator admin/business mutations.
+- P2-15 НЕ отмечен `[x]` до локального test run.
 
 ### Telegram management block
 
