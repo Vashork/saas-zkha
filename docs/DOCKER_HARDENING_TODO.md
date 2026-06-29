@@ -2,7 +2,7 @@
 
 Branch: `audit/main-hardening-followup`
 
-Status: implementation completed through GitHub connector; Docker build/smoke validation still pending.
+Status: implementation completed through GitHub connector; tests/config validated locally; Docker build/smoke validation still pending because the pinned nginx image cannot be pulled from Docker CDN in the local environment.
 
 Reviewed files:
 
@@ -15,6 +15,7 @@ Reviewed files:
 - `docker/nginx.conf`
 - `requirements.txt`
 - `requirements-dev.txt`
+- `tests/test_docker_runtime.py`
 
 ## Implemented hardening
 
@@ -46,50 +47,51 @@ Reviewed files:
    - `security_opt: ["no-new-privileges:true"]` added for web, bot, and nginx.
    - `read_only: true` intentionally not enabled yet because app data, backups, logs, uploads, nginx runtime paths, and tmpfs needs must be handled explicitly first.
 
-## Validation required before fully closing
+8. Docker runtime regression tests updated.
+   - `tests/test_docker_runtime.py` now asserts the hardened non-root model: `USER zhkh`, no `gosu`, no `curl`, pinned nginx, Python stdlib healthcheck, and `no-new-privileges:true`.
 
-First make sure the local checkout is up to date:
+## Local validation confirmed
 
-```bash
-git status -sb
-git fetch origin
-git pull --ff-only origin audit/main-hardening-followup
+Confirmed by user on Windows cmd.exe, 2026-06-29:
+
+```text
+python -m pip install -r requirements-dev.txt                  # ok
+python -m compileall app init_db.py tests && python -m pytest  # 284 passed, 8 skipped, 5 warnings in 60.22s
+docker compose config                                          # ok
 ```
 
-Run after implementation in a local environment with Docker available:
+`docker compose config` confirms:
 
-```bash
-python -m pip install -r requirements-dev.txt
-python -m compileall app init_db.py tests && python -m pytest
-docker compose config
-```
+- `nginx:1.27-alpine`;
+- Python stdlib healthcheck with `urllib.request`;
+- `APP_UID` / `APP_GID` build args;
+- `security_opt: no-new-privileges:true` for web, bot, and nginx.
 
-Docker smoke command depends on shell:
+## Validation still required before fully closing
 
-```bash
-# Linux / WSL / Git Bash
-APP_UID=$(id -u) APP_GID=$(id -g) docker compose up -d --build
-```
+Docker image pull/build and full smoke are still pending.
 
-```powershell
-# PowerShell on Windows
-$env:APP_UID="1000"
-$env:APP_GID="1000"
-docker compose up -d --build
-```
+Current local blockers:
+
+- `docker pull nginx:1.27-alpine` fails with `failed to copy ... production.cloudfront.docker.com ... EOF`.
+- `docker compose up -d --build` fails for the same pinned nginx image pull reason.
+- `docker compose ps` still shows an older running `zhkh-nginx` based on `nginx:alpine`, so the current running stack cannot be used as final proof for the new hardening state.
+- Bot logs show `Cannot connect to host api.telegram.org:443` / DNS failures. This is an external network/Telegram reachability issue, not a bind-mount permission or non-root startup error.
+
+Run when Docker CDN / registry access is working:
 
 ```bat
-:: Windows cmd.exe
 set APP_UID=1000
 set APP_GID=1000
+docker pull nginx:1.27-alpine
 docker compose up -d --build
 ```
 
-Manual smoke:
+Manual smoke still required on newly built containers:
 
 - web `/health` returns success;
 - login page works;
-- Telegram bot container starts without permission errors;
+- Telegram bot container starts without permission errors and can reach `api.telegram.org:443`, or Telegram reachability is explicitly documented as an environment/network blocker;
 - backup page opens;
 - receipt upload/download still works;
 - `docker compose logs web bot nginx` has no startup or permission errors.
