@@ -30,6 +30,9 @@
 20. Timezone доведён до UI/settings: admin-only сохранение `settings.notification_timezone`, IANA validation, применение к backup page и scheduler jobs, route/template tests.
 21. Docker web/bot images запускаются под non-root пользователем `zhkh`; существующий `docker/start-web.sh` подключён в web image; README описывает права для bind-mount директорий.
 22. Scope темы оформления зафиксирован как admin-only global setting: `/settings/theme` теперь обслуживается hardened route из `system_settings` и не позволяет обычному пользователю менять глобальный `ui_theme`.
+23. Добавлен admin-only web UI `/telegram` для журнала входящих Telegram-сообщений с фильтрами по статусу/user/chat/type/search и быстрым обзором effective Telegram access.
+24. Добавлены GUI-настройки Telegram-журнала: `telegram_log_mode` (`blocked`/`allowed`/`all`), `telegram_log_retention_days`, `telegram_log_retention_count`; бот применяет режим логирования и retention при записи новых сообщений.
+25. Добавлено базовое GUI-управление доступом Telegram: `telegram_admin_id` и `telegram_allowed_user_ids` сохраняются в БД и применяются middleware бота без пересборки; env остаётся fallback.
 
 ## P1
 
@@ -48,8 +51,8 @@
 7. [x] Обработать duplicate contractor name/slug при редактировании.
 8. [x] Решить, нужен ли CSRF на `/login`.
 9. [x] Добавить non-root user в Docker images.
-10. Добавить web UI для журнала Telegram-сообщений на admin-only странице.
-11. Добавить настройки режима Telegram-журнала: логировать только blocked/allowed/all и срок хранения.
+10. [x] Добавить web UI для журнала Telegram-сообщений на admin-only странице.
+11. [x] Добавить настройки режима Telegram-журнала: логировать только blocked/allowed/all и срок хранения.
 12. [x] Довести timezone до конца: поле в UI, сохранение `settings.notification_timezone`, использование на странице бекапов и в scheduler/notifications, где применимо.
 13. [x] Подключить `app/web/static/css/local-ui-tweaks.css` в `base.html` или удалить файл, если правки больше не нужны.
 14. [x] Решить scope темы оформления: `/settings/theme` оставлен как admin-only global setting; обычные пользователи не могут менять глобальный `ui_theme`.
@@ -62,7 +65,7 @@
 14. [x] Добавить tests для production default `SECRET_KEY` из `.env.example`.
 15. Добавить route-level tests для fixed overpay и variable top-up.
 16. [x] Добавить tests для backup tar-bomb/unpacked-size rejection.
-17. Добавить tests для Telegram message log и `/tglog`.
+17. [x] Добавить tests для Telegram message log, `/tglog`, web UI `/telegram`, фильтров и настроек журнала.
 18. [x] Добавить route-level test для duplicate contractor name при редактировании.
 19. [x] Добавить regression test, что dashboard использует shared payment status helpers.
 20. [x] Добавить CSRF tests для `/login`.
@@ -127,21 +130,21 @@
 
 Цель: admin-only web управление Telegram-ботом и журналом, построенное вокруг `TelegramMessageLog`, без расширения доступа для неразрешённых Telegram user id.
 
-1. [ ] P2-10 Web UI для журнала Telegram-сообщений:
-   - admin-only route `/telegram/messages` или раздел в `/settings`;
+1. [x] P2-10 Web UI для журнала Telegram-сообщений:
+   - admin-only route `/telegram`;
    - таблица по `TelegramMessageLog`: дата, статус `blocked/allowed/admin`, user id, username, имя, chat id, тип, текст/caption;
    - фильтры по статусу, user id, username, chat id, типу сообщения, диапазону дат и поиску по тексту;
    - пагинация и безопасное HTML-экранирование текста;
    - быстрые действия: скопировать user id/chat id, добавить user id в allowlist settings, открыть связанные payment/receipt события при наличии связи в будущем;
    - route/template tests на admin-only доступ, фильтры и escaping.
-2. [ ] P2-11 Настройки режима Telegram-журнала:
+2. [x] P2-11 Настройки режима Telegram-журнала:
    - хранить в `settings` режим `telegram_log_mode`: `blocked` / `allowed` / `all`;
    - хранить retention: `telegram_log_retention_days` или `telegram_log_retention_count`;
    - применять режим до записи в `TelegramMessageLog`, но ошибки логирования не должны ломать обработку Telegram update;
-   - scheduler/job для очистки старых записей по retention;
+   - cleanup старых записей применяется при сохранении настроек и при записи новых Telegram-сообщений;
    - tests для каждого режима и retention cleanup.
 3. [ ] P2-12 Полное admin-управление ботом из web UI:
-   - просмотр и изменение `TELEGRAM_ALLOWED_USER_IDS`/admin allowlist через БД/settings с audit log;
+   - [x] просмотр и изменение Telegram admin id / allowed user ids через БД/settings с audit log;
    - включение/выключение бота или отдельных команд без пересборки контейнера, если архитектура будет переведена с env-only на DB/settings;
    - настройка шаблонов ответов `/start`, `/help`, ошибок и подтверждений оплаты;
    - предпросмотр шаблонов и validation placeholders перед сохранением;

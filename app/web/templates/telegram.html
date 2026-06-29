@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% set _csrf = request.cookies.get(csrf_cookie_name, '') %}
+{% block title %}🤖 Telegram — Мой Дом{% endblock %}
+
+{% block content %}
+{% set active_page = 'telegram' %}
+{% include "_navbar.html" %}
+
+<div class="container-main">
+    <h1 class="page-title">🤖 Telegram-бот</h1>
+    {% if error %}<div class="alert-error">{{ error }}</div>{% endif %}
+    {% if success %}<div class="alert-success">✅ {{ success }}</div>{% endif %}
+
+    <div class="card-custom" style="margin-bottom:24px;">
+        <h3 style="margin-bottom:16px;">⚙️ Настройки журнала</h3>
+        <form method="post" action="/telegram/settings">
+            <input type="hidden" name="_csrf" value="{{ _csrf }}">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">
+                <div class="form-group">
+                    <label>Режим логирования</label>
+                    {% set log_mode = settings.get('telegram_log_mode', 'all') %}
+                    <select name="telegram_log_mode" class="input-custom">
+                        <option value="blocked" {% if log_mode == 'blocked' %}selected{% endif %}>Только заблокированные</option>
+                        <option value="allowed" {% if log_mode == 'allowed' %}selected{% endif %}>Только разрешённые</option>
+                        <option value="all" {% if log_mode == 'all' %}selected{% endif %}>Все сообщения</option>
+                    </select>
+                    <small style="color:var(--text-muted);display:block;margin-top:6px;">Применяется ботом при записи новых входящих сообщений.</small>
+                </div>
+                <div class="form-group">
+                    <label>Retention, дней</label>
+                    <input type="number" name="telegram_log_retention_days" class="input-custom" min="0" max="3650" value="{{ settings.get('telegram_log_retention_days', '30') }}">
+                    <small style="color:var(--text-muted);display:block;margin-top:6px;">0 — не удалять по возрасту.</small>
+                </div>
+                <div class="form-group">
+                    <label>Retention, записей</label>
+                    <input type="number" name="telegram_log_retention_count" class="input-custom" min="0" max="100000" value="{{ settings.get('telegram_log_retention_count', '1000') }}">
+                    <small style="color:var(--text-muted);display:block;margin-top:6px;">0 — не ограничивать по количеству.</small>
+                </div>
+            </div>
+            <button type="submit" class="btn-custom">💾 Сохранить Telegram-настройки</button>
+        </form>
+        <form method="post" action="/telegram/settings" style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border);">
+            <input type="hidden" name="_csrf" value="{{ _csrf }}">
+            <input type="hidden" name="telegram_log_mode" value="{{ settings.get('telegram_log_mode', 'all') }}">
+            <input type="hidden" name="telegram_log_retention_days" value="{{ settings.get('telegram_log_retention_days', '30') }}">
+            <input type="hidden" name="telegram_log_retention_count" value="{{ settings.get('telegram_log_retention_count', '1000') }}">
+            <h4 style="margin-bottom:12px;">🔐 Управление доступом Telegram</h4>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
+                <div class="form-group">
+                    <label>Telegram admin id</label>
+                    <input class="input-custom" name="telegram_admin_id" value="{{ settings.get('telegram_admin_id') or telegram_admin_id }}" placeholder="123456789">
+                    <small style="color:var(--text-muted);display:block;margin-top:6px;">Admin автоматически добавляется в allowlist. Пусто — использовать TELEGRAM_ADMIN_ID из .env.</small>
+                </div>
+                <div class="form-group">
+                    <label>Allowed user ids</label>
+                    <input class="input-custom" name="telegram_allowed_user_ids" value="{{ settings.get('telegram_allowed_user_ids') or (telegram_allowed_user_ids | join(', ')) }}" placeholder="123456789, 987654321">
+                    <small style="color:var(--text-muted);display:block;margin-top:6px;">Сохраняется в БД и применяется ботом без пересборки контейнера.</small>
+                </div>
+            </div>
+            <button type="submit" class="btn-secondary-custom">🔐 Сохранить доступ Telegram</button>
+        </form>
+        <div style="margin-top:14px;color:var(--text-muted);font-size:13px;">
+            <div><strong>Эффективный admin id:</strong> {{ effective_telegram_admin_id or 'не задан' }}</div>
+            <div><strong>Эффективный allowlist:</strong> {% if effective_telegram_allowed_user_ids %}{{ effective_telegram_allowed_user_ids | join(', ') }}{% else %}пусто{% endif %}</div>
+            <div><strong>Env TELEGRAM_ADMIN_ID:</strong> {{ telegram_admin_id or 'не задан' }}</div>
+            <div><strong>Env allowlist:</strong> {% if telegram_allowed_user_ids %}{{ telegram_allowed_user_ids | join(', ') }}{% else %}пусто{% endif %}</div>
+        </div>
+    </div>
+
+    <div class="card-custom" style="margin-bottom:24px;">
+        <h3 style="margin-bottom:16px;">🔎 Фильтры журнала</h3>
+        <form method="get" action="/telegram">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
+                <div class="form-group">
+                    <label>Статус</label>
+                    <select name="status" class="input-custom">
+                        <option value="all" {% if filters.status == 'all' %}selected{% endif %}>Все</option>
+                        <option value="blocked" {% if filters.status == 'blocked' %}selected{% endif %}>Blocked</option>
+                        <option value="allowed" {% if filters.status == 'allowed' %}selected{% endif %}>Allowed</option>
+                        <option value="admin" {% if filters.status == 'admin' %}selected{% endif %}>Admin</option>
+                    </select>
+                </div>
+                <div class="form-group"><label>User ID</label><input class="input-custom" name="user_id" value="{{ filters.user_id }}"></div>
+                <div class="form-group"><label>Username</label><input class="input-custom" name="username" value="{{ filters.username }}"></div>
+                <div class="form-group"><label>Chat ID</label><input class="input-custom" name="chat_id" value="{{ filters.chat_id }}"></div>
+                <div class="form-group"><label>Тип</label><input class="input-custom" name="message_type" value="{{ filters.message_type }}" placeholder="text, photo, document"></div>
+                <div class="form-group"><label>Поиск</label><input class="input-custom" name="q" value="{{ filters.q }}" placeholder="текст или username"></div>
+                <div class="form-group"><label>Лимит</label><input class="input-custom" type="number" name="limit" min="10" max="200" value="{{ limit }}"></div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+                <button type="submit" class="btn-custom">🔎 Применить</button>
+                <a href="/telegram" class="btn-secondary-custom" style="text-decoration:none;">Сбросить</a>
+            </div>
+        </form>
+    </div>
+
+    <div class="card-custom">
+        <h3 style="margin-bottom:16px;">📨 Журнал сообщений <span style="color:var(--text-muted);font-size:14px;">показано {{ messages|length }} из {{ total }}</span></h3>
+        {% if not messages %}
+        <p style="color:var(--text-muted);">Записей пока нет или фильтр ничего не нашёл.</p>
+        {% else %}
+        <div style="overflow-x:auto;">
+            <table class="table-custom">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Дата</th>
+                        <th>Статус</th>
+                        <th>User</th>
+                        <th>Chat</th>
+                        <th>Тип</th>
+                        <th>Текст / caption</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for m in messages %}
+                    {% set st = message_status(m) %}
+                    <tr>
+                        <td>#{{ m.id }}</td>
+                        <td style="white-space:nowrap;">{{ m.created_at }}</td>
+                        <td><span class="badge-status badge-{{ 'paid' if st in ['allowed','admin'] else 'overdue' }}">{{ st }}</span></td>
+                        <td>
+                            <div><strong>{{ m.telegram_user_id or '—' }}</strong></div>
+                            <div style="color:var(--text-muted);font-size:12px;">@{{ m.username or '—' }}</div>
+                            <div style="color:var(--text-muted);font-size:12px;">{{ (m.first_name or '') ~ ' ' ~ (m.last_name or '') }}</div>
+                        </td>
+                        <td>{{ m.chat_id or '—' }}</td>
+                        <td>{{ m.message_type }}</td>
+                        <td style="max-width:520px;white-space:pre-wrap;word-break:break-word;">{{ m.text or 'без текста' }}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

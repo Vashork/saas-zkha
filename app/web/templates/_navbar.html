@@ -8,6 +8,7 @@
         <a class="nav-link-custom {% if active_page == 'history' %}active{% endif %}" href="/history">📜 История</a>
         {% if user_role == 'admin' %}
         <a class="nav-link-custom {% if active_page == 'backups' %}active{% endif %}" href="/backups">💾 Бекапы</a>
+        <a class="nav-link-custom {% if active_page == 'telegram' %}active{% endif %}" href="/telegram">🤖 Telegram</a>
         {% endif %}
         <a class="nav-link-custom {% if active_page == 'settings' %}active{% endif %}" href="/settings">⚙️ Настройки</a>
     </div>

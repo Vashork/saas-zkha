@@ -6,10 +6,12 @@ from typing import Any
 
 from aiogram import BaseMiddleware
 from aiogram.types import Message, TelegramObject
-from sqlalchemy import select
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import delete, select
 
 from app.database import async_session_factory
-from app.models import TelegramMessageLog
+from app.models import Setting, TelegramMessageLog
 
 logger = logging.getLogger("zhkh.bot.security")
 
@@ -30,13 +32,24 @@ class TelegramAllowlistMiddleware(BaseMiddleware):
     ) -> Any:
         user = getattr(event, "from_user", None)
         user_id = getattr(user, "id", None)
-        is_allowed = bool(self.allowed_user_ids) and user_id in self.allowed_user_ids
-        is_admin = self.admin_user_id is not None and user_id == self.admin_user_id
+        allowed_user_ids = set(self.allowed_user_ids)
+        admin_user_id = self.admin_user_id
+        try:
+            async with async_session_factory() as session:
+                allowed_user_ids, admin_user_id = await _effective_telegram_access(
+                    session,
+                    self.allowed_user_ids,
+                    self.admin_user_id,
+                )
+        except Exception:
+            logger.exception("Could not load Telegram access settings; falling back to env allowlist")
+        is_allowed = bool(allowed_user_ids) and user_id in allowed_user_ids
+        is_admin = admin_user_id is not None and user_id == admin_user_id
 
         if isinstance(event, Message):
             await log_telegram_message(event, is_allowed=is_allowed, is_admin=is_admin)
 
-        if not self.allowed_user_ids:
+        if not allowed_user_ids:
             if not self._warned_empty_allowlist:
                 logger.warning(
                     "Telegram allowlist is empty; ignoring all bot messages. "
@@ -78,6 +91,98 @@ def _message_text(message: Message) -> str | None:
     return None
 
 
+def _safe_int(value: str | None, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(str(value or "").strip())
+    except ValueError:
+        parsed = default
+    return min(max(parsed, minimum), maximum)
+
+
+def _parse_int_set(raw: str | None) -> set[int]:
+    values: set[int] = set()
+    for item in str(raw or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            values.add(int(item))
+        except ValueError:
+            continue
+    return values
+
+
+async def _telegram_control_settings(session) -> dict[str, str]:
+    result = await session.execute(
+        select(Setting).where(Setting.key.in_({
+            "telegram_admin_id",
+            "telegram_allowed_user_ids",
+        }))
+    )
+    return {str(row.key): str(row.value) for row in result.scalars().all()}
+
+
+async def _effective_telegram_access(
+    session,
+    fallback_allowed_user_ids: set[int],
+    fallback_admin_user_id: int | None,
+) -> tuple[set[int], int | None]:
+    settings = await _telegram_control_settings(session)
+    configured_allowed = _parse_int_set(settings.get("telegram_allowed_user_ids"))
+    allowed = configured_allowed or set(fallback_allowed_user_ids)
+    admin_id = fallback_admin_user_id
+    configured_admin = _parse_int_set(settings.get("telegram_admin_id"))
+    if configured_admin:
+        admin_id = sorted(configured_admin)[0]
+    if admin_id is not None:
+        allowed.add(admin_id)
+    return allowed, admin_id
+
+
+async def _telegram_log_settings(session) -> dict[str, str]:
+    result = await session.execute(
+        select(Setting).where(Setting.key.in_({
+            "telegram_log_mode",
+            "telegram_log_retention_days",
+            "telegram_log_retention_count",
+        }))
+    )
+    values = {row.key: row.value for row in result.scalars().all()}
+    values.setdefault("telegram_log_mode", "all")
+    values.setdefault("telegram_log_retention_days", "30")
+    values.setdefault("telegram_log_retention_count", "1000")
+    return values
+
+
+def _should_log_telegram_message(mode: str, *, is_allowed: bool, is_admin: bool) -> bool:
+    if mode == "all":
+        return True
+    if mode == "allowed":
+        return is_allowed or is_admin
+    if mode == "blocked":
+        return not is_allowed and not is_admin
+    return True
+
+
+async def _cleanup_telegram_message_log(session, settings: dict[str, str]) -> None:
+    retention_days = _safe_int(settings.get("telegram_log_retention_days"), 30, minimum=0, maximum=3650)
+    retention_count = _safe_int(settings.get("telegram_log_retention_count"), 1000, minimum=0, maximum=100000)
+
+    if retention_days > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        await session.execute(delete(TelegramMessageLog).where(TelegramMessageLog.created_at < cutoff))
+
+    if retention_count > 0:
+        keep_ids = await session.scalars(
+            select(TelegramMessageLog.id)
+            .order_by(TelegramMessageLog.id.desc())
+            .limit(retention_count)
+        )
+        ids_to_keep = list(keep_ids)
+        if ids_to_keep:
+            await session.execute(delete(TelegramMessageLog).where(TelegramMessageLog.id.not_in(ids_to_keep)))
+
+
 async def log_telegram_message(
     message: Message,
     *,
@@ -88,6 +193,13 @@ async def log_telegram_message(
     user = message.from_user
     try:
         async with async_session_factory() as session:
+            settings = await _telegram_log_settings(session)
+            if not _should_log_telegram_message(
+                settings.get("telegram_log_mode", "all"),
+                is_allowed=is_allowed,
+                is_admin=is_admin,
+            ):
+                return
             session.add(TelegramMessageLog(
                 telegram_user_id=user.id if user else None,
                 username=user.username if user else None,
@@ -99,9 +211,24 @@ async def log_telegram_message(
                 is_allowed=is_allowed,
                 is_admin=is_admin,
             ))
+            await _cleanup_telegram_message_log(session, settings)
             await session.commit()
     except Exception:
         logger.exception("Could not write Telegram message log")
+
+
+async def telegram_admin_id_for_commands(fallback_admin_id_raw: str) -> int | None:
+    try:
+        fallback = int(fallback_admin_id_raw.strip()) if fallback_admin_id_raw and fallback_admin_id_raw.strip() else None
+    except ValueError:
+        fallback = None
+    try:
+        async with async_session_factory() as session:
+            _, admin_id = await _effective_telegram_access(session, set(), fallback)
+            return admin_id
+    except Exception:
+        logger.exception("Could not load Telegram admin id from settings")
+        return fallback
 
 
 async def recent_telegram_messages(limit: int = 20) -> list[TelegramMessageLog]:

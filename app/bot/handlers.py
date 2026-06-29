@@ -22,7 +22,7 @@ from app.bot.payment_actions import (
     validate_bot_payment_amount,
 )
 from app.bot.parsers import parse_payment_message
-from app.bot.security import recent_telegram_messages
+from app.bot.security import recent_telegram_messages, telegram_admin_id_for_commands
 from app.config import get_settings
 from app.utils import (
     MAX_FILE_SIZE,
@@ -139,7 +139,7 @@ async def contractors_handler(message: Message):
 async def tglog_handler(message: Message):
     """Admin-only command that shows recent inbound Telegram messages."""
     settings = get_settings()
-    admin_id = _telegram_admin_id(settings.TELEGRAM_ADMIN_ID)
+    admin_id = await telegram_admin_id_for_commands(settings.TELEGRAM_ADMIN_ID)
     sender_id = message.from_user.id if message.from_user else None
 
     if not admin_id or sender_id != admin_id:
