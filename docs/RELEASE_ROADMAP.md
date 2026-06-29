@@ -157,6 +157,7 @@
    - Требуется локальный targeted pytest и подтверждение GitHub Actions run после push.
 4. [x] P2-AUDIT-4 Docker smoke QA выполнить в среде с доступным Docker Compose plugin/v1: `docker_smoke_check.py` подтвердил `docker compose config -q`, sequential web/bot builds, `up -d`, `/health`, `/login`, blocked `/uploads`, bounded web/nginx/bot logs; ручная проверка dashboard, `/backups` и receipt upload/download успешна.
 5. [ ] P2-AUDIT-5 Разобрать текущие pytest warnings: ошибочные `@pytest.mark.asyncio` на sync tests в receipt source-level tests.
+   - Fix prepared: `tests/test_receipt_ownership.py` больше не применяет module-level `pytest.mark.asyncio` к sync source-level tests; SQLAlchemy query compile check переведён в sync test. Нужен targeted/full pytest evidence перед закрытием.
 
 ### Permissions and roles block
 
