@@ -21,7 +21,7 @@ Completed:
 
 ### P2-DOCKER-1 Docker hardening follow-up
 
-Status: implementation completed through GitHub connector; Docker build/smoke validation still pending.
+Status: implementation completed through GitHub connector; tests/config validated locally; Docker build/smoke validation still pending because the pinned nginx image cannot be pulled from Docker CDN in the local environment.
 
 Completed in branch:
 
@@ -34,15 +34,26 @@ Completed in branch:
 - Pinned nginx image to `nginx:1.27-alpine`.
 - Added OCI labels and `EXPOSE 8000` for the web image.
 - Added `no-new-privileges:true` for web, bot, and nginx.
-- Updated `docs/DOCKER_HARDENING_TODO.md` with validation and bind-mount ownership notes.
+- Updated `tests/test_docker_runtime.py` to assert the new hardened runtime model.
+- Updated `docs/DOCKER_HARDENING_TODO.md` with validation, Windows command, and bind-mount ownership notes.
+
+Local validation confirmed by user on Windows cmd.exe, 2026-06-29:
+
+- `python -m pip install -r requirements-dev.txt`: ok.
+- `python -m compileall app init_db.py tests && python -m pytest`: `284 passed, 8 skipped, 5 warnings in 60.22s`.
+- `docker compose config`: ok; config shows `nginx:1.27-alpine`, Python stdlib healthcheck, `APP_UID`/`APP_GID`, and `no-new-privileges:true`.
 
 Still required before fully closing:
 
-- `python -m pip install -r requirements-dev.txt`
-- `python -m compileall app init_db.py tests && python -m pytest`
-- `docker compose config`
-- `APP_UID=$(id -u) APP_GID=$(id -g) docker compose up -d --build`
-- Manual smoke: `/health`, login, Telegram bot startup logs, backup page, receipt upload/download, clean `docker compose logs web bot nginx`.
+- Successful pull/build with the pinned nginx image: `docker pull nginx:1.27-alpine` and `docker compose up -d --build`.
+- Manual smoke on newly built containers: `/health`, login, Telegram bot startup logs, backup page, receipt upload/download, clean `docker compose logs web bot nginx`.
+
+Current blockers observed locally:
+
+- `docker pull nginx:1.27-alpine` fails with `failed to copy ... production.cloudfront.docker.com ... EOF`, so the new pinned nginx image is not available locally yet.
+- `docker compose up -d --build` fails for the same image pull reason.
+- `docker compose ps` still shows an older running `zhkh-nginx` based on `nginx:alpine`, so the current running stack cannot be used as final Docker hardening smoke evidence.
+- Bot logs show `Cannot connect to host api.telegram.org:443` / DNS failures; this is an external network/Telegram reachability issue, not a bind-mount permission or non-root startup error.
 
 ### P1-AUDIT-1 remaining production validation
 
