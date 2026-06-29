@@ -26,18 +26,26 @@ def test_admin_has_all_business_and_system_action_permissions():
     assert permissions.has_action_permission(admin, permissions.BACKUPS_RESTORE)
 
 
-def test_operator_is_modeled_but_has_no_mutations_until_p2_17():
+def test_operator_has_business_but_no_system_action_permissions():
     operator = _user("operator")
 
-    assert not permissions.has_action_permission(operator, permissions.PAYMENTS_CREATE)
-    assert not permissions.has_action_permission(operator, permissions.PAYMENTS_UPDATE)
-    assert not permissions.has_action_permission(operator, permissions.PAYMENTS_DELETE)
-    assert not permissions.has_action_permission(operator, permissions.CONTRACTORS_CREATE)
-    assert not permissions.has_action_permission(operator, permissions.CONTRACTORS_UPDATE)
-    assert not permissions.has_action_permission(operator, permissions.CONTRACTORS_DELETE)
+    assert permissions.has_action_permission(operator, permissions.PAYMENTS_CREATE)
+    assert permissions.has_action_permission(operator, permissions.PAYMENTS_UPDATE)
+    assert permissions.has_action_permission(operator, permissions.PAYMENTS_DELETE)
+    assert permissions.has_action_permission(operator, permissions.PAYMENT_TRANSACTIONS_CREATE)
+    assert permissions.has_action_permission(operator, permissions.PAYMENT_TRANSACTIONS_UPDATE)
+    assert permissions.has_action_permission(operator, permissions.PAYMENT_TRANSACTIONS_DELETE)
+    assert permissions.has_action_permission(operator, permissions.CONTRACTORS_CREATE)
+    assert permissions.has_action_permission(operator, permissions.CONTRACTORS_UPDATE)
+    assert permissions.has_action_permission(operator, permissions.CONTRACTORS_DELETE)
+    assert permissions.has_action_permission(operator, permissions.CONTRACTORS_TOGGLE)
+
     assert not permissions.has_action_permission(operator, permissions.USERS_MANAGE)
+    assert not permissions.has_action_permission(operator, permissions.SYSTEM_SETTINGS_MANAGE)
     assert not permissions.has_action_permission(operator, permissions.TELEGRAM_MANAGE)
+    assert not permissions.has_action_permission(operator, permissions.BACKUPS_MANAGE)
     assert not permissions.has_action_permission(operator, permissions.BACKUPS_RESTORE)
+    assert not permissions.has_action_permission(operator, permissions.SECURITY_AUDIT_VIEW)
 
 
 def test_viewer_and_legacy_user_have_no_action_permissions():
