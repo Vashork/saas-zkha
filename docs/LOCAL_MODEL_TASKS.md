@@ -54,6 +54,12 @@ Boundaries:
 - Do not change DB schema in P2-17.
 - Do not change page permission semantics.
 
+### P2-DOCKER-1 Docker hardening follow-up
+
+Status: audit findings recorded in `docs/DOCKER_HARDENING_TODO.md`; implementation not started.
+
+Do not combine this with P2-17 unless explicitly requested. Docker build and smoke must be confirmed before closing this item.
+
 ### P1-AUDIT-1 remaining production validation
 
 Still open:
