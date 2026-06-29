@@ -33,6 +33,7 @@
 23. Добавлен admin-only web UI `/telegram` для журнала входящих Telegram-сообщений с фильтрами по статусу/user/chat/type/search и быстрым обзором effective Telegram access.
 24. Добавлены GUI-настройки Telegram-журнала: `telegram_log_mode` (`blocked`/`allowed`/`all`), `telegram_log_retention_days`, `telegram_log_retention_count`; бот применяет режим логирования и retention при записи новых сообщений.
 25. Добавлено базовое GUI-управление доступом Telegram: `telegram_admin_id` и `telegram_allowed_user_ids` сохраняются в БД и применяются middleware бота без пересборки; env остаётся fallback.
+26. Добавлен P2-13 GUI reply/edit для Telegram: admin может отвечать на inbound log row через Bot API, исходящие ответы сохраняются в `TelegramOutboundMessageLog`, а отправленные ботом сообщения можно редактировать из `/telegram` при наличии `telegram_message_id`.
 
 ## P1
 
@@ -149,10 +150,10 @@
    - настройка шаблонов ответов `/start`, `/help`, ошибок и подтверждений оплаты;
    - предпросмотр шаблонов и validation placeholders перед сохранением;
    - audit log всех изменений Telegram-настроек.
-4. [ ] P2-13 Управление ответами на входящие сообщения:
+4. [x] P2-13 Управление ответами на входящие сообщения:
    - для каждой записи журнала дать admin action `reply` через Bot API в исходный `chat_id`;
    - хранить исходящие сообщения в отдельной таблице `TelegramOutboundMessageLog` с `telegram_message_id`, `chat_id`, текстом, статусом отправки и actor_user_id;
-   - если Telegram Bot API вернул `message_id`, разрешить admin-only `edit` для сообщений, отправленных этим ботом, через `editMessageText`/`editMessageCaption`;
+   - если Telegram Bot API вернул `message_id`, разрешить admin-only `edit` для текстовых сообщений, отправленных этим ботом, через `editMessageText`;
    - явно показать ограничение Bot API: бот не может редактировать чужие сообщения пользователей в чате, только собственные сообщения бота и только пока Telegram разрешает их редактирование;
    - tests/mock Bot API для send/edit failure paths.
 5. [ ] P2-14 Связать Telegram-журнал с бизнес-событиями:

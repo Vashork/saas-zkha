@@ -110,6 +110,7 @@
                         <th>Chat</th>
                         <th>Тип</th>
                         <th>Текст / caption</th>
+                        <th>Ответ</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -127,11 +128,59 @@
                         <td>{{ m.chat_id or '—' }}</td>
                         <td>{{ m.message_type }}</td>
                         <td style="max-width:520px;white-space:pre-wrap;word-break:break-word;">{{ m.text or 'без текста' }}</td>
+                        <td style="min-width:260px;">
+                            {% if m.chat_id %}
+                            <form method="post" action="/telegram/messages/{{ m.id }}/reply">
+                                <input type="hidden" name="_csrf" value="{{ _csrf }}">
+                                <textarea name="reply_text" class="input-custom" rows="2" placeholder="Ответить в этот chat_id" required></textarea>
+                                <button type="submit" class="btn-secondary-custom" style="margin-top:6px;">↩️ Отправить</button>
+                            </form>
+                            {% else %}
+                            <span style="color:var(--text-muted);">нет chat_id</span>
+                            {% endif %}
+                        </td>
                     </tr>
                 {% endfor %}
                 </tbody>
             </table>
         </div>
+        {% endif %}
+    </div>
+
+    <div class="card-custom" style="margin-top:24px;">
+        <h3 style="margin-bottom:16px;">📤 Последние исходящие ответы</h3>
+        {% if not outbound_messages %}
+        <p style="color:var(--text-muted);">Исходящих ответов пока нет.</p>
+        {% else %}
+        <div style="overflow-x:auto;">
+            <table class="table-custom">
+                <thead><tr><th>ID</th><th>Дата</th><th>Chat</th><th>Telegram msg id</th><th>Статус</th><th>Текст</th><th>Редактировать</th></tr></thead>
+                <tbody>
+                {% for out in outbound_messages %}
+                <tr>
+                    <td>#{{ out.id }}</td>
+                    <td style="white-space:nowrap;">{{ out.created_at }}</td>
+                    <td>{{ out.chat_id }}</td>
+                    <td>{{ out.telegram_message_id or '—' }}</td>
+                    <td><span class="badge-status badge-{{ 'paid' if out.status in ['sent','edited'] else 'overdue' }}">{{ out.status }}</span>{% if out.error_message %}<div style="color:var(--overdue);font-size:12px;">{{ out.error_message }}</div>{% endif %}</td>
+                    <td style="max-width:420px;white-space:pre-wrap;word-break:break-word;">{{ out.text }}</td>
+                    <td style="min-width:260px;">
+                        {% if out.telegram_message_id %}
+                        <form method="post" action="/telegram/outbound/{{ out.id }}/edit">
+                            <input type="hidden" name="_csrf" value="{{ _csrf }}">
+                            <textarea name="edited_text" class="input-custom" rows="2" required>{{ out.text }}</textarea>
+                            <button type="submit" class="btn-secondary-custom" style="margin-top:6px;">✏️ Изменить</button>
+                        </form>
+                        {% else %}
+                        <span style="color:var(--text-muted);">редактирование недоступно</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <p style="color:var(--text-muted);font-size:13px;margin-top:10px;">Ограничение Telegram Bot API: можно редактировать только сообщения, отправленные этим ботом, и только пока Telegram разрешает их редактирование.</p>
         {% endif %}
     </div>
 </div>

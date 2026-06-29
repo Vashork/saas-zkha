@@ -10,7 +10,7 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
 from app.database import Base
-from app.models import Setting, TelegramMessageLog, User
+from app.models import Setting, TelegramMessageLog, TelegramOutboundMessageLog, User
 from app.utils import hash_password
 from app.web.routes import auth, telegram
 
@@ -101,6 +101,8 @@ def test_telegram_router_registered_and_nav_visible_for_admin():
     assert 'name="telegram_log_mode"' in template
     assert 'name="telegram_admin_id"' in template
     assert 'name="telegram_allowed_user_ids"' in template
+    assert 'action="/telegram/messages/{{ m.id }}/reply"' in template
+    assert 'action="/telegram/outbound/{{ out.id }}/edit"' in template
     assert "TelegramMessageLog" not in template  # implementation detail stays in route, not UI text
 
 
@@ -173,3 +175,69 @@ async def test_admin_can_save_telegram_log_settings_and_apply_retention(telegram
     assert saved_allowlist == "222,333"
     old_exists = await session.scalar(select(TelegramMessageLog.id).where(TelegramMessageLog.username == "old_user"))
     assert old_exists is None
+
+
+@pytest.mark.asyncio
+async def test_admin_can_reply_to_inbound_message_from_gui(telegram_db, monkeypatch):
+    session, admin, _ = telegram_db
+
+    def fake_send(token, chat_id, text):
+        assert chat_id == 1001
+        assert text == "Здравствуйте"
+        return {"ok": True, "result": {"message_id": 555}}
+
+    monkeypatch.setattr(telegram, "_send_bot_message", fake_send)
+
+    response = await telegram.reply_to_telegram_message(
+        1,
+        _request("/telegram/messages/1/reply", method="POST", user=admin),
+        db=session,
+        reply_text=" Здравствуйте ",
+    )
+
+    assert isinstance(response, RedirectResponse)
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/telegram?success=")
+    outbound = await session.scalar(select(TelegramOutboundMessageLog).where(TelegramOutboundMessageLog.inbound_message_id == 1))
+    assert outbound is not None
+    assert outbound.status == "sent"
+    assert outbound.telegram_message_id == 555
+    assert outbound.text == "Здравствуйте"
+
+
+@pytest.mark.asyncio
+async def test_admin_can_edit_sent_bot_message_from_gui(telegram_db, monkeypatch):
+    session, admin, _ = telegram_db
+    outbound = TelegramOutboundMessageLog(
+        inbound_message_id=1,
+        actor_user_id=admin.id,
+        chat_id=1001,
+        telegram_message_id=555,
+        text="old",
+        status="sent",
+    )
+    session.add(outbound)
+    await session.commit()
+
+    def fake_edit(token, chat_id, message_id, text):
+        assert chat_id == 1001
+        assert message_id == 555
+        assert text == "new text"
+        return {"ok": True, "result": {"message_id": 555}}
+
+    monkeypatch.setattr(telegram, "_edit_bot_message", fake_edit)
+
+    response = await telegram.edit_telegram_outbound_message(
+        outbound.id,
+        _request(f"/telegram/outbound/{outbound.id}/edit", method="POST", user=admin),
+        db=session,
+        edited_text=" new text ",
+    )
+
+    assert isinstance(response, RedirectResponse)
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/telegram?success=")
+    await session.refresh(outbound)
+    assert outbound.status == "edited"
+    assert outbound.is_edited is True
+    assert outbound.text == "new text"

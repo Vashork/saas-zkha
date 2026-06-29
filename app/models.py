@@ -182,3 +182,29 @@ class TelegramMessageLog(Base):
 
     def __repr__(self):
         return f"<TelegramMessageLog(telegram_user_id={self.telegram_user_id}, is_allowed={self.is_allowed})>"
+
+
+class TelegramOutboundMessageLog(Base):
+    __tablename__ = "telegram_outbound_message_log"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    inbound_message_id = Column(Integer, ForeignKey("telegram_message_log.id"), nullable=True)
+    actor_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    chat_id = Column(Integer, nullable=False)
+    telegram_message_id = Column(Integer, nullable=True)
+    text = Column(Text, nullable=False)
+    status = Column(String, nullable=False, default="pending")
+    error_message = Column(Text, nullable=True)
+    is_edited = Column(Boolean, nullable=False, default=False)
+
+    inbound_message = relationship("TelegramMessageLog")
+    actor = relationship("User")
+
+    __table_args__ = (
+        CheckConstraint("status IN ('pending', 'sent', 'failed', 'edited')", name="ck_telegram_outbound_status"),
+    )
+
+    def __repr__(self):
+        return f"<TelegramOutboundMessageLog(chat_id={self.chat_id}, status={self.status})>"

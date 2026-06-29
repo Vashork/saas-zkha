@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import json
+from urllib import error as urlerror
+from urllib import request as urlrequest
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
@@ -12,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.audit import log_admin_action
 from app.config import get_settings
 from app.database import get_db
-from app.models import Setting, TelegramMessageLog
+from app.models import Setting, TelegramMessageLog, TelegramOutboundMessageLog
 from app.web.routes.auth import get_current_user
 from app.web.template_engine import templates
 
@@ -87,6 +90,36 @@ def _row_status(row: TelegramMessageLog) -> str:
     if row.is_admin:
         return "admin"
     return "allowed" if row.is_allowed else "blocked"
+
+
+def _bot_api_request(token: str, method: str, payload: dict) -> dict:
+    if not token:
+        return {"ok": False, "description": "TELEGRAM_BOT_TOKEN is not configured"}
+    data = json.dumps(payload).encode("utf-8")
+    req = urlrequest.Request(
+        f"https://api.telegram.org/bot{token}/{method}",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlrequest.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urlerror.HTTPError as exc:
+        try:
+            return json.loads(exc.read().decode("utf-8"))
+        except Exception:
+            return {"ok": False, "description": str(exc)}
+    except Exception as exc:
+        return {"ok": False, "description": str(exc)}
+
+
+def _send_bot_message(token: str, chat_id: int, text: str) -> dict:
+    return _bot_api_request(token, "sendMessage", {"chat_id": chat_id, "text": text})
+
+
+def _edit_bot_message(token: str, chat_id: int, message_id: int, text: str) -> dict:
+    return _bot_api_request(token, "editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": text})
 
 
 async def _apply_telegram_log_retention(db: AsyncSession, settings: dict[str, str]) -> int:
@@ -178,6 +211,12 @@ async def telegram_page(
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
     result = await db.execute(query.order_by(TelegramMessageLog.id.desc()).limit(safe_limit))
     rows = result.scalars().all()
+    outbound_result = await db.execute(
+        select(TelegramOutboundMessageLog)
+        .order_by(TelegramOutboundMessageLog.id.desc())
+        .limit(20)
+    )
+    outbound_messages = outbound_result.scalars().all()
     settings = await _settings_dict(db)
     app_settings = get_settings()
     db_allowed_ids = _parse_int_list(settings.get(TELEGRAM_ALLOWED_USER_IDS_KEY))
@@ -193,6 +232,7 @@ async def telegram_page(
         "user_theme": settings.get("ui_theme", "dark"),
         "active_page": "telegram",
         "messages": rows,
+        "outbound_messages": outbound_messages,
         "message_status": _row_status,
         "total": total or 0,
         "limit": safe_limit,
@@ -267,3 +307,108 @@ async def save_telegram_settings(
     )
     await db.commit()
     return RedirectResponse(url="/telegram?success=Настройки+Telegram+сохранены", status_code=303)
+
+
+@router.post("/telegram/messages/{message_id}/reply")
+async def reply_to_telegram_message(
+    message_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    reply_text: str = Form(""),
+):
+    current_user = await get_current_user(request, db)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=303)
+    if current_user.role != "admin":
+        return RedirectResponse(url="/?denied=1", status_code=303)
+
+    text = reply_text.strip()
+    if not text:
+        return RedirectResponse(url="/telegram?error=Пустой+ответ+Telegram", status_code=303)
+
+    inbound = await db.get(TelegramMessageLog, message_id)
+    if not inbound or inbound.chat_id is None:
+        return RedirectResponse(url="/telegram?error=Telegram+сообщение+или+chat_id+не+найдены", status_code=303)
+
+    outbound = TelegramOutboundMessageLog(
+        inbound_message_id=inbound.id,
+        actor_user_id=current_user.id,
+        chat_id=inbound.chat_id,
+        text=text,
+        status="pending",
+    )
+    db.add(outbound)
+    await db.flush()
+
+    result = _send_bot_message(get_settings().TELEGRAM_BOT_TOKEN, inbound.chat_id, text)
+    if result.get("ok"):
+        outbound.status = "sent"
+        outbound.telegram_message_id = result.get("result", {}).get("message_id")
+        redirect_url = "/telegram?success=Ответ+Telegram+отправлен"
+    else:
+        outbound.status = "failed"
+        outbound.error_message = str(result.get("description") or result)
+        redirect_url = "/telegram?error=Не+удалось+отправить+Telegram+ответ"
+
+    await log_admin_action(
+        db,
+        actor=current_user,
+        action="telegram_reply_send",
+        entity_type="telegram_outbound_message",
+        entity_id=outbound.id,
+        details={"inbound_message_id": inbound.id, "chat_id": inbound.chat_id, "status": outbound.status},
+        request=request,
+    )
+    await db.commit()
+    return RedirectResponse(url=redirect_url, status_code=303)
+
+
+@router.post("/telegram/outbound/{outbound_id}/edit")
+async def edit_telegram_outbound_message(
+    outbound_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    edited_text: str = Form(""),
+):
+    current_user = await get_current_user(request, db)
+    if not current_user:
+        return RedirectResponse(url="/login", status_code=303)
+    if current_user.role != "admin":
+        return RedirectResponse(url="/?denied=1", status_code=303)
+
+    text = edited_text.strip()
+    if not text:
+        return RedirectResponse(url="/telegram?error=Пустой+текст+редактирования", status_code=303)
+
+    outbound = await db.get(TelegramOutboundMessageLog, outbound_id)
+    if not outbound or not outbound.telegram_message_id:
+        return RedirectResponse(url="/telegram?error=Исходящее+сообщение+не+найдено+или+нет+telegram_message_id", status_code=303)
+
+    result = _edit_bot_message(
+        get_settings().TELEGRAM_BOT_TOKEN,
+        outbound.chat_id,
+        outbound.telegram_message_id,
+        text,
+    )
+    if result.get("ok"):
+        outbound.text = text
+        outbound.status = "edited"
+        outbound.is_edited = True
+        outbound.error_message = None
+        redirect_url = "/telegram?success=Telegram+сообщение+отредактировано"
+    else:
+        outbound.status = "failed"
+        outbound.error_message = str(result.get("description") or result)
+        redirect_url = "/telegram?error=Не+удалось+отредактировать+Telegram+сообщение"
+
+    await log_admin_action(
+        db,
+        actor=current_user,
+        action="telegram_reply_edit",
+        entity_type="telegram_outbound_message",
+        entity_id=outbound.id,
+        details={"chat_id": outbound.chat_id, "telegram_message_id": outbound.telegram_message_id, "status": outbound.status},
+        request=request,
+    )
+    await db.commit()
+    return RedirectResponse(url=redirect_url, status_code=303)

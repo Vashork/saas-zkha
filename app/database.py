@@ -131,6 +131,7 @@ def _run_legacy_migrations(conn):
 
     _backfill_legacy_payment_transactions(conn)
     _ensure_telegram_message_log(conn)
+    _ensure_telegram_outbound_message_log(conn)
 
 
 def _backfill_legacy_payment_transactions(conn) -> None:
@@ -184,5 +185,27 @@ def _ensure_telegram_message_log(conn) -> None:
             text TEXT,
             is_allowed BOOLEAN NOT NULL DEFAULT 0,
             is_admin BOOLEAN NOT NULL DEFAULT 0
+        )
+    """))
+
+
+def _ensure_telegram_outbound_message_log(conn) -> None:
+    """Create Telegram outbound reply/edit log for legacy SQLite databases."""
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS telegram_outbound_message_log (
+            id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            inbound_message_id INTEGER,
+            actor_user_id INTEGER,
+            chat_id INTEGER NOT NULL,
+            telegram_message_id INTEGER,
+            text TEXT NOT NULL,
+            status VARCHAR NOT NULL DEFAULT 'pending',
+            error_message TEXT,
+            is_edited BOOLEAN NOT NULL DEFAULT 0,
+            CONSTRAINT ck_telegram_outbound_status CHECK (status IN ('pending', 'sent', 'failed', 'edited')),
+            FOREIGN KEY(inbound_message_id) REFERENCES telegram_message_log (id),
+            FOREIGN KEY(actor_user_id) REFERENCES users (id)
         )
     """))
