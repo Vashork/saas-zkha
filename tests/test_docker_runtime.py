@@ -72,7 +72,10 @@ def test_readme_documents_non_root_bind_mount_permissions():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "запускают приложение не от root" in readme
-    assert "Entrypoint контейнера" in readme
+    assert "Dockerfile `USER zhkh`" in readme
+    assert "Startup-скрипты больше не делают `chown` и не используют `gosu`" in readme
     assert "sudo chown -R 1000:1000 data backups logs" in readme
     assert "APP_UID" in readme
     assert "APP_GID" in readme
+    assert "через `gosu zhkh`" not in readme
+    assert "перед стартом пытается исправить владельца" not in readme
