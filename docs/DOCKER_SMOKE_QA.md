@@ -40,6 +40,26 @@ python scripts/docker_smoke_check.py --build-attempts 3
 python scripts/docker_smoke_check.py --skip-logs
 ```
 
+## Automated baseline evidence
+
+2026-06-29, Windows/Python 3.13.14, user-provided local run:
+
+```text
+python -m pytest tests/test_docker_smoke_script.py -v: 5 passed in 0.17s
+python scripts/docker_smoke_check.py: SUCCESS
+Docker Compose command: docker compose
+quiet Compose validation: ok
+web image build: ok
+bot image build: ok
+docker compose up -d: web healthy, nginx running, bot started
+/health: {"status":"ok","database":"ok","scheduler":"running"}
+/login: reachable
+/uploads public access: blocked with HTTP 404
+web logs: startup complete, scheduler started, no smoke-blocking errors
+nginx logs: configuration complete, ready for start up
+bot logs: polling started
+```
+
 ## Manual authenticated smoke evidence
 
 The baseline script is intentionally non-destructive and does not require app credentials. Capture these manual checks after the baseline passes:
