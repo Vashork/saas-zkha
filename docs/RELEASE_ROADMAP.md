@@ -28,6 +28,7 @@
 18. Full test run на Windows/Python 3.13 зелёный: `251 passed, 8 skipped, 5 warnings` за 69.76s.
 19. `app/web/static/css/local-ui-tweaks.css` подключён в `base.html`; добавлен asset wiring test.
 20. Timezone доведён до UI/settings: admin-only сохранение `settings.notification_timezone`, IANA validation, применение к backup page и scheduler jobs, route/template tests.
+21. Docker web/bot images запускаются под non-root пользователем `zhkh`; существующий `docker/start-web.sh` подключён в web image; README описывает права для bind-mount директорий.
 
 ## P1
 
@@ -45,13 +46,13 @@
 6. [x] Унифицировать payment status helpers на dashboard.
 7. [x] Обработать duplicate contractor name/slug при редактировании.
 8. [x] Решить, нужен ли CSRF на `/login`.
-9. Добавить non-root user в Docker images.
+9. [x] Добавить non-root user в Docker images.
 10. Добавить web UI для журнала Telegram-сообщений на admin-only странице.
 11. Добавить настройки режима Telegram-журнала: логировать только blocked/allowed/all и срок хранения.
 12. [x] Довести timezone до конца: поле в UI, сохранение `settings.notification_timezone`, использование на странице бекапов и в scheduler/notifications, где применимо.
 13. [x] Подключить `app/web/static/css/local-ui-tweaks.css` в `base.html` или удалить файл, если правки больше не нужны.
 14. Решить scope темы оформления: сейчас `/settings/theme` доступен любому authenticated user, но пишет глобальный `ui_theme`; для multi-user лучше сделать per-user preference или admin-only global setting.
-15. Убрать или подключить `docker/start-web.sh`, чтобы в репозитории не было неиспользуемого runtime-скрипта.
+15. [x] Убрать или подключить `docker/start-web.sh`, чтобы в репозитории не было неиспользуемого runtime-скрипта.
 
 ## Tests
 
@@ -67,6 +68,7 @@
 21. [x] Добавить tests для Telegram receipt upload: invalid extension, spoofed PDF/JPG/PNG magic bytes, oversized document/photo.
 22. [x] Добавить route/template tests для сохранения и отображения timezone.
 23. [x] Добавить asset wiring test для `local-ui-tweaks.css`.
+24. [x] Добавить source-level tests для Docker non-root runtime и документации bind-mount прав.
 
 ## Расшифровка
 
@@ -81,9 +83,10 @@
 9. Dashboard использует общую status logic из `payment_helpers` и различает `partial` / `partial_overdue` так же, как payments/history.
 10. `contractors/edit` ловит `IntegrityError`, как уже сделано в `contractors/add`.
 11. `/login` включён в CSRF middleware; форма получает `_csrf` из `request.state.csrf_token`.
-12. Docker images сейчас запускают процессы от root; для public production нужен non-root runtime user.
+12. Docker images запускают web/bot процессы от non-root пользователя `zhkh`; для Linux/WSL bind-mount директорий нужны права на `data/`, `backups/` и `logs/` под UID/GID контейнерного пользователя.
 13. Нужны не только helper/source tests, но и ASGI/route tests, которые проходят через middleware, templates и реальные form actions.
 14. Telegram receipt upload теперь проверяет allowed extension, размер и magic bytes для документов и фото до финального сохранения файла в прямом и interactive workflows.
 15. Full test run 2026-06-29 зелёный: 251 passed, 8 skipped, 0 failed.
 16. `local-ui-tweaks.css` оставлен как актуальный UI-fix и подключён после `qa-fixes.css`, чтобы правки select и блока бекапов реально применялись.
 17. `notification_timezone` теперь валидируется как IANA timezone, сохраняется отдельным admin-only route и используется при пересборке notification/auto-backup scheduler jobs.
+18. `docker/start-web.sh` теперь используется web image как runtime command, поэтому в репозитории не остаётся неподключённого web start script.
