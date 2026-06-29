@@ -45,6 +45,26 @@
             </div>
             <div style="margin-top:16px;"><button type="submit" class="btn-custom">💾 Сохранить настройки</button></div>
         </form>
+
+        <form method="post" action="/settings/timezone" style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border);">
+            <input type="hidden" name="_csrf" value="{{ _csrf }}">
+            {% set notification_timezone = settings.get('notification_timezone', 'Europe/Moscow') %}
+            <div class="form-group">
+                <label>Часовой пояс уведомлений и бекапов</label>
+                <select name="notification_timezone" class="input-custom">
+                    <option value="Europe/Moscow" {% if notification_timezone == 'Europe/Moscow' %}selected{% endif %}>Europe/Moscow</option>
+                    <option value="Europe/Berlin" {% if notification_timezone == 'Europe/Berlin' %}selected{% endif %}>Europe/Berlin</option>
+                    <option value="UTC" {% if notification_timezone == 'UTC' %}selected{% endif %}>UTC</option>
+                    <option value="Asia/Yerevan" {% if notification_timezone == 'Asia/Yerevan' %}selected{% endif %}>Asia/Yerevan</option>
+                    <option value="Asia/Tbilisi" {% if notification_timezone == 'Asia/Tbilisi' %}selected{% endif %}>Asia/Tbilisi</option>
+                    {% if notification_timezone not in ['Europe/Moscow', 'Europe/Berlin', 'UTC', 'Asia/Yerevan', 'Asia/Tbilisi'] %}
+                    <option value="{{ notification_timezone }}" selected>{{ notification_timezone }}</option>
+                    {% endif %}
+                </select>
+                <small style="color:var(--text-muted);display:block;margin-top:6px;">Сохраняется как <code>settings.notification_timezone</code>; используется для времени на странице бекапов и cron-задач планировщика.</small>
+            </div>
+            <button type="submit" class="btn-secondary-custom">🕒 Сохранить часовой пояс</button>
+        </form>
     </div>
 
     <details class="card-custom" style="margin-bottom:24px;">
