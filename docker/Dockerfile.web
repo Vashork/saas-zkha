@@ -3,15 +3,16 @@ FROM python:3.11-slim
 ARG APP_UID=1000
 ARG APP_GID=1000
 
+LABEL org.opencontainers.image.title="saas-zkha web" \
+      org.opencontainers.image.description="FastAPI web application for ЖКХ accounting" \
+      org.opencontainers.image.source="https://github.com/Vashork/saas-zkha"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends -o DEBIAN_FRONTEND=noninteractive curl gosu \
-    && rm -rf /var/lib/apt/lists/* \
-    && groupadd --gid "${APP_GID}" zhkh \
+RUN groupadd --gid "${APP_GID}" zhkh \
     && useradd --uid "${APP_UID}" --gid zhkh --create-home --shell /usr/sbin/nologin zhkh \
     && mkdir -p /app/data/uploads /app/backups /var/log/zhkh-bot \
     && chown -R zhkh:zhkh /app /var/log/zhkh-bot
@@ -19,14 +20,17 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app/ ./app/
-COPY alembic.ini ./alembic.ini
-COPY alembic/ ./alembic/
-COPY init_db.py .
+COPY --chown=zhkh:zhkh app/ ./app/
+COPY --chown=zhkh:zhkh alembic.ini ./alembic.ini
+COPY --chown=zhkh:zhkh alembic/ ./alembic/
+COPY --chown=zhkh:zhkh init_db.py .
 COPY docker/start-web.sh /usr/local/bin/start-web
 
 RUN sed -i 's/\r$//' /usr/local/bin/start-web \
     && chmod +x /usr/local/bin/start-web \
-    && chown -R zhkh:zhkh /app /var/log/zhkh-bot
+    && chown zhkh:zhkh /usr/local/bin/start-web
+
+EXPOSE 8000
+USER zhkh
 
 CMD ["/usr/local/bin/start-web"]
