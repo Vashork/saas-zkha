@@ -6,6 +6,25 @@ This file replaces the old `docs/LOCAL_AI_TODO.md`. The old file may be deleted 
 
 ## Current active tasks
 
+### P2-AUDIT-3 dependency audit CI gate
+
+Status: implemented via GitHub connector; awaiting local/CI validation.
+
+Completed:
+
+- `.github/workflows/dependency-audit.yml`: added a low-privilege GitHub Actions workflow.
+- Workflow triggers on pull requests, pushes to `main` and `audit/main-hardening-followup`, and manual `workflow_dispatch`.
+- Workflow installs `pip-audit` as CI tooling and runs `python -m pip_audit -r requirements.txt` against runtime dependencies only.
+- Workflow does not require app secrets, Telegram token, Docker, or full Compose config output.
+- `tests/test_ci_security_gate.py`: added source-level regression tests for workflow existence, runtime requirements audit command, low privileges, and no secret-dependent env block.
+
+Connector limitation:
+
+- Tests and GitHub Actions were not executed by the connector. Run locally:
+  - `python -m pytest tests/test_ci_security_gate.py -v`
+  - optional: `python -m pytest tests/test_readme_release_docs.py tests/test_docker_runtime.py tests/test_ci_security_gate.py -v`
+- After pushing to GitHub, confirm the `Dependency audit / pip-audit runtime requirements` workflow run is green.
+
 ### P2-AUDIT-2 README hardened-state alignment
 
 Status: completed and locally validated.
