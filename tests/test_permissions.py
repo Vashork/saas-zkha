@@ -310,36 +310,80 @@ async def test_updating_user_with_no_checked_pages_stores_empty_permissions(perm
 
 
 @pytest.mark.asyncio
-async def test_operator_cannot_mutate_contractors_or_payments_until_action_permissions(permission_db):
-    request = _request("/contractors/add", method="POST", user=permission_db.operator)
-
+async def test_operator_can_manage_business_crud_but_not_system_users(permission_db):
     contractor_response = await contractors.add_contractor(
-        request,
+        _request("/contractors/add", method="POST", user=permission_db.operator),
         db=permission_db.session,
-        name="Blocked by operator",
-        slug="blocked-by-operator",
+        name="Operator Power",
+        slug="operator-power",
         payment_type="fixed",
-        fixed_amount="10",
+        fixed_amount="99.50",
         due_day=5,
         account_number="",
         description="",
     )
-    _assert_redirect(contractor_response, "/contractors?error=")
+    _assert_redirect(contractor_response, "/contractors")
 
-    blocked_contractor = await permission_db.session.scalar(
-        select(Contractor).where(Contractor.slug == "blocked-by-operator")
+    operator_contractor = await permission_db.session.scalar(
+        select(Contractor).where(Contractor.slug == "operator-power")
     )
-    assert blocked_contractor is None
+    assert operator_contractor is not None
 
-    payment_response = await payments.delete_payment(
-        permission_db.payment.id,
-        _request("/payments/payment-1/delete", method="POST", user=permission_db.operator),
+    payment_response = await payments.add_payment(
+        _request("/payments/add", method="POST", user=permission_db.operator),
         db=permission_db.session,
+        contractor_id=operator_contractor.id,
+        amount="",
+        status="pending",
+        paid_date_str="",
+        year=2026,
+        month=7,
+        receipt=None,
     )
-    _assert_redirect(payment_response, "/payments?error=")
+    _assert_redirect(payment_response, "/payments?year=2026&month=7")
 
-    existing_payment = await permission_db.session.get(Payment, permission_db.payment.id)
-    assert existing_payment is not None
+    operator_payment = await permission_db.session.scalar(
+        select(Payment).where(
+            Payment.contractor_id == operator_contractor.id,
+            Payment.year == 2026,
+            Payment.month == 7,
+        )
+    )
+    assert operator_payment is not None
+    assert operator_payment.amount == Decimal("99.50")
+    assert operator_payment.paid_amount is None
+
+    transaction_response = await payments.add_payment_transaction(
+        operator_payment.id,
+        _request(f"/payments/{operator_payment.id}/transactions/add", method="POST", user=permission_db.operator),
+        db=permission_db.session,
+        transaction_amount="99.50",
+        paid_date_str="2026-07-05",
+        receipt=None,
+    )
+    _assert_redirect(transaction_response, "/payments?year=2026&month=7")
+
+    refreshed_payment = await permission_db.session.get(Payment, operator_payment.id)
+    assert refreshed_payment.paid_amount == Decimal("99.50")
+    assert refreshed_payment.status == "paid"
+
+    denied_user_response = await auth.create_user(
+        _request("/settings/users/create", method="POST", user=permission_db.operator),
+        db=permission_db.session,
+        username="blocked-by-operator",
+        password="password123",
+        role="viewer",
+        page_dashboard="on",
+        page_payments="off",
+        page_history="off",
+        page_contractors="off",
+        page_analytics="off",
+        page_settings="off",
+    )
+    _assert_redirect(denied_user_response, "/settings?error=")
+
+    blocked_user = await permission_db.session.scalar(select(User).where(User.username == "blocked-by-operator"))
+    assert blocked_user is None
 
 
 @pytest.mark.asyncio

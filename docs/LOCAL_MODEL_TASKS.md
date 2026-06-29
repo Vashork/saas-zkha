@@ -8,51 +8,16 @@ This file replaces the old `docs/LOCAL_AI_TODO.md`. The old file may be deleted 
 
 ### P2-17 operator business CRUD
 
-Status: started.
+Status: completed locally.
 
-Already committed:
+Completed:
 
-- `app/web/permissions.py`: operator now gets `BUSINESS_ACTION_PERMISSIONS`.
+- `app/web/permissions.py`: operator gets `BUSINESS_ACTION_PERMISSIONS`.
 - `tests/test_action_permissions.py`: operator is expected to have business permissions and no system permissions.
-
-What still needs local work:
-
-1. Update `tests/test_permissions.py`.
-   - Replace old test `test_operator_cannot_mutate_contractors_or_payments_until_action_permissions`.
-   - New behavior: operator can mutate business contractors/payments.
-   - Keep assertion that operator still cannot manage users/settings.
-
-2. Suggested route-level test behavior:
-   - operator creates a contractor;
-   - operator creates a payment for that contractor;
-   - operator adds a payment transaction;
-   - assert payment becomes paid or paid_amount is updated;
-   - operator tries `auth.create_user(...)` and must get `/settings?error=`;
-   - created user must not exist.
-
-3. Keep existing viewer/legacy-user deny tests.
-
-4. Run targeted validation:
-
-`python -m pytest tests/test_action_permissions.py tests/test_permissions.py tests/test_theme_scope.py tests/test_telegram_gui.py`
-
-5. Run full validation:
-
-`python -m compileall app init_db.py tests && python -m pytest`
-
-6. If green, update `docs/RELEASE_ROADMAP.md`:
-   - mark P2-17 `[x]`;
-   - keep P2-18/P2-19/P2-20 open;
-   - record full pytest result.
-
-Boundaries:
-
-- Do not grant operator `USERS_MANAGE`.
-- Do not grant operator `SYSTEM_SETTINGS_MANAGE`.
-- Do not grant operator `TELEGRAM_MANAGE`.
-- Do not grant operator `BACKUPS_MANAGE` or `BACKUPS_RESTORE`.
-- Do not change DB schema in P2-17.
-- Do not change page permission semantics.
+- `tests/test_permissions.py`: operator creates contractor, creates payment, adds transaction, updates paid amount/status, and remains blocked from user management.
+- Targeted validation: `30 passed`.
+- Full validation: `287 passed, 4 skipped, 7 warnings in 71.22s`.
+- `docs/RELEASE_ROADMAP.md`: P2-17 marked `[x]`; P2-18/P2-19/P2-20 remain open.
 
 ### P2-DOCKER-1 Docker hardening follow-up
 
