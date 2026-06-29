@@ -9,13 +9,13 @@
 ## Сделано
 
 1. Telegram-бот ограничен allowlist конкретных Telegram user id.
-2. Добавлена переменная `TELEGRAM_ALLOWED_USER_IDS=123,456`.
-3. `TELEGRAM_ADMIN_ID` автоматически добавляется в allowlist.
+2. Добавлена настройка Telegram allowlist.
+3. Telegram admin id автоматически добавляется в allowlist.
 4. Сообщения от неразрешённых Telegram user id молча игнорируются.
 5. Добавлены unit tests для parsing allowlist и silent ignore middleware.
-6. Production validation блокирует `SECRET_KEY=change-me-to-a-random-string` из `.env.example`.
+6. Production validation блокирует известные небезопасные default app secret значения.
 7. Добавлен журнал входящих Telegram-сообщений в БД: user id, username, имя, chat id, тип, текст/caption, allowed/admin flags.
-8. Добавлена admin-only команда `/tglog [N]` для просмотра последних Telegram-сообщений; доступна только `TELEGRAM_ADMIN_ID`.
+8. Добавлена admin-only команда `/tglog [N]` для просмотра последних Telegram-сообщений.
 9. Исправлена семантика пустых page permissions: `NULL` оставлен как legacy full access, пустая строка означает no access.
 10. Добавлен лимит суммарного распакованного размера backup-архива и повторная проверка лимита во время unpack.
 11. Login rate limit теперь учитывает `X-Forwarded-For` / `X-Real-IP` от доверенного nginx/reverse proxy и игнорирует spoofed headers от внешнего peer.
@@ -40,11 +40,12 @@
 30. P2-AUDIT-2 README hardened-state alignment закрыт: README обновлён под authenticated receipts, Telegram allowlist/management и production checklist; добавлены README regression tests.
 31. P2-AUDIT-3 dependency audit CI gate реализован: добавлен GitHub Actions workflow `dependency-audit.yml`, который запускает `python -m pip_audit -r requirements.txt`, и source-level regression tests для workflow.
 32. P2-AUDIT-4 Docker smoke QA закрыт локальным evidence: smoke helper/test добавлены, `docker_smoke_check.py` прошёл build/up/health/login/uploads-block/log checks, ручная проверка dashboard/backups/receipt upload/download успешна.
+33. P2-AUDIT-5 pytest warnings cleanup закрыт: ошибочные asyncio marks на sync receipt source-level tests убраны, unused deprecated Starlette TestClient import удалён, full pytest на Windows/Python 3.13 зелёный без warnings summary: `295 passed, 8 skipped in 72.32s`.
 
 ## P1
 
 1. [x] Исправить семантику пустых page permissions.
-2. [x] Запретить все известные дефолтные `SECRET_KEY` в production.
+2. [x] Запретить известные небезопасные default app secret значения в production.
 3. [x] Добавить лимит распакованного размера backup-архива.
 4. [x] Исправить rate limit login за nginx/reverse proxy.
 5. [x] Добавить первичный admin-only контроль входящих сообщений Telegram-бота.
@@ -71,7 +72,7 @@
 
 12. Добавить full-stack CSRF tests для POST-форм.
 13. [x] Добавить tests для пустых permissions.
-14. [x] Добавить tests для production default `SECRET_KEY` из `.env.example`.
+14. [x] Добавить tests для production default app secret из example env.
 15. Добавить route-level tests для fixed overpay и variable top-up.
 16. [x] Добавить tests для backup tar-bomb/unpacked-size rejection.
 17. [x] Добавить tests для Telegram message log, `/tglog`, web UI `/telegram`, фильтров и настроек журнала.
@@ -89,6 +90,7 @@
 29. [x] Добавить README regression tests для hardened release docs: authenticated receipts, production/Compose secret safety и Telegram allowlist management.
 30. [x] Добавить source-level tests для CI/security gate dependency audit workflow.
 31. [x] Добавить Docker smoke helper/source tests для P2-AUDIT-4: `scripts/docker_smoke_check.py` и `tests/test_docker_smoke_script.py`.
+32. [x] Разобрать pytest warnings в receipt source-level tests: убрать ошибочные asyncio marks с sync tests и удалить unused deprecated Starlette TestClient import.
 
 ## Расшифровка
 
@@ -96,10 +98,10 @@
 2. P1-риски по access-control edge case, production secret defaults, proxy/rate-limit, лимиту распакованного backup и Telegram receipt validation закрыты по коду; full test run зелёный. Для публичного production остаются ручной QA и P2-hardening.
 3. Backup обязателен перед изменениями, которые меняют данные или restore-поведение: permissions semantics, backup extraction, payment transaction backfill/schema.
 4. Пустые permissions сейчас могут означать полный доступ к страницам. Управляемый пустой список должен означать no access, а legacy full-access отделён через `NULL`.
-5. Production validation должна блокировать не только `change-me-in-production`, но и `change-me-to-a-random-string` из `.env.example`.
+5. Production validation должна блокировать известные небезопасные default app secret значения.
 6. Backup upload ограничивает размер загруженного `.tar.gz`, а backup service дополнительно считает суммарный размер файлов после распаковки.
 7. Login rate limit берёт реальный клиентский IP из `X-Forwarded-For` / `X-Real-IP`, только если peer похож на доверенный локальный/private reverse proxy.
-8. Telegram-бот теперь принимает команды только от явно разрешённых Telegram user id. Управление несколькими аккаунтами: добавить их числовые id через запятую в `.env`, затем пересоздать контейнер `bot`.
+8. Telegram-бот теперь принимает команды только от явно разрешённых Telegram user id. Управление несколькими аккаунтами: добавить их числовые id через allowlist setting, затем пересоздать контейнер `bot`, если используется env fallback.
 9. Dashboard использует общую status logic из `payment_helpers` и различает `partial` / `partial_overdue` так же, как payments/history.
 10. `contractors/edit` ловит `IntegrityError`, как уже сделано в `contractors/add`.
 11. `/login` включён в CSRF middleware; форма получает `_csrf` из `request.state.csrf_token`.
@@ -116,14 +118,15 @@
 22. P2-16 закрыл переход от прямых `role == admin` checks к named action permissions для business mutations и sensitive admin routes; operator/viewer всё ещё не получают mutations до P2-17. Full pytest после P2-16: `287 passed, 4 skipped, 7 warnings in 75.47s`.
 23. P2-17 дал operator `BUSINESS_ACTION_PERMISSIONS`, оставив Telegram/backups/restore/users/global settings/security за `admin`. Full pytest после P2-17: `287 passed, 4 skipped, 7 warnings in 71.22s`.
 24. P2-AUDIT-2 синхронизировал README с фактическим hardened-состоянием: чеки не публичные `/uploads`, production запуск требует безопасных env-настроек, Telegram allowlist/management описаны без раскрытия секретов.
-25. P2-AUDIT-3 добавил dependency audit gate в GitHub Actions: low-privilege workflow устанавливает `pip-audit` как CI tooling и проверяет runtime `requirements.txt`; секреты, Docker и полный Compose config не используются.
+25. P2-AUDIT-3 добавил dependency audit gate в GitHub Actions: low-privilege workflow устанавливает `pip-audit` как CI tooling и проверяет runtime `requirements.txt`; app secrets, Docker и полный Compose config не используются.
 26. P2-AUDIT-4 закрыт локальным Docker smoke evidence: quiet Compose validation, последовательные web/bot builds, `up -d`, `/health`, `/login`, blocked `/uploads`, bounded logs, manual dashboard/backups/receipt upload/download ok; полный Compose config и секреты не выводились.
+27. P2-AUDIT-5 закрыл pytest warning cleanup: `tests/test_receipt_ownership.py` и `tests/test_receipt_mime_type.py` больше не применяют asyncio marks к sync source-level tests, `tests/test_receipt_hardening.py` больше не импортирует unused deprecated `starlette.testclient.TestClient`; targeted receipt tests `13 passed, 4 skipped`, full pytest `295 passed, 8 skipped`, warnings summary отсутствует.
 
 ## Аудит 2026-06-29 — follow-up перед production
 
 ### Вердикт
 
-1. Internal/private pilot: готов при условии ручного smoke QA после сборки контейнеров и заполнения `.env` реальными секретами.
+1. Internal/private pilot: готов при условии ручного smoke QA после сборки контейнеров и заполнения env безопасными production-значениями.
 2. Public internet production: P1-AUDIT-1 dependency audit и Docker smoke закрыты локальным evidence; перед публичным production остаются ручной QA и P2-hardening.
 3. Telegram-часть безопасна как allowlist-only бот, а базовый Telegram management уже доступен через `/telegram`; полный management block остаётся отдельной P2-задачей ниже.
 
@@ -131,33 +134,33 @@
 
 - `python -m compileall app init_db.py tests` — успешно.
 - `pytest -q` — 269 passed, 4 skipped, 8 warnings.
-- `docker-compose config` — успешно после локального создания `.env` из `.env.example`.
-- Ранее `pip-audit -r requirements.txt` находил 47 known vulnerabilities в 6 пакетах; после dependency bump и локальной проверки P1-AUDIT-1 закрыт без known vulnerabilities.
+- quiet Compose validation — успешно после локального создания env file из example.
+- Ранее dependency audit находил known vulnerabilities; после dependency bump и локальной проверки P1-AUDIT-1 закрыт без known vulnerabilities.
 
 ### Попытка P1-AUDIT-1 2026-06-29 через GitHub connector
 
-- Обновлён `requirements.txt`: `fastapi==0.138.1`, явный `starlette==1.3.1`, `aiogram==3.29.0`, явный `aiohttp==3.14.1`, `jinja2==3.1.6`, `python-multipart==0.0.32`, `python-dotenv==1.2.2`, `pytest==9.1.1`, `pytest-asyncio==1.4.0`.
+- Обновлены runtime/test dependencies: FastAPI/Starlette/aiogram/aiohttp/Jinja/python-multipart/python-dotenv/pytest/pytest-asyncio.
 - Добавлен compatibility adapter в `app/web/template_engine.py`, потому что Starlette 1.x удаляет deprecated `TemplateResponse(name, context)`, а текущие routes ещё используют legacy call shape.
 - Добавлен regression assertion в `tests/test_template_engine.py` на наличие compatibility adapter.
 - Full pytest после dependency/role/action-permission changes подтверждён локально пользователем: `287 passed, 4 skipped, 7 warnings in 75.47s`.
-- `docker-compose config` подтверждён локально пользователем: ok.
+- quiet Compose validation подтверждён локально пользователем: ok.
 - P1-AUDIT-1 закрыт по последующему локальному evidence: dependency audit без known vulnerabilities и Docker smoke build/up/health/login/bot/nginx ok.
 
 ### Замечания / follow-up
 
 1. [x] P1-AUDIT-1 Завершить dependency audit validation:
-   - `pip-audit -r requirements.txt`;
+   - runtime dependency audit;
    - при доступном Docker: `docker compose up -d --build`, `/health`, login smoke, Telegram bot startup logs.
-   - закрыто по локальному evidence 2026-06-29; не запрашивать полный `docker compose config`, использовать только `docker compose config -q`.
-2. [x] P2-AUDIT-2 Обновить README под фактическое hardened-состояние: receipts больше не должны описываться как публично обслуживаемые `/uploads`, Telegram allowlist и `/tglog` уже есть, production запуск должен явно включать `APP_ENV=production`, уникальный `SECRET_KEY`, реальные пароли и `COOKIE_SECURE` за HTTPS.
+   - закрыто по локальному evidence 2026-06-29; не запрашивать полный Compose config, использовать только quiet validation.
+2. [x] P2-AUDIT-2 Обновить README под фактическое hardened-состояние: receipts больше не должны описываться как публично обслуживаемые `/uploads`, Telegram allowlist и `/tglog` уже есть, production запуск должен явно требовать безопасные env-настройки.
    - README обновлён; добавлен `tests/test_readme_release_docs.py`.
 3. [x] P2-AUDIT-3 Добавить CI/security gate для dependency audit: `pip-audit -r requirements.txt` или эквивалентный шаг, чтобы новые CVE не всплывали только перед релизом.
    - Добавлен `.github/workflows/dependency-audit.yml`; workflow запускает `python -m pip_audit -r requirements.txt` без app secrets/Docker/full Compose config.
    - Добавлен `tests/test_ci_security_gate.py`.
    - Требуется локальный targeted pytest и подтверждение GitHub Actions run после push.
 4. [x] P2-AUDIT-4 Docker smoke QA выполнить в среде с доступным Docker Compose plugin/v1: `docker_smoke_check.py` подтвердил `docker compose config -q`, sequential web/bot builds, `up -d`, `/health`, `/login`, blocked `/uploads`, bounded web/nginx/bot logs; ручная проверка dashboard, `/backups` и receipt upload/download успешна.
-5. [ ] P2-AUDIT-5 Разобрать текущие pytest warnings: ошибочные `@pytest.mark.asyncio` на sync tests в receipt source-level tests.
-   - Fix prepared: `tests/test_receipt_ownership.py` больше не применяет module-level `pytest.mark.asyncio` к sync source-level tests; SQLAlchemy query compile check переведён в sync test. Нужен targeted/full pytest evidence перед закрытием.
+5. [x] P2-AUDIT-5 Разобрать текущие pytest warnings: ошибочные `@pytest.mark.asyncio` на sync tests в receipt source-level tests.
+   - Закрыто по локальному evidence 2026-06-29: targeted receipt tests `13 passed, 4 skipped in 5.44s`; full pytest `295 passed, 8 skipped in 72.32s`; warnings summary отсутствует.
 
 ### Permissions and roles block
 
