@@ -92,18 +92,30 @@ cp .env.example .env
 TELEGRAM_BOT_TOKEN — токен вашего бота от @BotFather
 SECRET_KEY — любой случайный строка
 ADMIN_PASSWORD / USER_PASSWORD — пароли по умолчанию
-2. Запустить
+
+2. Подготовить runtime-директории для non-root контейнеров
+
+Образы `web` и `bot` запускают приложение не от root, а от пользователя `zhkh` с UID/GID `1000:1000`. Entrypoint контейнера перед стартом пытается исправить владельца bind-mount директорий `data/`, `backups/` и `logs/`, затем запускает Python-процесс через `gosu zhkh`. Для Linux/WSL всё равно безопасно подготовить права перед первым запуском:
+
+```bash
+mkdir -p data/uploads backups logs/nginx logs
+sudo chown -R 1000:1000 data backups logs
+```
+
+Если на хосте нужен другой UID/GID, передайте build args `APP_UID` и `APP_GID` в `docker-compose.yml` и выставьте такие же права на `data/`, `backups/` и `logs/`.
+
+3. Запустить
 docker compose up -d --build
 
 Если используете старый docker-compose (v1): docker-compose up -d --build
 
-3. Проверить контейнеры
+4. Проверить контейнеры
 docker ps
 # Должно показать 3 контейнера: zhkh-web, zhkh-bot, zhkh-nginx
-4. Открыть в браузере
+5. Открыть в браузере
 http://localhost
 Логин: admin / <ваш пароль>
-5. Остановить
+6. Остановить
 docker compose down
 Структура проекта
 zhkh-bot/
@@ -138,6 +150,7 @@ Telegram-бот
 
 /start — приветствие и инструкции
 /contractors — список подрядчиков
+/tglog [N] — последние N входящих сообщений боту, только для TELEGRAM_ADMIN_ID
 
 Фиксация оплаты:
 
@@ -161,7 +174,7 @@ pip install pytest pytest-asyncio
 python -m pytest tests/ -v
 Troubleshooting
 Ошибка	Решение
-Permission denied при docker-compose	sudo usermod -aG docker $USER + перезайдите
+Permission denied при docker-compose	sudo usermod -aG docker $USER + перезайдите; для non-root контейнеров также проверьте `sudo chown -R 1000:1000 data backups logs`
 Container is unhealthy	docker logs zhkh-web — проверьте логи
 Порт 80 занят	Поменяйте в docker-compose.yml: "8080:80"
 Бот не отвечает	Проверьте TELEGRAM_BOT_TOKEN в .env, docker logs zhkh-bot

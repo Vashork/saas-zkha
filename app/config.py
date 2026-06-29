@@ -11,6 +11,12 @@ from dotenv import load_dotenv
 # Load .env from project root
 load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 
+UNSAFE_SECRET_KEYS = {
+    "",
+    "change-me-in-production",
+    "change-me-to-a-random-string",
+}
+
 
 def _env_bool(name: str, default: bool) -> bool:
     val = os.getenv(name)
@@ -27,6 +33,21 @@ def _env_int(name: str, default: int) -> int:
         return int(val)
     except ValueError:
         return default
+
+
+def _env_int_set(name: str) -> set[int]:
+    """Parse comma-separated integer ids from an environment variable."""
+    raw = os.getenv(name, "")
+    values: set[int] = set()
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            values.add(int(item))
+        except ValueError as exc:
+            raise RuntimeError(f"{name} must contain only comma-separated integer ids") from exc
+    return values
 
 
 def _env_samesite(name: str, default: str) -> str:
@@ -51,6 +72,12 @@ class Settings:
 
         self.TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
         self.TELEGRAM_ADMIN_ID: str = os.getenv("TELEGRAM_ADMIN_ID", "")
+        self.TELEGRAM_ALLOWED_USER_IDS: set[int] = _env_int_set("TELEGRAM_ALLOWED_USER_IDS")
+        if self.TELEGRAM_ADMIN_ID.strip():
+            try:
+                self.TELEGRAM_ALLOWED_USER_IDS.add(int(self.TELEGRAM_ADMIN_ID.strip()))
+            except ValueError as exc:
+                raise RuntimeError("TELEGRAM_ADMIN_ID must be an integer Telegram user id") from exc
 
         self.ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin")
         self.USER_PASSWORD: str = os.getenv("USER_PASSWORD", "user")
@@ -77,7 +104,7 @@ class Settings:
         """
         if not self.IS_PRODUCTION:
             return
-        if not self.SECRET_KEY or self.SECRET_KEY == "change-me-in-production":
+        if self.SECRET_KEY in UNSAFE_SECRET_KEYS:
             raise RuntimeError(
                 "Production startup blocked: SECRET_KEY must be set to a secure value"
             )

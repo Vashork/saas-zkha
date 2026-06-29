@@ -7,9 +7,18 @@ import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command, StateFilter
+from aiogram.types import BotCommand
 
 from app.config import get_settings
-from app.bot.handlers import paid_handler, start_handler, contractors_handler
+from app.bot.security import register_telegram_allowlist
+from app.bot.handlers import (
+    balance_handler,
+    contractors_handler,
+    help_handler,
+    paid_handler,
+    start_handler,
+    tglog_handler,
+)
 from app.bot.interactive import (
     ReceiptFlow,
     cancel_handler,
@@ -28,6 +37,13 @@ def _message_text(message) -> str:
     return message.text or message.caption or ""
 
 
+def _telegram_admin_id(raw: str) -> int | None:
+    try:
+        return int(raw.strip()) if raw and raw.strip() else None
+    except ValueError:
+        return None
+
+
 async def main():
     settings = get_settings()
     token = settings.TELEGRAM_BOT_TOKEN
@@ -39,10 +55,21 @@ async def main():
         return
 
     bot = Bot(token=token)
+    await bot.set_my_commands([
+        BotCommand(command="help", description="Все команды и подсказка по оплате"),
+        BotCommand(command="balance", description="Остатки по платежам за текущий месяц"),
+        BotCommand(command="contractors", description="Список подрядчиков и тегов"),
+        BotCommand(command="tglog", description="Журнал сообщений, только для Telegram-админа"),
+    ])
     dp = Dispatcher()
+    admin_user_id = _telegram_admin_id(settings.TELEGRAM_ADMIN_ID)
+    register_telegram_allowlist(dp, settings.TELEGRAM_ALLOWED_USER_IDS, admin_user_id)
 
     dp.message.register(start_handler, Command("start"))
+    dp.message.register(help_handler, Command("help"))
+    dp.message.register(balance_handler, Command("balance"))
     dp.message.register(contractors_handler, Command("contractors"))
+    dp.message.register(tglog_handler, Command("tglog"))
     dp.message.register(cancel_handler, Command("cancel"))
 
     dp.message.register(receipt_contractor_handler, StateFilter(ReceiptFlow.contractor))

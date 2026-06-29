@@ -367,3 +367,12 @@ def test_filter_partial():
 
     result = _filter_by_effective_status([partial, paid], "partial")
     assert result == [partial]
+
+
+def test_dashboard_reuses_shared_status_helpers():
+    from app.web.routes import dashboard
+    from app.web.routes import payment_helpers
+
+    assert dashboard._effective_status is payment_helpers._effective_status
+    assert dashboard._status_label is payment_helpers._status_label
+    assert dashboard._status_css_class is payment_helpers._status_css_class

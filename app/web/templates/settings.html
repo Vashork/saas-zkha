@@ -3,30 +3,13 @@
 {% block title %}⚙️ Настройки — Мой Дом{% endblock %}
 
 {% block content %}
-<nav class="navbar-custom">
-    <div class="brand">🏠 Мой Дом</div>
-    <div class="nav-links">
-        <a class="nav-link-custom" href="/">📊 Дашборд</a>
-        <a class="nav-link-custom" href="/payments">💳 Платежи</a>
-        <a class="nav-link-custom" href="/history">📜 История</a>
-        <a class="nav-link-custom" href="/contractors">🏢 Подрядчики</a>
-        <a class="nav-link-custom" href="/analytics">📈 Аналитика</a>
-        {% if user_role == 'admin' %}<a class="nav-link-custom" href="/backups">💾 Бекапы</a>{% endif %}
-        <a class="nav-link-custom active" href="/settings">⚙️ Настройки</a>
-    </div>
-    <div class="user-badge">
-        {{ username }}
-        <button class="btn-icon" title="Сменить имя" onclick="document.getElementById('changeNameModal').style.display='flex'">✏️</button>
-        <button class="btn-icon" title="Сменить пароль" onclick="document.getElementById('changePassModal').style.display='flex'">🔑</button>
-        <button class="btn-icon" title="Переключить тему" onclick="toggleTheme()">🌓</button>
-        <a class="nav-link-custom" href="/logout" style="margin-left:8px;padding:4px 10px;">🚪</a>
-    </div>
-</nav>
+{% set active_page = 'settings' %}
+{% include "_navbar.html" %}
 
 <div class="container-main">
     <h1 class="page-title">⚙️ Настройки</h1>
     {% if error %}<div class="alert-error">{{ error }}</div>{% endif %}
-    {% if success %}<div style="background:var(--paid-bg);color:var(--paid);padding:12px;border-radius:12px;margin-bottom:16px;font-size:14px;">✅ {{ success }}</div>{% endif %}
+    {% if success %}<div class="alert-success">✅ {{ success }}</div>{% endif %}
 
     <div class="card-custom" style="margin-bottom:24px;">
         <h3 style="margin-bottom:16px;">👤 Мой профиль</h3>
@@ -44,6 +27,7 @@
             <div class="form-group">
                 <label>День платежа по умолчанию</label>
                 <input type="number" name="default_due_day" class="input-custom" value="{{ settings.get('default_due_day', '15') }}" min="1" max="28">
+                <small style="color:var(--text-muted);display:block;margin-top:6px;">Используется как подсказка/значение по умолчанию для новых подрядчиков. Уже созданные подрядчики не меняет.</small>
             </div>
             <div class="form-group">
                 <label>Тема оформления</label>
@@ -52,11 +36,34 @@
                     <option value="light" {% if settings.get('ui_theme','dark') == 'light' %}selected{% endif %}>Светлая</option>
                 </select>
             </div>
-            <div class="form-group" style="display:flex;align-items:center;gap:8px;padding-top:24px;">
+            <div class="form-group" style="display:flex;align-items:flex-start;gap:8px;padding-top:8px;">
                 <input type="checkbox" name="notifications_enabled" value="on" {% if settings.get('notifications_enabled','off') == 'on' %}checked{% endif %}>
-                <label style="margin:0;">Включить уведомления</label>
+                <div>
+                    <label style="margin:0;color:var(--text);">Включить уведомления</label>
+                    <small style="color:var(--text-muted);display:block;margin-top:4px;">Включает автоматические напоминания планировщика: ближайшие/просроченные платежи и системные уведомления, если настроен канал отправки.</small>
+                </div>
             </div>
             <div style="margin-top:16px;"><button type="submit" class="btn-custom">💾 Сохранить настройки</button></div>
+        </form>
+
+        <form method="post" action="/settings/timezone" style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border);">
+            <input type="hidden" name="_csrf" value="{{ _csrf }}">
+            {% set notification_timezone = settings.get('notification_timezone', 'Europe/Moscow') %}
+            <div class="form-group">
+                <label>Часовой пояс уведомлений и бекапов</label>
+                <select name="notification_timezone" class="input-custom">
+                    <option value="Europe/Moscow" {% if notification_timezone == 'Europe/Moscow' %}selected{% endif %}>Europe/Moscow</option>
+                    <option value="Europe/Berlin" {% if notification_timezone == 'Europe/Berlin' %}selected{% endif %}>Europe/Berlin</option>
+                    <option value="UTC" {% if notification_timezone == 'UTC' %}selected{% endif %}>UTC</option>
+                    <option value="Asia/Yerevan" {% if notification_timezone == 'Asia/Yerevan' %}selected{% endif %}>Asia/Yerevan</option>
+                    <option value="Asia/Tbilisi" {% if notification_timezone == 'Asia/Tbilisi' %}selected{% endif %}>Asia/Tbilisi</option>
+                    {% if notification_timezone not in ['Europe/Moscow', 'Europe/Berlin', 'UTC', 'Asia/Yerevan', 'Asia/Tbilisi'] %}
+                    <option value="{{ notification_timezone }}" selected>{{ notification_timezone }}</option>
+                    {% endif %}
+                </select>
+                <small style="color:var(--text-muted);display:block;margin-top:6px;">Сохраняется как <code>settings.notification_timezone</code>; используется для времени на странице бекапов и cron-задач планировщика.</small>
+            </div>
+            <button type="submit" class="btn-secondary-custom">🕒 Сохранить часовой пояс</button>
         </form>
     </div>
 
@@ -96,7 +103,15 @@
                 <td><strong>{{ u.username }}</strong>{% if u.id == current_user_id %} (вы){% endif %}</td>
                 <td><span class="badge-status badge-{{ 'paid' if u.role == 'admin' else 'pending' }}">{{ '👑 Админ' if u.role == 'admin' else '👤 Пользователь' }}</span></td>
                 <td>{% if u.is_active %}<span style="color:var(--paid);">✅ Активен</span>{% else %}<span style="color:var(--text-muted);">⛔ Деактивирован</span>{% endif %}</td>
-                <td>{% if u.page_permissions %}<span style="font-size:12px;color:var(--text-muted);">{{ u.page_permissions | replace(',', ', ') }}</span>{% else %}<span style="font-size:12px;color:var(--text-muted);">все</span>{% endif %}</td>
+                <td>
+                    {% if u.role == 'admin' or u.page_permissions is none %}
+                    <span style="font-size:12px;color:var(--text-muted);">все</span>
+                    {% elif u.page_permissions %}
+                    <span style="font-size:12px;color:var(--text-muted);">{{ u.page_permissions | replace(',', ', ') }}</span>
+                    {% else %}
+                    <span style="font-size:12px;color:var(--text-muted);">нет доступа</span>
+                    {% endif %}
+                </td>
                 <td>
                     {% if u.id != current_user_id %}
                     {% if u.is_active %}
@@ -104,7 +119,7 @@
                     {% else %}
                     <form method="post" action="/settings/users/{{ u.id }}/toggle-active" style="display:inline;"><input type="hidden" name="_csrf" value="{{ _csrf }}"><button type="submit" class="btn-icon" title="Активировать">✅</button></form>
                     {% endif %}
-                    <button class="btn-icon" title="Права" onclick="openEditUserModal({{ u.id }}, '{{ u.page_permissions or '' }}', '{{ u.role }}')">⚙️</button>
+                    <button class="btn-icon" title="Права" onclick="openEditUserModal({{ u.id }}, '{{ '__ALL__' if u.page_permissions is none else u.page_permissions }}', '{{ u.role }}')">⚙️</button>
                     <button class="btn-icon" title="Сменить пароль" onclick="openChangePassModal({{ u.id }})">🔑</button>
                     {% if u.role != 'admin' %}
                     <form method="post" action="/settings/users/{{ u.id }}/delete" style="display:inline;" onsubmit="return confirm('Удалить {{ u.username }}?')"><input type="hidden" name="_csrf" value="{{ _csrf }}"><button type="submit" class="btn-icon" title="Удалить">🗑️</button></form>
@@ -180,16 +195,19 @@
 function openEditUserModal(userId, perms, role) {
     document.getElementById('editUserForm').action = '/settings/users/' + userId + '/update';
     document.getElementById('editUserRoleSelect').value = role;
-    const permsList = perms ? perms.split(',') : [];
-    document.querySelectorAll('.edit-user-page-cb').forEach(cb => { cb.checked = permsList.includes(cb.dataset.slug); });
+    const fullAccess = perms === '__ALL__';
+    const permsList = perms && !fullAccess ? perms.split(',') : [];
+    document.querySelectorAll('.edit-user-page-cb').forEach(cb => {
+        cb.checked = fullAccess || permsList.includes(cb.dataset.slug);
+    });
     document.getElementById('editUserModal').style.display = 'flex';
 }
 function openChangePassModal(userId) {
     document.getElementById('changeUserPassForm').action = '/settings/users/' + userId + '/change-password';
     document.getElementById('changeUserPassModal').style.display = 'flex';
 }
-function closeModal(id) { document.getElementById(id).style.display = 'none'; }
-document.addEventListener('click', function(e) { if (e.target.classList.contains('modal-overlay')) { e.target.style.display = 'none'; } });
-document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display = 'none'); } });
+function closeModal(id) {
+    document.getElementById(id).style.display = 'none';
+}
 </script>
 {% endblock %}

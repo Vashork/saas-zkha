@@ -138,6 +138,11 @@ class TestProductionValidation:
         with pytest.raises(RuntimeError, match="SECRET_KEY"):
             settings.validate_for_startup()
 
+    def test_production_rejects_env_example_secret_key(self):
+        settings = _build_settings(SECRET_KEY="change-me-to-a-random-string")
+        with pytest.raises(RuntimeError, match="SECRET_KEY"):
+            settings.validate_for_startup()
+
     def test_production_rejects_default_admin_password(self):
         settings = _build_settings(ADMIN_PASSWORD="admin")
         with pytest.raises(RuntimeError, match="ADMIN_PASSWORD"):

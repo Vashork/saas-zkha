@@ -3,23 +3,8 @@
 {% block title %}🏢 Подрядчики — Мой Дом{% endblock %}
 
 {% block content %}
-<nav class="navbar-custom">
-    <div class="brand">🏠 Мой Дом</div>
-    <div class="nav-links">
-        <a class="nav-link-custom" href="/">📊 Дашборд</a>
-        <a class="nav-link-custom" href="/payments">💳 Платежи</a>
-        <a class="nav-link-custom" href="/history">📜 История</a>
-        <a class="nav-link-custom active" href="/contractors">🏢 Подрядчики</a>
-        <a class="nav-link-custom" href="/analytics">📈 Аналитика</a>
-        {% if user_role == 'admin' %}<a class="nav-link-custom" href="/backups">💾 Бекапы</a>{% endif %}
-        <a class="nav-link-custom" href="/settings">⚙️ Настройки</a>
-    </div>
-    <div class="user-badge">
-        {{ username }}
-        <button class="btn-icon" title="Переключить тему" onclick="toggleTheme()">🌓</button>
-        <a class="nav-link-custom" href="/logout" style="margin-left:8px;padding:4px 10px;">🚪</a>
-    </div>
-</nav>
+{% set active_page = 'contractors' %}
+{% include "_navbar.html" %}
 
 <div class="container-main">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;flex-wrap:wrap;">
@@ -32,6 +17,8 @@
             {% endif %}
         </div>
     </div>
+
+    {% if error %}<div class="alert-error">{{ error }}</div>{% endif %}
 
     {% if show_archived %}
     <div class="card-custom" style="background:var(--accent-bg);margin-bottom:16px;">
@@ -104,7 +91,8 @@
                 </div>
                 <div class="form-group">
                     <label>День оплаты (1-31)</label>
-                    <input type="number" name="due_day" class="input-custom" min="1" max="31" required>
+                    <input type="number" name="due_day" class="input-custom" min="1" max="31" value="{{ default_due_day | default(15) }}" required>
+                    <small style="color:var(--text-muted);display:block;margin-top:6px;">Значение берётся из настройки “День платежа по умолчанию”.</small>
                 </div>
                 <div class="form-group">
                     <label>Лицевой счет</label>

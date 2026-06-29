@@ -4,12 +4,13 @@ History route — all payments, filters, CSV export.
 
 import csv
 import io
+from datetime import datetime, time
 
 from fastapi import APIRouter, Request, Depends, Query
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.database import get_db
 from app.models import Payment, Contractor
@@ -31,7 +32,7 @@ router = APIRouter()
 
 
 def _history_query(year: int | None, month: int | None, contractor_id: str = ""):
-    query = select(Payment).options(joinedload(Payment.contractor))
+    query = select(Payment).options(joinedload(Payment.contractor), selectinload(Payment.transactions))
     if year:
         query = query.where(Payment.year == year)
     if month:
@@ -39,6 +40,39 @@ def _history_query(year: int | None, month: int | None, contractor_id: str = "")
     if contractor_id:
         query = query.where(Payment.contractor_id == contractor_id)
     return query.order_by(Payment.due_date.desc())
+
+
+def _latest_payment_at(payment: Payment) -> datetime | None:
+    dates = []
+    for tx in getattr(payment, "transactions", []) or []:
+        if tx.created_at:
+            dates.append(tx.created_at)
+        elif tx.paid_date:
+            dates.append(datetime.combine(tx.paid_date, time.min))
+    if dates:
+        return max(dates)
+    if payment.paid_date:
+        return datetime.combine(payment.paid_date, time.min)
+    return None
+
+
+def _sort_history_payments(payments: list[Payment], sort_by: str) -> list[Payment]:
+    if sort_by == "paid_asc":
+        return sorted(payments, key=lambda p: _latest_payment_at(p) or datetime.max)
+    if sort_by == "due_asc":
+        return sorted(payments, key=lambda p: p.due_date or datetime.max.date())
+    if sort_by == "due_desc":
+        return sorted(payments, key=lambda p: p.due_date or datetime.min.date(), reverse=True)
+    return sorted(payments, key=lambda p: _latest_payment_at(p) or datetime.min, reverse=True)
+
+
+def _format_payment_at(payment: Payment) -> str:
+    value = _latest_payment_at(payment)
+    if not value:
+        return ""
+    if value.time() == time.min:
+        return value.strftime("%d.%m.%Y")
+    return value.strftime("%d.%m.%Y %H:%M")
 
 
 @router.get("/history")
@@ -49,6 +83,7 @@ async def history_page(
     month: int = Query(None),
     contractor_id: str = Query(""),
     status_filter: str = Query(""),
+    sort_by: str = Query("paid_desc"),
 ):
     redirect = await _require_page(request, "history")
     if redirect:
@@ -59,7 +94,10 @@ async def history_page(
         return RedirectResponse(url="/login", status_code=303)
 
     result = await db.execute(_history_query(year, month, contractor_id))
-    payments = _filter_by_effective_status(result.scalars().all(), status_filter)
+    payments = _sort_history_payments(
+        _filter_by_effective_status(result.scalars().all(), status_filter),
+        sort_by,
+    )
 
     contractors_result = await db.execute(select(Contractor))
     contractors = contractors_result.scalars().all()
@@ -78,7 +116,9 @@ async def history_page(
         "selected_month": month,
         "selected_contractor": contractor_id,
         "status_filter": status_filter,
+        "sort_by": sort_by,
         "month_name": month_name,
+        "format_payment_at": _format_payment_at,
         "payment_color_class": payment_color_class,
         "planned_amount": _planned_amount,
         "paid_amount": _paid_amount,
@@ -98,17 +138,21 @@ async def export_csv(
     month: int = Query(None),
     contractor_id: str = Query(""),
     status_filter: str = Query(""),
+    sort_by: str = Query("paid_desc"),
 ):
     redirect = await _require_page(request, "history")
     if redirect:
         return redirect
 
     result = await db.execute(_history_query(year, month, contractor_id))
-    payments = _filter_by_effective_status(result.scalars().all(), status_filter)
+    payments = _sort_history_payments(
+        _filter_by_effective_status(result.scalars().all(), status_filter),
+        sort_by,
+    )
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Подрядчик", "Год", "Месяц", "Сумма", "Оплачено", "Остаток", "Срок", "Статус", "Дата оплаты"])
+    writer.writerow(["Подрядчик", "Год", "Месяц", "Сумма", "Оплачено", "Остаток", "Срок", "Статус", "Дата платежа"])
 
     for p in payments:
         writer.writerow([
@@ -120,11 +164,11 @@ async def export_csv(
             str(_remaining_amount(p)) if _remaining_amount(p) else "требуется начисление" if _requires_amount(p) else "",
             str(p.due_date),
             _effective_status(p),
-            str(p.paid_date) if p.paid_date else "",
+            _format_payment_at(p),
         ])
 
     return Response(
-        content=output.getvalue(),
-        media_type="text/csv",
+        content=output.getvalue().encode("utf-8-sig"),
+        media_type="text/csv; charset=utf-8-sig",
         headers={"Content-Disposition": "attachment; filename=payments_history.csv"},
     )

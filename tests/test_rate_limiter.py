@@ -4,8 +4,10 @@ Tests for rate limiter.
 
 import time
 import pytest
+from starlette.requests import Request
 
 from app.rate_limiter import _is_rate_limited, _record_attempt, MAX_ATTEMPTS, WINDOW_SECONDS
+from app.web.routes.auth import _login_rate_limit_key
 
 
 # --- Constants ---
@@ -73,3 +75,59 @@ def test_window_expiry():
         assert _is_rate_limited("127.0.0.1") is False
     finally:
         rate_limiter.time.time = orig_time
+
+
+async def _empty_receive():
+    return {"type": "http.request", "body": b"", "more_body": False}
+
+
+def _request(headers: list[tuple[bytes, bytes]], client_host: str) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/login",
+            "headers": headers,
+            "query_string": b"",
+            "client": (client_host, 50000),
+            "server": ("testserver", 80),
+            "scheme": "http",
+        },
+        receive=_empty_receive,
+    )
+
+
+def test_login_rate_limit_key_uses_x_forwarded_for_from_trusted_proxy():
+    request = _request(
+        [(b"x-forwarded-for", b"198.51.100.10, 172.18.0.1")],
+        "172.18.0.2",
+    )
+
+    assert _login_rate_limit_key(request) == "198.51.100.10"
+
+
+def test_login_rate_limit_key_falls_back_to_x_real_ip_from_trusted_proxy():
+    request = _request(
+        [(b"x-real-ip", b"198.51.100.11")],
+        "127.0.0.1",
+    )
+
+    assert _login_rate_limit_key(request) == "198.51.100.11"
+
+
+def test_login_rate_limit_key_ignores_forwarded_headers_from_public_peer():
+    request = _request(
+        [(b"x-forwarded-for", b"198.51.100.12")],
+        "8.8.8.8",
+    )
+
+    assert _login_rate_limit_key(request) == "8.8.8.8"
+
+
+def test_login_rate_limit_key_ignores_invalid_forwarded_header():
+    request = _request(
+        [(b"x-forwarded-for", b"not-an-ip")],
+        "172.18.0.2",
+    )
+
+    assert _login_rate_limit_key(request) == "172.18.0.2"

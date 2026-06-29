@@ -2,23 +2,8 @@
 {% block title %}🏠 Дашборд — Мой Дом{% endblock %}
 
 {% block content %}
-<nav class="navbar-custom">
-    <div class="brand">🏠 Мой Дом</div>
-    <div class="nav-links">
-        <a class="nav-link-custom active" href="/">📊 Дашборд</a>
-        <a class="nav-link-custom" href="/payments">💳 Платежи</a>
-        <a class="nav-link-custom" href="/history">📜 История</a>
-        <a class="nav-link-custom" href="/contractors">🏢 Подрядчики</a>
-        <a class="nav-link-custom" href="/analytics">📈 Аналитика</a>
-        {% if user_role == 'admin' %}<a class="nav-link-custom" href="/backups">💾 Бекапы</a>{% endif %}
-        <a class="nav-link-custom" href="/settings">⚙️ Настройки</a>
-    </div>
-    <div class="user-badge">
-        {{ username }}
-        <button class="btn-icon" title="Переключить тему" onclick="toggleTheme()">🌓</button>
-        <a class="nav-link-custom" href="/logout" style="margin-left:8px;padding:4px 10px;">🚪</a>
-    </div>
-</nav>
+{% set active_page = 'dashboard' %}
+{% include "_navbar.html" %}
 
 <div class="container-main">
     {% if request.query_params.get('denied') %}

@@ -1,12 +1,29 @@
 FROM python:3.11-slim
 
+ARG APP_UID=1000
+ARG APP_GID=1000
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends -o DEBIAN_FRONTEND=noninteractive curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends -o DEBIAN_FRONTEND=noninteractive curl gosu \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid "${APP_GID}" zhkh \
+    && useradd --uid "${APP_UID}" --gid zhkh --create-home --shell /usr/sbin/nologin zhkh \
+    && mkdir -p /app/data/uploads /var/log/zhkh-bot \
+    && chown -R zhkh:zhkh /app /var/log/zhkh-bot
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
+COPY docker/start-bot.sh /usr/local/bin/start-bot
 
-CMD ["sh", "-c", "mkdir -p /app/data/uploads /var/log/zhkh-bot && python -m app.bot.main"]
+RUN sed -i 's/\r$//' /usr/local/bin/start-bot \
+    && chmod +x /usr/local/bin/start-bot \
+    && chown -R zhkh:zhkh /app /var/log/zhkh-bot
+
+CMD ["/usr/local/bin/start-bot"]

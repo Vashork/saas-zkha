@@ -1,15 +1,20 @@
 """
-Database initialization — creates tables and seeds default data.
+Database initialization — creates tables via Alembic migrations and seeds default data.
 Run once on first startup.
+
+Alembic handles schema migrations. This script runs `alembic upgrade head`
+and then seeds default contractors, settings, and the bootstrap admin user.
 """
 
 import asyncio
 import os
+import subprocess
+from pathlib import Path
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import Base, engine, async_session_factory
+from app.database import async_session_factory
 from app.models import User, Setting, Contractor
 from app.utils import hash_password
 
@@ -39,52 +44,6 @@ DEFAULT_CONTRACTORS = [
     ("УК Наш Дом", "ук_наш_дом", "fixed", 4500, 25, None),
     ("Интернет Ростелеком", "интернет", "fixed", 750, 5, None),
 ]
-
-
-def _run_migrations(conn):
-    """Apply incremental migrations to an existing database."""
-    user_columns = [row[1] for row in conn.execute(text("PRAGMA table_info(users)")).fetchall()]
-
-    if "page_permissions" not in user_columns:
-        conn.execute(text("ALTER TABLE users ADD COLUMN page_permissions TEXT"))
-        print("Migration: added page_permissions to users")
-
-    if "is_active" not in user_columns:
-        conn.execute(text("ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1"))
-        print("Migration: added is_active to users")
-
-    conn.execute(text("""
-        CREATE TABLE IF NOT EXISTS payment_transactions (
-            id VARCHAR NOT NULL PRIMARY KEY,
-            payment_id VARCHAR NOT NULL,
-            amount NUMERIC(10, 2) NOT NULL,
-            paid_date DATE NOT NULL,
-            receipt_file VARCHAR,
-            notes TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            CONSTRAINT ck_payment_transaction_amount_positive CHECK (amount > 0),
-            FOREIGN KEY(payment_id) REFERENCES payments (id) ON DELETE CASCADE
-        )
-    """))
-
-    conn.execute(text("""
-        INSERT INTO payment_transactions (id, payment_id, amount, paid_date, receipt_file, notes)
-        SELECT
-            'tx-backfill-' || p.id,
-            p.id,
-            p.paid_amount,
-            COALESCE(p.paid_date, p.due_date),
-            p.receipt_file,
-            'Backfilled from legacy payment fields'
-        FROM payments p
-        WHERE p.paid_amount IS NOT NULL
-          AND p.paid_amount > 0
-          AND NOT EXISTS (
-              SELECT 1 FROM payment_transactions t WHERE t.payment_id = p.id
-          )
-    """))
-    print("Migration: ensured payment_transactions table and backfilled legacy paid payments")
 
 
 async def seed_data(session: AsyncSession):
@@ -127,20 +86,38 @@ async def seed_data(session: AsyncSession):
 
 
 async def main():
-    """Create tables and seed default data."""
+    """Create tables via Alembic and seed default data."""
     # Ensure the data directory exists (volume mount may have wrong perms)
     data_dir = os.path.dirname(os.path.abspath("/app/data/zhkh.db"))
     os.makedirs(data_dir, exist_ok=True)
     print(f"Ensuring data directory exists: {data_dir}")
 
-    print("Creating database tables...")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Run Alembic migrations
+    project_root = Path(__file__).resolve().parent
+    result = subprocess.run(
+        ["alembic", "-c", str(project_root / "alembic.ini"), "upgrade", "head"],
+        cwd=str(project_root),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"Alembic upgrade output: {result.stderr}")
+        # Fallback: stamp to base and retry
+        subprocess.run(
+            ["alembic", "-c", str(project_root / "alembic.ini"), "stamp", "base"],
+            cwd=str(project_root),
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            ["alembic", "-c", str(project_root / "alembic.ini"), "upgrade", "head"],
+            cwd=str(project_root),
+            capture_output=True,
+            text=True,
+        )
+    print("Alembic migrations applied.")
 
-    # Run migrations for existing databases
-    async with engine.begin() as conn:
-        await conn.run_sync(_run_migrations)
-
+    # Seed default data
     async with async_session_factory() as session:
         await seed_data(session)
         await session.commit()

@@ -1,0 +1,7 @@
+# Keep runtime scripts portable across Windows checkouts and Linux containers.
+*.sh text eol=lf
+Dockerfile* text eol=lf
+docker/* text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf

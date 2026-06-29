@@ -25,8 +25,8 @@ CSRF_COOKIE = "_csrf"
 CSRF_FIELD = "_csrf"
 CSRF_HEADER = "X-CSRF-Token"
 
-# Paths that do not require CSRF (login, logout, health)
-_EXEMPT_PATHS = {"/login", "/logout", "/health"}
+# Paths that do not require CSRF (logout, health)
+_EXEMPT_PATHS = {"/logout", "/health"}
 
 
 def _make_token() -> str:
@@ -110,13 +110,15 @@ class CsrfMiddleware(BaseHTTPMiddleware):
 
         if method in ("GET", "HEAD", "OPTIONS"):
             # Issue or refresh the CSRF token cookie
-            response = await call_next(request)
             existing = request.cookies.get(CSRF_COOKIE)
+            token = existing or _make_token()
+            request.state.csrf_token = token
+            response = await call_next(request)
             if not existing:
                 settings = get_settings()
                 response.set_cookie(
                     key=CSRF_COOKIE,
-                    value=_make_token(),
+                    value=token,
                     httponly=False,
                     samesite=settings.COOKIE_SAMESITE,
                     max_age=settings.SESSION_COOKIE_MAX_AGE_SECONDS,

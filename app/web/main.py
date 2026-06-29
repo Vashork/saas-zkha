@@ -14,7 +14,7 @@ from app.database import init_db, engine, async_session_factory
 from app.scheduler import start_scheduler, stop_scheduler, scheduler
 from app.csrf import CsrfMiddleware
 from app.web.template_engine import configure_route_templates
-from app.web.routes import auth, dashboard, payments, history, contractors, analytics, backups
+from app.web.routes import auth, dashboard, payments, history, contractors, analytics, backups, system_settings, telegram
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("zhkh.web")
@@ -41,14 +41,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ZhKH Bot", lifespan=lifespan)
 
-# Mount static files
+# Public static assets only. Receipts in data/uploads are served through
+# authenticated routes such as /payments/receipts/{path}.
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-
-# Mount uploads
-import os
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./data/uploads")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # Apply shared template globals to remaining legacy route-local template engines.
 configure_route_templates((auth, dashboard, payments, history, contractors, analytics, backups))
@@ -64,7 +59,9 @@ async def enforce_page_permissions(request: Request, call_next):
     return await call_next(request)
 
 
-# Include routers
+# Include routers. Register system_settings before auth so shared paths such as
+# /settings/theme use the hardened admin-only implementation.
+app.include_router(system_settings.router)
 app.include_router(auth.router)
 app.include_router(dashboard.router)
 app.include_router(payments.router)
@@ -72,8 +69,9 @@ app.include_router(history.router)
 app.include_router(contractors.router)
 app.include_router(analytics.router)
 app.include_router(backups.router)
+app.include_router(telegram.router)
 
-# CSRF middleware (after routers so that exempt paths like /login work)
+# CSRF middleware (after routers; safe methods issue tokens, unsafe methods verify them)
 app.add_middleware(CsrfMiddleware)
 
 

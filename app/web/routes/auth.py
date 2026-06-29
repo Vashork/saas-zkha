@@ -5,6 +5,7 @@ Auth routes — login, logout, session management, user management.
 import base64
 import hashlib
 import hmac
+import ipaddress
 import logging
 import secrets
 from typing import Optional
@@ -110,6 +111,44 @@ def _clear_session_cookies(response: RedirectResponse) -> None:
         response.delete_cookie(cookie_name, **kwargs)
 
 
+def _is_trusted_proxy_host(host: str | None) -> bool:
+    """Return True for local/private proxy addresses that may set forwarded IP headers."""
+    if not host:
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return host in {"localhost", "nginx", "zhkh-nginx"}
+    return ip.is_loopback or ip.is_private
+
+
+def _first_forwarded_for(value: str | None) -> str | None:
+    """Return first valid client IP from X-Forwarded-For."""
+    if not value:
+        return None
+    first = value.split(",", 1)[0].strip()
+    if not first:
+        return None
+    try:
+        ipaddress.ip_address(first)
+    except ValueError:
+        return None
+    return first
+
+
+def _login_rate_limit_key(request: Request) -> str:
+    """Choose a per-client rate-limit key, respecting nginx proxy headers."""
+    peer_host = request.client.host if request.client else None
+    if _is_trusted_proxy_host(peer_host):
+        forwarded_for = _first_forwarded_for(request.headers.get("x-forwarded-for"))
+        if forwarded_for:
+            return forwarded_for
+        real_ip = _first_forwarded_for(request.headers.get("x-real-ip"))
+        if real_ip:
+            return real_ip
+    return peer_host or "unknown"
+
+
 async def get_current_user(request: Request, db: AsyncSession) -> Optional[User]:
     """Load the active user from the signed session cookie."""
     user_id = _verify_session_cookie(request.cookies.get(SESSION_COOKIE))
@@ -158,7 +197,7 @@ async def _require_page(request: Request, page_slug: str):
     if user.role == "admin":
         return None
 
-    if not user.page_permissions:
+    if user.page_permissions is None:
         # Legacy users with no explicit permission list keep full access.
         return None
 
@@ -184,8 +223,8 @@ async def login(
     password: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
-    # Rate limit by client IP
-    client_ip = request.client.host if request.client else "unknown"
+    # Rate limit by real client IP when running behind nginx/reverse proxy.
+    client_ip = _login_rate_limit_key(request)
     if _is_rate_limited(client_ip):
         return templates.TemplateResponse("login.html", {
             "request": request,
@@ -482,7 +521,7 @@ async def update_user(
         "settings": page_settings,
     }
     allowed_pages = [slug for slug, val in perms_map.items() if val == "on"]
-    user.page_permissions = ",".join(allowed_pages) if allowed_pages else None
+    user.page_permissions = ",".join(allowed_pages)
 
     await log_admin_action(
         db,
