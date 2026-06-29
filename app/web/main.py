@@ -14,7 +14,7 @@ from app.database import init_db, engine, async_session_factory
 from app.scheduler import start_scheduler, stop_scheduler, scheduler
 from app.csrf import CsrfMiddleware
 from app.web.template_engine import configure_route_templates
-from app.web.routes import auth, dashboard, payments, history, contractors, analytics, backups
+from app.web.routes import auth, dashboard, payments, history, contractors, analytics, backups, system_settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("zhkh.web")
@@ -61,6 +61,7 @@ async def enforce_page_permissions(request: Request, call_next):
 
 # Include routers
 app.include_router(auth.router)
+app.include_router(system_settings.router)
 app.include_router(dashboard.router)
 app.include_router(payments.router)
 app.include_router(history.router)
