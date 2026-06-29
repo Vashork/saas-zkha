@@ -22,8 +22,8 @@ python scripts/docker_smoke_check.py
 The script detects Docker Compose plugin or legacy `docker-compose` and performs:
 
 1. quiet Compose validation with `config -q`;
-2. `docker compose build --no-cache web bot`;
-3. `docker compose up -d --build`;
+2. sequential `web` and `bot` image builds with `--no-cache` and one retry per service;
+3. `docker compose up -d` without forcing a second parallel rebuild;
 4. `docker compose ps`;
 5. `/health` through nginx until it returns healthy JSON;
 6. `/login` reachability;
@@ -36,6 +36,7 @@ Useful options:
 python scripts/docker_smoke_check.py --skip-build
 python scripts/docker_smoke_check.py --skip-up
 python scripts/docker_smoke_check.py --base-url http://localhost:8080
+python scripts/docker_smoke_check.py --build-attempts 3
 python scripts/docker_smoke_check.py --skip-logs
 ```
 
