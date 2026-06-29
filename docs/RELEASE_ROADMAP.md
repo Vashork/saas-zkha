@@ -41,6 +41,7 @@
 31. P2-AUDIT-3 dependency audit CI gate реализован: добавлен GitHub Actions workflow `dependency-audit.yml`, который запускает `python -m pip_audit -r requirements.txt`, и source-level regression tests для workflow.
 32. P2-AUDIT-4 Docker smoke QA закрыт локальным evidence: smoke helper/test добавлены, `docker_smoke_check.py` прошёл build/up/health/login/uploads-block/log checks, ручная проверка dashboard/backups/receipt upload/download успешна.
 33. P2-AUDIT-5 pytest warnings cleanup закрыт: ошибочные asyncio marks на sync receipt source-level tests убраны, unused deprecated Starlette TestClient import удалён, full pytest на Windows/Python 3.13 зелёный без warnings summary: `295 passed, 8 skipped in 72.32s`.
+34. P2-18 user management GUI закрыт: добавлены presets видимости страниц для create/edit user, UI-предупреждения о разделении role/action/page permissions, regression tests в `tests/test_ui_assets.py`; локальный evidence `298 passed, 8 skipped in 75.95s`.
 
 ## P1
 
@@ -91,6 +92,7 @@
 30. [x] Добавить source-level tests для CI/security gate dependency audit workflow.
 31. [x] Добавить Docker smoke helper/source tests для P2-AUDIT-4: `scripts/docker_smoke_check.py` и `tests/test_docker_smoke_script.py`.
 32. [x] Разобрать pytest warnings в receipt source-level tests: убрать ошибочные asyncio marks с sync tests и удалить unused deprecated Starlette TestClient import.
+33. [x] Добавить GUI/source tests для P2-18 user management presets: settings template должен содержать page-permission presets, create/edit wiring и актуальное описание role/action/page split.
 
 ## Расшифровка
 
@@ -121,6 +123,7 @@
 25. P2-AUDIT-3 добавил dependency audit gate в GitHub Actions: low-privilege workflow устанавливает `pip-audit` как CI tooling и проверяет runtime `requirements.txt`; app secrets, Docker и полный Compose config не используются.
 26. P2-AUDIT-4 закрыт локальным Docker smoke evidence: quiet Compose validation, последовательные web/bot builds, `up -d`, `/health`, `/login`, blocked `/uploads`, bounded logs, manual dashboard/backups/receipt upload/download ok; полный Compose config и секреты не выводились.
 27. P2-AUDIT-5 закрыл pytest warning cleanup: `tests/test_receipt_ownership.py` и `tests/test_receipt_mime_type.py` больше не применяют asyncio marks к sync source-level tests, `tests/test_receipt_hardening.py` больше не импортирует unused deprecated `starlette.testclient.TestClient`; targeted receipt tests `13 passed, 4 skipped`, full pytest `295 passed, 8 skipped`, warnings summary отсутствует.
+28. P2-18 закрыл GUI-слой управления пользователями: create/edit forms получили presets page visibility, template явно объясняет role/action/page split, stale wording удалён и закреплён source-level tests. Схемная миграция не нужна: legacy `user` уже нормализуется в `viewer`, а новые create/update пишут только `admin/operator/viewer`. Validation: compileall ok, full pytest `298 passed, 8 skipped in 75.95s`.
 
 ## Аудит 2026-06-29 — follow-up перед production
 
@@ -180,7 +183,11 @@
    - operator получает `BUSINESS_ACTION_PERMISSIONS`: contractors CRUD, payments CRUD, payment transactions CRUD и receipt business cleanup;
    - operator по-прежнему не получает `USERS_MANAGE`, `SYSTEM_SETTINGS_MANAGE`, `TELEGRAM_MANAGE`, `BACKUPS_MANAGE`, `BACKUPS_RESTORE`;
    - validation: targeted pytest 30 passed; full pytest 2026-06-29 — `287 passed, 4 skipped, 7 warnings in 71.22s`.
-4. [ ] P2-18 Обновить GUI управления пользователями: роли, presets прав, предупреждение о page/action permissions, migration/backfill.
+4. [x] P2-18 Обновить GUI управления пользователями: роли, presets прав, предупреждение о page/action permissions, migration/backfill.
+   - settings UI получил presets видимости страниц для create/edit user: all/business/dashboard/no access/role default.
+   - UI явно разделяет role action permissions и page visibility; stale warning о будущих мутациях удалён.
+   - Legacy/backfill: схемная миграция не нужна, потому что legacy `user` нормализуется в `viewer`, а create/update сохраняют только `admin/operator/viewer`.
+   - validation: compileall ok; full pytest 2026-06-29 — `298 passed, 8 skipped in 75.95s`.
 5. [ ] P2-19 Добавить audit и защиту от self-lockout.
 6. [ ] P2-20 Добавить тесты матрицы доступа.
 
