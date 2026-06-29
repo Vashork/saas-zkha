@@ -9,7 +9,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends -o DEBIAN_FRONTEND=noninteractive curl \
+    && apt-get install -y --no-install-recommends -o DEBIAN_FRONTEND=noninteractive curl gosu \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid "${APP_GID}" zhkh \
     && useradd --uid "${APP_UID}" --gid zhkh --create-home --shell /usr/sbin/nologin zhkh \
@@ -28,7 +28,5 @@ COPY docker/start-web.sh /usr/local/bin/start-web
 RUN sed -i 's/\r$//' /usr/local/bin/start-web \
     && chmod +x /usr/local/bin/start-web \
     && chown -R zhkh:zhkh /app /var/log/zhkh-bot
-
-USER zhkh
 
 CMD ["/usr/local/bin/start-web"]

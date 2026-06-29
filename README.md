@@ -95,7 +95,7 @@ ADMIN_PASSWORD / USER_PASSWORD — пароли по умолчанию
 
 2. Подготовить runtime-директории для non-root контейнеров
 
-Образы `web` и `bot` запускаются не от root, а от пользователя `zhkh` с UID/GID `1000:1000`. Для bind-mount директорий на Linux/WSL подготовьте права перед первым запуском:
+Образы `web` и `bot` запускают приложение не от root, а от пользователя `zhkh` с UID/GID `1000:1000`. Entrypoint контейнера перед стартом пытается исправить владельца bind-mount директорий `data/`, `backups/` и `logs/`, затем запускает Python-процесс через `gosu zhkh`. Для Linux/WSL всё равно безопасно подготовить права перед первым запуском:
 
 ```bash
 mkdir -p data/uploads backups logs/nginx logs
