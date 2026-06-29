@@ -15,18 +15,25 @@ from app.models import Contractor, Payment, Setting
 from app.utils import generate_uuid
 from app.audit import log_admin_action
 from app.web.routes.auth import _require_page, get_current_user
+from app.web.permissions import (
+    CONTRACTORS_CREATE,
+    CONTRACTORS_DELETE,
+    CONTRACTORS_TOGGLE,
+    CONTRACTORS_UPDATE,
+    has_action_permission,
+)
 from app.web.template_engine import templates
 
 router = APIRouter()
 
 
-async def _require_admin_user(request: Request, db: AsyncSession):
-    """Return active admin user or a redirect response."""
+async def _require_action_user(request: Request, db: AsyncSession, permission: str):
+    """Return active user with a named action permission or a redirect response."""
     current_user = await get_current_user(request, db)
     if not current_user:
         return None, RedirectResponse(url="/login", status_code=303)
-    if current_user.role != "admin":
-        return current_user, RedirectResponse(url="/contractors?error=Только+для+админа", status_code=303)
+    if not has_action_permission(current_user, permission):
+        return current_user, RedirectResponse(url="/contractors?error=Недостаточно+прав", status_code=303)
     return current_user, None
 
 
@@ -117,7 +124,7 @@ async def add_contractor(
     account_number: str = Form(""),
     description: str = Form(""),
 ):
-    current_user, redirect = await _require_admin_user(request, db)
+    current_user, redirect = await _require_action_user(request, db, CONTRACTORS_CREATE)
     if redirect:
         return redirect
 
@@ -175,7 +182,7 @@ async def toggle_contractor(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    current_user, redirect = await _require_admin_user(request, db)
+    current_user, redirect = await _require_action_user(request, db, CONTRACTORS_TOGGLE)
     if redirect:
         return redirect
 
@@ -200,7 +207,7 @@ async def delete_contractor(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    current_user, redirect = await _require_admin_user(request, db)
+    current_user, redirect = await _require_action_user(request, db, CONTRACTORS_DELETE)
     if redirect:
         return redirect
 
@@ -244,7 +251,7 @@ async def edit_contractor(
     account_number: str = Form(""),
     description: str = Form(""),
 ):
-    current_user, redirect = await _require_admin_user(request, db)
+    current_user, redirect = await _require_action_user(request, db, CONTRACTORS_UPDATE)
     if redirect:
         return redirect
 
