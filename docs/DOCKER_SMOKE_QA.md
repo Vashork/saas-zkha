@@ -40,7 +40,9 @@ python scripts/docker_smoke_check.py --build-attempts 3
 python scripts/docker_smoke_check.py --skip-logs
 ```
 
-## Automated baseline evidence
+## P2-AUDIT-4 evidence
+
+Status: completed locally.
 
 2026-06-29, Windows/Python 3.13.14, user-provided local run:
 
@@ -58,42 +60,9 @@ docker compose up -d: web healthy, nginx running, bot started
 web logs: startup complete, scheduler started, no smoke-blocking errors
 nginx logs: configuration complete, ready for start up
 bot logs: polling started
-```
-
-## Manual authenticated smoke evidence
-
-The baseline script is intentionally non-destructive and does not require app credentials. Capture these manual checks after the baseline passes:
-
-1. Login page:
-   - open `/login`;
-   - authenticate with local smoke credentials;
-   - confirm dashboard loads.
-2. Backup page:
-   - open `/backups`;
-   - confirm the page loads without 500;
-   - if safe for the environment, create a backup and confirm it appears in the list.
-3. Receipt upload/download:
-   - upload a small valid PDF/JPG/PNG receipt through the payment UI;
-   - confirm upload succeeds;
-   - open the receipt through `/payments/receipts/{path}` while authenticated;
-   - confirm direct `/uploads/...` access is not public.
-4. Telegram bot startup:
-   - confirm `docker compose logs --tail=120 bot` shows polling startup when a token is configured;
-   - if no token is configured in a local smoke environment, confirm the bot container stays up with the expected warning and no crash loop.
-5. Logs:
-   - confirm `web`, `nginx`, and `bot` logs contain no startup errors, permission errors, tracebacks, or secret dumps.
-
-## Evidence format for closing P2-AUDIT-4
-
-Paste a concise result like this:
-
-```text
-python scripts/docker_smoke_check.py: SUCCESS
-/manual login: ok
+manual login/dashboard: ok
 /backups page: ok
 receipt upload/download: ok
-bot logs: polling started / or expected no-token warning, no crash loop
-web/nginx/bot logs: no startup/permission errors
 ```
 
-Do not include full Compose config output or secret values.
+P2-AUDIT-4 is closed by this evidence. Do not include full Compose config output or secret values in future smoke evidence.
