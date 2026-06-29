@@ -24,6 +24,15 @@ def test_base_loads_modal_css_after_main_stylesheet():
     assert style_pos < modal_pos
 
 
+def test_base_loads_local_ui_tweaks_after_qa_fixes_stylesheet():
+    base_html = (ROOT / "app" / "web" / "templates" / "base.html").read_text(encoding="utf-8")
+
+    qa_fixes_pos = base_html.index('/static/css/qa-fixes.css')
+    local_tweaks_pos = base_html.index('/static/css/local-ui-tweaks.css')
+
+    assert qa_fixes_pos < local_tweaks_pos
+
+
 def test_form_controls_css_keeps_number_input_steppers_visible_and_themed():
     form_controls_css = (ROOT / "app" / "web" / "static" / "css" / "form-controls.css").read_text(encoding="utf-8")
 
