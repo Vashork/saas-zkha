@@ -73,6 +73,44 @@ def _is_admin_role(role: str | None) -> bool:
     return role == ROLE_ADMIN
 
 
+async def _active_admin_count(db: AsyncSession) -> int:
+    """Return the number of active admin users for self-lockout guards."""
+    count = await db.scalar(select(func.count(User.id)).where(User.role == ROLE_ADMIN, User.is_active == True))
+    return int(count or 0)
+
+
+async def _audit_user_guard_denied(
+    db: AsyncSession,
+    *,
+    actor: User | None,
+    action: str,
+    target: User | None = None,
+    target_id: int | None = None,
+    reason: str,
+    request: Request | None = None,
+    details: dict | None = None,
+) -> None:
+    """Persist an audit record for denied user-management guardrails."""
+    payload = {
+        "reason": reason,
+        "target_username": getattr(target, "username", None),
+        "target_role": getattr(target, "role", None),
+        "target_active": bool(getattr(target, "is_active", False)) if target is not None else None,
+    }
+    if details:
+        payload.update(details)
+    await log_admin_action(
+        db,
+        actor=actor,
+        action=f"{action}_denied",
+        entity_type="user",
+        entity_id=getattr(target, "id", None) if target is not None else target_id,
+        details=payload,
+        request=request,
+    )
+    await db.commit()
+
+
 def _session_secret() -> bytes:
     """Session secret includes a per-process boot id, so restart invalidates sessions."""
     base_secret = get_settings().SECRET_KEY
@@ -389,6 +427,14 @@ async def create_user(
     if not current_user:
         return _login_redirect(request)
     if not has_action_permission(current_user, USERS_MANAGE):
+        await _audit_user_guard_denied(
+            db,
+            actor=current_user,
+            action="user_create",
+            reason="missing_users_manage_permission",
+            request=request,
+            details={"requested_role": role, "requested_username": username.strip()},
+        )
         return RedirectResponse(url="/settings?error=Недостаточно+прав", status_code=303)
 
     username = username.strip()
@@ -447,8 +493,24 @@ async def toggle_user_active(
     if not current_user:
         return _login_redirect(request)
     if not has_action_permission(current_user, USERS_MANAGE):
+        await _audit_user_guard_denied(
+            db,
+            actor=current_user,
+            action="user_toggle_active",
+            target_id=user_id,
+            reason="missing_users_manage_permission",
+            request=request,
+        )
         return RedirectResponse(url="/settings?error=Недостаточно+прав", status_code=303)
     if current_user.id == user_id:
+        await _audit_user_guard_denied(
+            db,
+            actor=current_user,
+            action="user_toggle_active",
+            target=current_user,
+            reason="self_deactivate",
+            request=request,
+        )
         return RedirectResponse(url="/settings?error=Нельзя+деактивировать+себя", status_code=303)
 
     result = await db.execute(select(User).where(User.id == user_id))
@@ -457,8 +519,17 @@ async def toggle_user_active(
         return RedirectResponse(url="/settings?error=Пользователь+не+найден", status_code=303)
 
     if _is_admin_role(user.role) and user.is_active:
-        admin_count = await db.scalar(select(func.count(User.id)).where(User.role == ROLE_ADMIN, User.is_active == True))
+        admin_count = await _active_admin_count(db)
         if admin_count <= 1:
+            await _audit_user_guard_denied(
+                db,
+                actor=current_user,
+                action="user_toggle_active",
+                target=user,
+                reason="last_active_admin_deactivate",
+                request=request,
+                details={"active_admin_count": admin_count},
+            )
             return RedirectResponse(url="/settings?error=Нельзя+деактивировать+последнего+админа", status_code=303)
 
     old_active = bool(user.is_active)
@@ -488,8 +559,24 @@ async def delete_user(
     if not current_user:
         return _login_redirect(request)
     if not has_action_permission(current_user, USERS_MANAGE):
+        await _audit_user_guard_denied(
+            db,
+            actor=current_user,
+            action="user_delete",
+            target_id=user_id,
+            reason="missing_users_manage_permission",
+            request=request,
+        )
         return RedirectResponse(url="/settings?error=Недостаточно+прав", status_code=303)
     if current_user.id == user_id:
+        await _audit_user_guard_denied(
+            db,
+            actor=current_user,
+            action="user_delete",
+            target=current_user,
+            reason="self_delete",
+            request=request,
+        )
         return RedirectResponse(url="/settings?error=Нельзя+удалить+себя", status_code=303)
 
     result = await db.execute(select(User).where(User.id == user_id))
@@ -498,6 +585,14 @@ async def delete_user(
         return RedirectResponse(url="/settings?error=Пользователь+не+найден", status_code=303)
 
     if _is_admin_role(user.role):
+        await _audit_user_guard_denied(
+            db,
+            actor=current_user,
+            action="user_delete",
+            target=user,
+            reason="delete_admin",
+            request=request,
+        )
         return RedirectResponse(url="/settings?error=Админа+нельзя+удалить,+можно+только+деактивировать", status_code=303)
 
     await log_admin_action(
@@ -531,6 +626,15 @@ async def update_user(
     if not current_user:
         return _login_redirect(request)
     if not has_action_permission(current_user, USERS_MANAGE):
+        await _audit_user_guard_denied(
+            db,
+            actor=current_user,
+            action="user_update",
+            target_id=user_id,
+            reason="missing_users_manage_permission",
+            request=request,
+            details={"requested_role": role},
+        )
         return RedirectResponse(url="/settings?error=Недостаточно+прав", status_code=303)
 
     result = await db.execute(select(User).where(User.id == user_id))
@@ -543,7 +647,30 @@ async def update_user(
         return RedirectResponse(url="/settings?error=Некорректная+роль", status_code=303)
 
     if user.id == current_user.id and _is_admin_role(current_user.role) and normalized_role != ROLE_ADMIN:
+        await _audit_user_guard_denied(
+            db,
+            actor=current_user,
+            action="user_update",
+            target=user,
+            reason="self_admin_downgrade",
+            request=request,
+            details={"requested_role": normalized_role},
+        )
         return RedirectResponse(url="/settings?error=Нельзя+снять+админа+с+себя", status_code=303)
+
+    if _is_admin_role(user.role) and user.is_active and normalized_role != ROLE_ADMIN:
+        admin_count = await _active_admin_count(db)
+        if admin_count <= 1:
+            await _audit_user_guard_denied(
+                db,
+                actor=current_user,
+                action="user_update",
+                target=user,
+                reason="last_active_admin_downgrade",
+                request=request,
+                details={"active_admin_count": admin_count, "requested_role": normalized_role},
+            )
+            return RedirectResponse(url="/settings?error=Нельзя+снять+последнего+админа", status_code=303)
 
     old_role = user.role
     old_permissions = user.page_permissions
@@ -659,6 +786,14 @@ async def change_user_password(
     if not current_user:
         return _login_redirect(request)
     if not has_action_permission(current_user, USERS_MANAGE):
+        await _audit_user_guard_denied(
+            db,
+            actor=current_user,
+            action="user_password_reset",
+            target_id=user_id,
+            reason="missing_users_manage_permission",
+            request=request,
+        )
         return RedirectResponse(url="/settings?error=Недостаточно+прав", status_code=303)
     if len(new_password) < 8:
         return RedirectResponse(url="/settings?error=Минимум+8+символов", status_code=303)
