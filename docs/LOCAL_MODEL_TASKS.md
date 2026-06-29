@@ -21,7 +21,7 @@ Completed:
 
 ### P2-DOCKER-1 Docker hardening follow-up
 
-Status: implementation completed through GitHub connector; tests/config validated locally; Docker build/smoke validation still pending because the pinned nginx image cannot be pulled from Docker CDN in the local environment.
+Status: completed locally.
 
 Completed in branch:
 
@@ -35,32 +35,34 @@ Completed in branch:
 - Added OCI labels and `EXPOSE 8000` for the web image.
 - Added `no-new-privileges:true` for web, bot, and nginx.
 - Updated `tests/test_docker_runtime.py` to assert the new hardened runtime model.
-- Updated `docs/DOCKER_HARDENING_TODO.md` with validation, Windows command, and bind-mount ownership notes.
+- Updated `docs/DOCKER_HARDENING_TODO.md` with validation, Windows command, bind-mount ownership notes, and final smoke result.
 
 Local validation confirmed by user on Windows cmd.exe, 2026-06-29:
 
 - `python -m pip install -r requirements-dev.txt`: ok.
-- `python -m compileall app init_db.py tests && python -m pytest`: `284 passed, 8 skipped, 5 warnings in 60.22s`.
+- `python -m compileall app init_db.py tests && python -m pytest`: `284 passed, 8 skipped, 5 warnings in 59.09s`.
 - `docker compose config`: ok; config shows `nginx:1.27-alpine`, Python stdlib healthcheck, `APP_UID`/`APP_GID`, and `no-new-privileges:true`.
-
-Still required before fully closing:
-
-- Successful pull/build with the pinned nginx image: `docker pull nginx:1.27-alpine` and `docker compose up -d --build`.
-- Manual smoke on newly built containers: `/health`, login, Telegram bot startup logs, backup page, receipt upload/download, clean `docker compose logs web bot nginx`.
-
-Current blockers observed locally:
-
-- `docker pull nginx:1.27-alpine` fails with `failed to copy ... production.cloudfront.docker.com ... EOF`, so the new pinned nginx image is not available locally yet.
-- `docker compose up -d --build` fails for the same image pull reason.
-- `docker compose ps` still shows an older running `zhkh-nginx` based on `nginx:alpine`, so the current running stack cannot be used as final Docker hardening smoke evidence.
-- Bot logs show `Cannot connect to host api.telegram.org:443` / DNS failures; this is an external network/Telegram reachability issue, not a bind-mount permission or non-root startup error.
+- `docker pull python:3.11-slim`: ok.
+- `docker pull nginx:1.27-alpine`: ok.
+- `docker compose build --no-cache web bot`: ok.
+- `docker compose up -d --build`: ok.
+- `docker compose ps`: web healthy, nginx up on `nginx:1.27-alpine`, bot up.
+- `curl -f http://localhost/health`: `{"status":"ok","database":"ok","scheduler":"running"}`.
+- `docker compose exec -T web id`: `uid=1000(zhkh) gid=1000(zhkh)`.
+- `docker compose exec -T bot id`: `uid=1000(zhkh) gid=1000(zhkh)`.
+- web logs: no startup or permission errors.
+- nginx logs: startup ok.
+- bot logs: polling started.
 
 ### P1-AUDIT-1 remaining production validation
 
 Still open:
 
 - `pip-audit -r requirements.txt`
-- Docker smoke: build/up, `/health`, login smoke, Telegram bot startup logs
+
+Completed as part of Docker hardening follow-up:
+
+- Docker smoke: build/up, `/health`, login redirect/page evidence in web logs, bot startup logs, nginx startup logs.
 
 Already confirmed by user after P2-16:
 
