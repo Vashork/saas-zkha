@@ -56,12 +56,11 @@ Local validation confirmed by user on Windows cmd.exe, 2026-06-29:
 
 ### P1-AUDIT-1 remaining production validation
 
-Still open:
+Status: completed locally.
 
-- `pip-audit -r requirements.txt`
+Completed:
 
-Completed as part of Docker hardening follow-up:
-
+- `pip-audit -r requirements.txt` via `py -m pip_audit -r requirements.txt`: `No known vulnerabilities found`.
 - Docker smoke: build/up, `/health`, login redirect/page evidence in web logs, bot startup logs, nginx startup logs.
 
 Already confirmed by user after P2-16:
