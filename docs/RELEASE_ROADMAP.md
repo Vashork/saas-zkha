@@ -58,6 +58,7 @@
 13. [x] Подключить `app/web/static/css/local-ui-tweaks.css` в `base.html` или удалить файл, если правки больше не нужны.
 14. [x] Решить scope темы оформления: `/settings/theme` оставлен как admin-only global setting; обычные пользователи не могут менять глобальный `ui_theme`.
 15. [x] Убрать или подключить `docker/start-web.sh`, чтобы в репозитории не было неиспользуемого runtime-скрипта.
+16. [ ] P2-15 Расширить модель ролей и прав: отделить системного admin от обычного viewer и продвинутого оператора ЛК.
 
 ## Tests
 
@@ -75,6 +76,7 @@
 23. [x] Добавить asset wiring test для `local-ui-tweaks.css`.
 24. [x] Добавить source-level tests для Docker non-root runtime и документации bind-mount прав.
 25. [x] Добавить route/source tests для admin-only global theme scope.
+26. [ ] Добавить route-level permission tests для viewer/operator/admin: просмотр, payments CRUD, contractors CRUD, receipts download/delete, Telegram/backups isolation.
 
 ## Расшифровка
 
@@ -126,6 +128,40 @@
 3. [ ] P2-AUDIT-3 Добавить CI/security gate для dependency audit: `pip-audit -r requirements.txt` или эквивалентный шаг, чтобы новые CVE не всплывали только перед релизом.
 4. [ ] P2-AUDIT-4 Docker smoke QA выполнить в среде с доступным Docker Compose plugin/v1: `docker compose up -d --build`, `/health`, login, Telegram bot startup logs, backup page, receipt upload/download.
 5. [ ] P2-AUDIT-5 Разобрать текущие pytest warnings: deprecated Starlette `TemplateResponse(...)` signature и ошибочные `@pytest.mark.asyncio` на sync tests.
+
+### Permissions and roles block
+
+Цель: заменить бинарную модель `role == admin` + page checkboxes на явные роли и action-level permissions. Admin должен стать отдельной системной сущностью для опасных/технических настроек, а повседневное ведение ЛК должно быть доступно продвинутому пользователю без выдачи ему полного admin.
+
+1. [ ] P2-15 Спроектировать и внедрить роли:
+   - `admin`: системный администратор приложения; доступ к users/roles/settings, Telegram management, backups/restore, security/audit и всем бизнес-операциям;
+   - `operator`: продвинутый пользователь для полноценного ведения ЛК; доступ к dashboard/payments/contractors/history/analytics и бизнес-CRUD без доступа к Telegram/backups/users/system settings;
+   - `viewer`: обычный пользователь только для просмотра разрешённых страниц без мутаций.
+2. [ ] P2-16 Добавить action-level permissions вместо page-only permissions:
+   - `payments.read`, `payments.create`, `payments.update`, `payments.delete`, `payments.receipts.download`, `payments.receipts.upload`, `payments.receipts.delete`;
+   - `contractors.read`, `contractors.create`, `contractors.update`, `contractors.delete`;
+   - `history.read`, `analytics.read`, `dashboard.read`;
+   - `telegram.manage`, `backups.manage`, `users.manage`, `settings.manage`, `audit.read`.
+3. [ ] P2-17 Перевести текущие admin-only business routes на operator-capable checks:
+   - разрешить `operator` создавать/редактировать/удалять подрядчиков;
+   - разрешить `operator` создавать/редактировать/удалять начисления и оплаты;
+   - разрешить `operator` загружать, скачивать, заменять и удалять платёжки/чеки;
+   - оставить Telegram, backups/restore, users, глобальные settings и security actions только для `admin`.
+4. [ ] P2-18 Обновить GUI управления пользователями:
+   - выбор роли `admin` / `operator` / `viewer`;
+   - preset-кнопки прав: read-only, operator full ЛК, technical admin;
+   - явное предупреждение, что page checkbox даёт только видимость, а мутации управляются action permissions;
+   - migration/backfill: текущие `admin` получают все права, текущие `user` становятся `viewer` с существующими page permissions.
+5. [ ] P2-19 Добавить audit и защиту от self-lockout:
+   - логировать изменения ролей/action permissions;
+   - запретить последнему активному admin снять с себя `users.manage`/admin роль;
+   - запретить обычному operator менять роли, Telegram, backups и system settings.
+6. [ ] P2-20 Добавить тесты матрицы доступа:
+   - viewer может только смотреть и скачивать разрешённые receipt-файлы при наличии `payments.read`/`payments.receipts.download`;
+   - operator может полностью вести ЛК: contractors CRUD, payments CRUD, payment transactions CRUD, receipt upload/download/delete;
+   - operator не может открыть/изменить Telegram, backups, users, глобальные settings;
+   - admin может всё, включая Telegram/backups/users/settings;
+   - legacy page permissions не дают мутаций без action permission.
 
 ### Telegram management block
 
