@@ -59,9 +59,10 @@ async def enforce_page_permissions(request: Request, call_next):
     return await call_next(request)
 
 
-# Include routers
-app.include_router(auth.router)
+# Include routers. Register system_settings before auth so shared paths such as
+# /settings/theme use the hardened admin-only implementation.
 app.include_router(system_settings.router)
+app.include_router(auth.router)
 app.include_router(dashboard.router)
 app.include_router(payments.router)
 app.include_router(history.router)
