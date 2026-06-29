@@ -22,6 +22,7 @@ from app.models import User
 from app.utils import verify_password, hash_password
 from app.rate_limiter import _is_rate_limited, _record_attempt
 from app.web.template_engine import templates
+from app.web.permissions import SYSTEM_SETTINGS_MANAGE, USERS_MANAGE, has_action_permission
 
 logger = logging.getLogger("zhkh.auth")
 
@@ -387,8 +388,8 @@ async def create_user(
     current_user = await get_current_user(request, db)
     if not current_user:
         return _login_redirect(request)
-    if not _is_admin_role(current_user.role):
-        return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
+    if not has_action_permission(current_user, USERS_MANAGE):
+        return RedirectResponse(url="/settings?error=Недостаточно+прав", status_code=303)
 
     username = username.strip()
     if not username:
@@ -445,8 +446,8 @@ async def toggle_user_active(
     current_user = await get_current_user(request, db)
     if not current_user:
         return _login_redirect(request)
-    if not _is_admin_role(current_user.role):
-        return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
+    if not has_action_permission(current_user, USERS_MANAGE):
+        return RedirectResponse(url="/settings?error=Недостаточно+прав", status_code=303)
     if current_user.id == user_id:
         return RedirectResponse(url="/settings?error=Нельзя+деактивировать+себя", status_code=303)
 
@@ -486,8 +487,8 @@ async def delete_user(
     current_user = await get_current_user(request, db)
     if not current_user:
         return _login_redirect(request)
-    if not _is_admin_role(current_user.role):
-        return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
+    if not has_action_permission(current_user, USERS_MANAGE):
+        return RedirectResponse(url="/settings?error=Недостаточно+прав", status_code=303)
     if current_user.id == user_id:
         return RedirectResponse(url="/settings?error=Нельзя+удалить+себя", status_code=303)
 
@@ -529,8 +530,8 @@ async def update_user(
     current_user = await get_current_user(request, db)
     if not current_user:
         return _login_redirect(request)
-    if not _is_admin_role(current_user.role):
-        return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
+    if not has_action_permission(current_user, USERS_MANAGE):
+        return RedirectResponse(url="/settings?error=Недостаточно+прав", status_code=303)
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
@@ -588,8 +589,8 @@ async def save_settings(
     current_user = await get_current_user(request, db)
     if not current_user:
         return _login_redirect(request)
-    if not _is_admin_role(current_user.role):
-        return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
+    if not has_action_permission(current_user, SYSTEM_SETTINGS_MANAGE):
+        return RedirectResponse(url="/settings?error=Недостаточно+прав", status_code=303)
 
     from app.models import Setting as SettingModel
 
@@ -657,8 +658,8 @@ async def change_user_password(
     current_user = await get_current_user(request, db)
     if not current_user:
         return _login_redirect(request)
-    if not _is_admin_role(current_user.role):
-        return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
+    if not has_action_permission(current_user, USERS_MANAGE):
+        return RedirectResponse(url="/settings?error=Недостаточно+прав", status_code=303)
     if len(new_password) < 8:
         return RedirectResponse(url="/settings?error=Минимум+8+символов", status_code=303)
 

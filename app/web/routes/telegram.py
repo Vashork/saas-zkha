@@ -17,6 +17,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models import Setting, TelegramMessageLog, TelegramOutboundMessageLog
 from app.web.routes.auth import get_current_user
+from app.web.permissions import TELEGRAM_MANAGE, has_action_permission
 from app.web.template_engine import templates
 
 router = APIRouter()
@@ -176,7 +177,7 @@ async def telegram_page(
     current_user = await get_current_user(request, db)
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
-    if current_user.role != "admin":
+    if not has_action_permission(current_user, TELEGRAM_MANAGE):
         return RedirectResponse(url="/?denied=1", status_code=303)
 
     normalized_status = _normalize_status(status)
@@ -267,7 +268,7 @@ async def save_telegram_settings(
     current_user = await get_current_user(request, db)
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
-    if current_user.role != "admin":
+    if not has_action_permission(current_user, TELEGRAM_MANAGE):
         return RedirectResponse(url="/?denied=1", status_code=303)
 
     mode = telegram_log_mode if telegram_log_mode in TELEGRAM_LOG_MODES else DEFAULT_TELEGRAM_LOG_MODE
@@ -319,7 +320,7 @@ async def reply_to_telegram_message(
     current_user = await get_current_user(request, db)
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
-    if current_user.role != "admin":
+    if not has_action_permission(current_user, TELEGRAM_MANAGE):
         return RedirectResponse(url="/?denied=1", status_code=303)
 
     text = reply_text.strip()
@@ -373,7 +374,7 @@ async def edit_telegram_outbound_message(
     current_user = await get_current_user(request, db)
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
-    if current_user.role != "admin":
+    if not has_action_permission(current_user, TELEGRAM_MANAGE):
         return RedirectResponse(url="/?denied=1", status_code=303)
 
     text = edited_text.strip()

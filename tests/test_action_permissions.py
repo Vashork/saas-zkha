@@ -66,3 +66,35 @@ def test_contractors_route_uses_named_action_permissions():
     assert "CONTRACTORS_DELETE" in source
     assert "CONTRACTORS_TOGGLE" in source
     assert 'current_user.role != "admin"' not in source
+
+
+def test_payments_route_uses_named_action_permissions():
+    source = (ROOT / "app" / "web" / "routes" / "payments.py").read_text(encoding="utf-8")
+
+    assert "has_action_permission" in source
+    assert "_require_action_user" in source
+    assert "PAYMENTS_CREATE" in source
+    assert "PAYMENTS_UPDATE" in source
+    assert "PAYMENTS_DELETE" in source
+    assert "PAYMENT_TRANSACTIONS_CREATE" in source
+    assert "PAYMENT_TRANSACTIONS_UPDATE" in source
+    assert "PAYMENT_TRANSACTIONS_DELETE" in source
+    assert "PAYMENTS_RECEIPTS_CLEANUP" in source
+    assert 'current_user.role != "admin"' not in source
+
+
+def test_sensitive_admin_routes_use_named_action_permissions():
+    auth_source = (ROOT / "app" / "web" / "routes" / "auth.py").read_text(encoding="utf-8")
+    settings_source = (ROOT / "app" / "web" / "routes" / "system_settings.py").read_text(encoding="utf-8")
+    telegram_source = (ROOT / "app" / "web" / "routes" / "telegram.py").read_text(encoding="utf-8")
+    backups_source = (ROOT / "app" / "web" / "routes" / "backups.py").read_text(encoding="utf-8")
+
+    assert "USERS_MANAGE" in auth_source
+    assert "SYSTEM_SETTINGS_MANAGE" in auth_source
+    assert "SYSTEM_SETTINGS_MANAGE" in settings_source
+    assert "TELEGRAM_MANAGE" in telegram_source
+    assert "BACKUPS_MANAGE" in backups_source
+    assert "BACKUPS_RESTORE" in backups_source
+    assert 'current_user.role != "admin"' not in settings_source
+    assert 'current_user.role != "admin"' not in telegram_source
+    assert 'current_user.role != "admin"' not in backups_source

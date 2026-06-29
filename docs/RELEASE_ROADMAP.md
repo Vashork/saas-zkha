@@ -147,7 +147,11 @@
    - `operator`: role value и GUI добавлены, но business CRUD пока не расширен без P2-16 action-level permissions;
    - `viewer`: обычный пользователь только для просмотра разрешённых страниц без мутаций;
    - validation: full pytest 2026-06-29 — `276 passed, 8 skipped, 4 warnings in 64.53s`.
-2. [ ] P2-16 Добавить action-level permissions вместо page-only permissions.
+2. [x] P2-16 Добавить action-level permissions вместо page-only permissions.
+   - contractor/payment mutations переведены на named action checks;
+   - sensitive admin routes покрыты named checks: users, system settings, Telegram, backups/manage и backups/restore;
+   - operator/viewer по-прежнему не получают mutations до P2-17;
+   - validation: targeted pytest зелёный; full pytest 2026-06-29 — `287 passed, 4 skipped, 7 warnings in 75.47s`.
 3. [ ] P2-17 Перевести текущие admin-only business routes на operator-capable checks, оставив Telegram/backups/restore/users/global settings/security только для `admin`.
 4. [ ] P2-18 Обновить GUI управления пользователями: роли, presets прав, предупреждение о page/action permissions, migration/backfill.
 5. [ ] P2-19 Добавить audit и защиту от self-lockout.

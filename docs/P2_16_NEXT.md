@@ -73,15 +73,15 @@ Run full:
 
 ## 7. Close criteria
 
-Close P2-16 only when:
+Status: closed locally in follow-up implementation.
 
-- contractor actions use named checks;
-- payments actions use named checks;
-- sensitive admin areas are covered by named checks or tests;
-- targeted pytest is green;
-- full pytest is green.
+- [x] contractor actions use named checks;
+- [x] payments actions use named checks;
+- [x] sensitive admin areas are covered by named checks/tests;
+- [x] targeted pytest is green;
+- [x] full pytest is green: `287 passed, 4 skipped, 7 warnings in 75.47s`.
 
-Then update `docs/RELEASE_ROADMAP.md`: mark P2-16 `[x]`, keep P2-17 open.
+`docs/RELEASE_ROADMAP.md` marks P2-16 done and keeps P2-17 open.
 
 ## 8. Boundaries
 
