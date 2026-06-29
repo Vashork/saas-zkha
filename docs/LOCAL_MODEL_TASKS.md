@@ -21,9 +21,28 @@ Completed:
 
 ### P2-DOCKER-1 Docker hardening follow-up
 
-Status: audit findings recorded in `docs/DOCKER_HARDENING_TODO.md`; implementation not started.
+Status: implementation completed through GitHub connector; Docker build/smoke validation still pending.
 
-Do not combine this with P2-17 unless explicitly requested. Docker build and smoke must be confirmed before closing this item.
+Completed in branch:
+
+- Added root `.dockerignore`.
+- Split runtime and dev dependencies: runtime `requirements.txt`; dev/test `requirements-dev.txt`.
+- Removed `curl` and `gosu` from web/bot runtime images.
+- Switched web/bot Dockerfiles to `USER zhkh`.
+- Simplified web/bot startup scripts so they no longer perform root-to-user privilege dropping.
+- Replaced curl healthcheck with Python stdlib healthcheck.
+- Pinned nginx image to `nginx:1.27-alpine`.
+- Added OCI labels and `EXPOSE 8000` for the web image.
+- Added `no-new-privileges:true` for web, bot, and nginx.
+- Updated `docs/DOCKER_HARDENING_TODO.md` with validation and bind-mount ownership notes.
+
+Still required before fully closing:
+
+- `python -m pip install -r requirements-dev.txt`
+- `python -m compileall app init_db.py tests && python -m pytest`
+- `docker compose config`
+- `APP_UID=$(id -u) APP_GID=$(id -g) docker compose up -d --build`
+- Manual smoke: `/health`, login, Telegram bot startup logs, backup page, receipt upload/download, clean `docker compose logs web bot nginx`.
 
 ### P1-AUDIT-1 remaining production validation
 
