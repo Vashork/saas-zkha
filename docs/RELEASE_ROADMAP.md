@@ -3,7 +3,7 @@
 ## Вердикт
 
 1. Internal/private pilot: можно выпускать после успешного test run и ручного QA.
-2. Public internet production: основные P1 по коду закрыты, но перед публичным выпуском остаётся ручной QA и P2-hardening.
+2. Public internet production: основные P1 по коду и P1-AUDIT-1 validation закрыты по локальному evidence; перед публичным выпуском остаются ручной QA и P2-hardening.
 3. Перед изменениями backup/restore, permissions и payment transactions нужен backup `data/`.
 
 ## Сделано
@@ -36,6 +36,8 @@
 26. Добавлен P2-13 GUI reply/edit для Telegram: admin может отвечать на inbound log row через Bot API, исходящие ответы сохраняются в `TelegramOutboundMessageLog`, а отправленные ботом сообщения можно редактировать из `/telegram` при наличии `telegram_message_id`.
 27. P2-15 role foundation закрыт: добавлены роли `admin/operator/viewer`, legacy `user -> viewer`, UI выбора ролей и regression tests; full pytest 2026-06-29 зелёный: `276 passed, 8 skipped, 4 warnings`.
 28. P2-16 action-level permissions закрыт: contractor/payment mutations и sensitive admin routes переведены на named action checks; full pytest 2026-06-29 зелёный: `287 passed, 4 skipped, 7 warnings`.
+29. P1-AUDIT-1 dependency audit/Docker smoke validation закрыт по локальному evidence: dependency audit без known vulnerabilities, Docker smoke build/up/health/login/bot/nginx ok.
+30. P2-AUDIT-2 README hardened-state alignment закрыт: README обновлён под authenticated receipts, Telegram allowlist/management и production checklist; добавлены README regression tests.
 
 ## P1
 
@@ -82,6 +84,7 @@
 26. [x] Добавить route-level permission tests для role foundation: `admin/operator/viewer`, legacy `user -> viewer`, создание operator и запрет operator admin/business mutations до action-level permissions.
 27. [x] Прогнать обновлённый template compatibility test на Starlette 1.x после dependency bump.
 28. [x] Добавить source/route tests для action-level permissions: contractor/payment mutations и sensitive admin routes используют named action checks.
+29. [x] Добавить README regression tests для hardened release docs: authenticated receipts, production/Compose secret safety и Telegram allowlist management.
 
 ## Расшифровка
 
@@ -107,21 +110,23 @@
 20. Роли `admin/operator/viewer` внедрены без миграции схемы: новые create/update больше не создают `role=user`, legacy `user` нормализуется в `viewer`, а operator до P2-16/P2-17 не получает business CRUD или доступ к Telegram/backups/users/system settings.
 21. Full pytest после P2-15 на Windows: `276 passed, 8 skipped, 4 warnings in 64.53s`.
 22. P2-16 закрыл переход от прямых `role == admin` checks к named action permissions для business mutations и sensitive admin routes; operator/viewer всё ещё не получают mutations до P2-17. Full pytest после P2-16: `287 passed, 4 skipped, 7 warnings in 75.47s`.
+23. P2-17 дал operator `BUSINESS_ACTION_PERMISSIONS`, оставив Telegram/backups/restore/users/global settings/security за `admin`. Full pytest после P2-17: `287 passed, 4 skipped, 7 warnings in 71.22s`.
+24. P2-AUDIT-2 синхронизировал README с фактическим hardened-состоянием: чеки не публичные `/uploads`, production запуск требует безопасных env-настроек, Telegram allowlist/management описаны без раскрытия секретов.
 
 ## Аудит 2026-06-29 — follow-up перед production
 
 ### Вердикт
 
 1. Internal/private pilot: готов при условии ручного smoke QA после сборки контейнеров и заполнения `.env` реальными секретами.
-2. Public internet production: пока не выпускать без закрытия P1-AUDIT-1. Функциональные P1 по коду закрыты, full pytest и `docker-compose config` зелёные, но dependency audit/Docker smoke должны быть закрыты отдельно.
-3. Telegram-часть безопасна как allowlist-only бот, но для полного управления ботом и удобного разбора сообщений нужен отдельный Telegram management block ниже.
+2. Public internet production: P1-AUDIT-1 dependency audit и Docker smoke закрыты локальным evidence; перед публичным production остаются ручной QA и P2-hardening.
+3. Telegram-часть безопасна как allowlist-only бот, а базовый Telegram management уже доступен через `/telegram`; полный management block остаётся отдельной P2-задачей ниже.
 
 ### Проверено ранее
 
 - `python -m compileall app init_db.py tests` — успешно.
 - `pytest -q` — 269 passed, 4 skipped, 8 warnings.
 - `docker-compose config` — успешно после локального создания `.env` из `.env.example`.
-- `pip-audit -r requirements.txt` — найдено 47 known vulnerabilities в 6 пакетах.
+- Ранее `pip-audit -r requirements.txt` находил 47 known vulnerabilities в 6 пакетах; после dependency bump и локальной проверки P1-AUDIT-1 закрыт без known vulnerabilities.
 
 ### Попытка P1-AUDIT-1 2026-06-29 через GitHub connector
 
@@ -130,14 +135,16 @@
 - Добавлен regression assertion в `tests/test_template_engine.py` на наличие compatibility adapter.
 - Full pytest после dependency/role/action-permission changes подтверждён локально пользователем: `287 passed, 4 skipped, 7 warnings in 75.47s`.
 - `docker-compose config` подтверждён локально пользователем: ok.
-- P1-AUDIT-1 пока НЕ отмечен `[x]`: для закрытия production dependency blocker ещё нужно повторить `pip-audit -r requirements.txt` и Docker smoke.
+- P1-AUDIT-1 закрыт по последующему локальному evidence: dependency audit без known vulnerabilities и Docker smoke build/up/health/login/bot/nginx ok.
 
 ### Замечания / follow-up
 
-1. [ ] P1-AUDIT-1 Завершить dependency audit validation:
+1. [x] P1-AUDIT-1 Завершить dependency audit validation:
    - `pip-audit -r requirements.txt`;
    - при доступном Docker: `docker compose up -d --build`, `/health`, login smoke, Telegram bot startup logs.
-2. [ ] P2-AUDIT-2 Обновить README под фактическое hardened-состояние: receipts больше не должны описываться как публично обслуживаемые `/uploads`, Telegram allowlist и `/tglog` уже есть, production запуск должен явно включать `APP_ENV=production`, уникальный `SECRET_KEY`, реальные пароли и `COOKIE_SECURE` за HTTPS.
+   - закрыто по локальному evidence 2026-06-29; не запрашивать полный `docker compose config`, использовать только `docker compose config -q`.
+2. [x] P2-AUDIT-2 Обновить README под фактическое hardened-состояние: receipts больше не должны описываться как публично обслуживаемые `/uploads`, Telegram allowlist и `/tglog` уже есть, production запуск должен явно включать `APP_ENV=production`, уникальный `SECRET_KEY`, реальные пароли и `COOKIE_SECURE` за HTTPS.
+   - README обновлён; добавлен `tests/test_readme_release_docs.py`.
 3. [ ] P2-AUDIT-3 Добавить CI/security gate для dependency audit: `pip-audit -r requirements.txt` или эквивалентный шаг, чтобы новые CVE не всплывали только перед релизом.
 4. [ ] P2-AUDIT-4 Docker smoke QA выполнить в среде с доступным Docker Compose plugin/v1: `docker compose up -d --build`, `/health`, login, Telegram bot startup logs, backup page, receipt upload/download.
 5. [ ] P2-AUDIT-5 Разобрать текущие pytest warnings: ошибочные `@pytest.mark.asyncio` на sync tests в receipt source-level tests.
