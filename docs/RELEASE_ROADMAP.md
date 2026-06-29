@@ -93,3 +93,66 @@
 17. `notification_timezone` теперь валидируется как IANA timezone, сохраняется отдельным admin-only route и используется при пересборке notification/auto-backup scheduler jobs.
 18. `docker/start-web.sh` теперь используется web image как runtime command, поэтому в репозитории не остаётся неподключённого web start script.
 19. Тема оформления остаётся глобальной настройкой приложения; менять её через backend может только admin, а пользовательский client-side toggle без admin role не мутирует `settings.ui_theme`.
+
+## Аудит 2026-06-29 — follow-up перед production
+
+### Вердикт
+
+1. Internal/private pilot: готов при условии ручного smoke QA после сборки контейнеров и заполнения `.env` реальными секретами.
+2. Public internet production: пока не выпускать без закрытия P1-AUDIT-1. Функциональные P1 по коду закрыты, полный test run зелёный, но dependency audit показывает известные CVE в runtime-зависимостях.
+3. Telegram-часть безопасна как allowlist-only бот, но для полного управления ботом и удобного разбора сообщений нужен отдельный Telegram management block ниже.
+
+### Проверено
+
+- `python -m compileall app init_db.py tests` — успешно.
+- `pytest -q` — 269 passed, 4 skipped, 8 warnings.
+- `docker-compose config` — успешно после локального создания `.env` из `.env.example`.
+- `pip-audit -r requirements.txt` — найдено 47 known vulnerabilities в 6 пакетах.
+
+### Замечания / follow-up
+
+1. [ ] P1-AUDIT-1 Обновить runtime/development dependencies и повторить full test run:
+   - `jinja2 3.1.5` -> минимум `3.1.6`;
+   - `python-multipart 0.0.20` -> минимум `0.0.31`;
+   - `python-dotenv 1.0.1` -> минимум `1.2.2`;
+   - `aiohttp 3.11.18` приходит транзитивно через `aiogram`, нужен compatible upgrade `aiogram`/`aiohttp` до версии без CVE;
+   - `starlette 0.41.3` приходит через `fastapi`, нужен compatible upgrade `fastapi`/`starlette`;
+   - `pytest 8.3.4` -> `9.0.3` или актуальная безопасная версия для dev-зависимости.
+2. [ ] P2-AUDIT-2 Обновить README под фактическое hardened-состояние: receipts больше не должны описываться как публично обслуживаемые `/uploads`, Telegram allowlist и `/tglog` уже есть, production запуск должен явно включать `APP_ENV=production`, уникальный `SECRET_KEY`, реальные пароли и `COOKIE_SECURE` за HTTPS.
+3. [ ] P2-AUDIT-3 Добавить CI/security gate для dependency audit: `pip-audit -r requirements.txt` или эквивалентный шаг, чтобы новые CVE не всплывали только перед релизом.
+4. [ ] P2-AUDIT-4 Docker smoke QA выполнить в среде с доступным Docker Compose plugin/v1: `docker compose up -d --build`, `/health`, login, Telegram bot startup logs, backup page, receipt upload/download.
+5. [ ] P2-AUDIT-5 Разобрать текущие pytest warnings: deprecated Starlette `TemplateResponse(...)` signature и ошибочные `@pytest.mark.asyncio` на sync tests.
+
+### Telegram management block
+
+Цель: admin-only web управление Telegram-ботом и журналом, построенное вокруг `TelegramMessageLog`, без расширения доступа для неразрешённых Telegram user id.
+
+1. [ ] P2-10 Web UI для журнала Telegram-сообщений:
+   - admin-only route `/telegram/messages` или раздел в `/settings`;
+   - таблица по `TelegramMessageLog`: дата, статус `blocked/allowed/admin`, user id, username, имя, chat id, тип, текст/caption;
+   - фильтры по статусу, user id, username, chat id, типу сообщения, диапазону дат и поиску по тексту;
+   - пагинация и безопасное HTML-экранирование текста;
+   - быстрые действия: скопировать user id/chat id, добавить user id в allowlist settings, открыть связанные payment/receipt события при наличии связи в будущем;
+   - route/template tests на admin-only доступ, фильтры и escaping.
+2. [ ] P2-11 Настройки режима Telegram-журнала:
+   - хранить в `settings` режим `telegram_log_mode`: `blocked` / `allowed` / `all`;
+   - хранить retention: `telegram_log_retention_days` или `telegram_log_retention_count`;
+   - применять режим до записи в `TelegramMessageLog`, но ошибки логирования не должны ломать обработку Telegram update;
+   - scheduler/job для очистки старых записей по retention;
+   - tests для каждого режима и retention cleanup.
+3. [ ] P2-12 Полное admin-управление ботом из web UI:
+   - просмотр и изменение `TELEGRAM_ALLOWED_USER_IDS`/admin allowlist через БД/settings с audit log;
+   - включение/выключение бота или отдельных команд без пересборки контейнера, если архитектура будет переведена с env-only на DB/settings;
+   - настройка шаблонов ответов `/start`, `/help`, ошибок и подтверждений оплаты;
+   - предпросмотр шаблонов и validation placeholders перед сохранением;
+   - audit log всех изменений Telegram-настроек.
+4. [ ] P2-13 Управление ответами на входящие сообщения:
+   - для каждой записи журнала дать admin action `reply` через Bot API в исходный `chat_id`;
+   - хранить исходящие сообщения в отдельной таблице `TelegramOutboundMessageLog` с `telegram_message_id`, `chat_id`, текстом, статусом отправки и actor_user_id;
+   - если Telegram Bot API вернул `message_id`, разрешить admin-only `edit` для сообщений, отправленных этим ботом, через `editMessageText`/`editMessageCaption`;
+   - явно показать ограничение Bot API: бот не может редактировать чужие сообщения пользователей в чате, только собственные сообщения бота и только пока Telegram разрешает их редактирование;
+   - tests/mock Bot API для send/edit failure paths.
+5. [ ] P2-14 Связать Telegram-журнал с бизнес-событиями:
+   - при успешной оплате из Telegram сохранять связь inbound message -> payment transaction/receipt;
+   - показывать в UI, какое сообщение создало оплату и какой ответ бот отправил пользователю;
+   - добавить фильтр `has_payment_event` / `has_error`.
