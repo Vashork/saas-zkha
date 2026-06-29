@@ -3,8 +3,13 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.web
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
     container_name: zhkh-web
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ./data:/app/data
       - ./backups:/app/backups
@@ -18,7 +23,7 @@ services:
     networks:
       - zhkh-bot-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read()"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -27,8 +32,13 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.bot
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
     container_name: zhkh-bot
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - ./data:/app/data
       - ./logs:/var/log/zhkh-bot
@@ -44,9 +54,11 @@ services:
       - web
 
   nginx:
-    image: nginx:alpine
+    image: nginx:1.27-alpine
     container_name: zhkh-nginx
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "80:80"
     volumes:
