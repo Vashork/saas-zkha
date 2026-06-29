@@ -28,6 +28,7 @@ from app.backup_settings import (
     parse_retention,
     parse_time,
 )
+from app.timezone_settings import normalize_timezone
 
 logger = logging.getLogger("zhkh.scheduler")
 scheduler = AsyncIOScheduler()
@@ -125,19 +126,12 @@ async def check_notifications():
             logger.info("Payment status check: %s due soon, %s overdue", len(urgent), len(overdue))
 
 
-def start_scheduler():
-    """Start the APScheduler with payment generation and status-check jobs."""
+def _schedule_notification_jobs(notification_timezone: str) -> None:
+    """Add or replace recurring payment generation/status jobs in one timezone."""
     settings = get_settings()
-
     gen_hour, gen_min = map(int, settings.GENERATION_TIME.split(":"))
     notif_hour, notif_min = map(int, settings.NOTIFICATION_TIME.split(":"))
-
-    scheduler.add_job(
-        generate_monthly_payments,
-        "date",
-        id="generate_payments_on_start",
-        replace_existing=True,
-    )
+    timezone_name = normalize_timezone(notification_timezone, settings.NOTIFICATION_TIMEZONE)
 
     scheduler.add_job(
         generate_monthly_payments,
@@ -145,7 +139,7 @@ def start_scheduler():
         day=settings.GENERATION_DAY,
         hour=gen_hour,
         minute=gen_min,
-        timezone=settings.NOTIFICATION_TIMEZONE,
+        timezone=timezone_name,
         id="generate_payments",
         replace_existing=True,
     )
@@ -155,14 +149,14 @@ def start_scheduler():
         "cron",
         hour=notif_hour,
         minute=notif_min,
-        timezone=settings.NOTIFICATION_TIMEZONE,
+        timezone=timezone_name,
         id="check_notifications",
         replace_existing=True,
     )
 
-    scheduler.start()
     logger.info(
-        "Scheduler started: generation %s:%s day %s, status checks %s:%s",
+        "Notification scheduler jobs set to timezone %s: generation %s:%s day %s, status checks %s:%s",
+        timezone_name,
         gen_hour,
         gen_min,
         settings.GENERATION_DAY,
@@ -170,6 +164,39 @@ def start_scheduler():
         notif_min,
     )
 
+
+async def _load_notification_timezone() -> str:
+    """Read the DB notification timezone, falling back to env/default config."""
+    configured_default = get_settings().NOTIFICATION_TIMEZONE
+    async with async_session_factory() as session:
+        value = await session.scalar(
+            select(Setting.value).where(Setting.key == "notification_timezone")
+        )
+    return normalize_timezone(value, configured_default)
+
+
+async def _reschedule_notification_jobs() -> None:
+    """Refresh recurring notification-related jobs after timezone setting changes."""
+    timezone_name = await _load_notification_timezone()
+    _schedule_notification_jobs(timezone_name)
+
+
+def start_scheduler():
+    """Start the APScheduler with payment generation and status-check jobs."""
+    settings = get_settings()
+
+    scheduler.add_job(
+        generate_monthly_payments,
+        "date",
+        id="generate_payments_on_start",
+        replace_existing=True,
+    )
+    _schedule_notification_jobs(settings.NOTIFICATION_TIMEZONE)
+
+    scheduler.start()
+    logger.info("Scheduler started")
+
+    asyncio.create_task(_reschedule_notification_jobs())
     asyncio.create_task(_schedule_backup_job())
 
 
@@ -198,11 +225,13 @@ async def _load_backup_settings() -> dict:
                     "backup_keep_local_copy",
                     "backup_destination_local",
                     "backup_destination_remote",
+                    "notification_timezone",
                 ]
             ))
         )
         values = {s.key: s.value for s in result.scalars().all()}
 
+    configured_default = get_settings().NOTIFICATION_TIMEZONE
     return {
         "retention_count": parse_retention(values.get("backup_retention_count")),
         "frequency": parse_frequency(values.get("backup_frequency")),
@@ -212,6 +241,7 @@ async def _load_backup_settings() -> dict:
         "keep_local_copy": parse_bool(values.get("backup_keep_local_copy"), True),
         "destination_local": parse_bool(values.get("backup_destination_local"), True),
         "destination_remote": parse_bool(values.get("backup_destination_remote"), False),
+        "timezone": normalize_timezone(values.get("notification_timezone"), configured_default),
     }
 
 
@@ -360,7 +390,7 @@ async def _schedule_backup_job():
         "cron",
         id="auto_backup",
         replace_existing=True,
-        timezone=get_settings().NOTIFICATION_TIMEZONE,
+        timezone=settings["timezone"],
         **cron_kw,
     )
-    logger.info("Auto-backup scheduled: %s at %s", freq, settings["backup_time"])
+    logger.info("Auto-backup scheduled: %s at %s %s", freq, settings["backup_time"], settings["timezone"])
