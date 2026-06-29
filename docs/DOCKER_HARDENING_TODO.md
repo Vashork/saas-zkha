@@ -16,6 +16,7 @@ Reviewed files:
 - `requirements.txt`
 - `requirements-dev.txt`
 - `tests/test_docker_runtime.py`
+- `README.md`
 
 ## Implemented hardening
 
@@ -49,6 +50,11 @@ Reviewed files:
 
 8. Docker runtime regression tests updated.
    - `tests/test_docker_runtime.py` now asserts the hardened non-root model: `USER zhkh`, no `gosu`, no `curl`, pinned nginx, Python stdlib healthcheck, and `no-new-privileges:true`.
+   - README bind-mount guidance is guarded against the old root-entrypoint / `gosu` wording.
+
+9. Docker runtime documentation aligned.
+   - `README.md` now documents the direct `USER zhkh` runtime model.
+   - It no longer describes startup scripts as fixing ownership with root privileges or dropping privileges through `gosu`.
 
 ## Local validation confirmed
 
@@ -80,7 +86,7 @@ docker compose logs --tail=120 bot                             # bot polling sta
 
 ## Docker smoke result
 
-Docker hardening smoke is complete for the changed runtime model:
+Docker hardening smoke is complete for the changed runtime model based on the user-confirmed local evidence above:
 
 - web and bot containers run as non-root `zhkh` (`uid=1000`, `gid=1000`);
 - web healthcheck succeeds through nginx and internally;
@@ -88,6 +94,15 @@ Docker hardening smoke is complete for the changed runtime model:
 - web logs show clean startup, migrations, scheduler start, and repeated successful `/health` responses;
 - bot logs show successful polling startup;
 - no `gosu`, `chown`, bind-mount permission, or startup failures were observed in the smoke logs.
+
+## Post-review correction
+
+During connector review on 2026-06-29, README still contained stale wording for the old root entrypoint / `gosu` model. This was corrected after the smoke evidence above:
+
+- `README.md` now describes direct `USER zhkh` startup and host-prepared bind-mount ownership.
+- `tests/test_docker_runtime.py` now prevents the old `gosu` / root-entrypoint wording from returning.
+
+This review did not independently rerun Docker or pytest after that documentation/test guard correction; rerun `python -m pytest tests/test_docker_runtime.py` or the full validation command before merging if fresh post-commit evidence is required.
 
 ## Host bind-mount note
 
