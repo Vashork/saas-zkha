@@ -34,6 +34,7 @@
 24. Добавлены GUI-настройки Telegram-журнала: `telegram_log_mode` (`blocked`/`allowed`/`all`), `telegram_log_retention_days`, `telegram_log_retention_count`; бот применяет режим логирования и retention при записи новых сообщений.
 25. Добавлено базовое GUI-управление доступом Telegram: `telegram_admin_id` и `telegram_allowed_user_ids` сохраняются в БД и применяются middleware бота без пересборки; env остаётся fallback.
 26. Добавлен P2-13 GUI reply/edit для Telegram: admin может отвечать на inbound log row через Bot API, исходящие ответы сохраняются в `TelegramOutboundMessageLog`, а отправленные ботом сообщения можно редактировать из `/telegram` при наличии `telegram_message_id`.
+27. P2-15 role foundation закрыт: добавлены роли `admin/operator/viewer`, legacy `user -> viewer`, UI выбора ролей и regression tests; full pytest 2026-06-29 зелёный: `276 passed, 8 skipped, 4 warnings`.
 
 ## P1
 
@@ -58,7 +59,7 @@
 13. [x] Подключить `app/web/static/css/local-ui-tweaks.css` в `base.html` или удалить файл, если правки больше не нужны.
 14. [x] Решить scope темы оформления: `/settings/theme` оставлен как admin-only global setting; обычные пользователи не могут менять глобальный `ui_theme`.
 15. [x] Убрать или подключить `docker/start-web.sh`, чтобы в репозитории не было неиспользуемого runtime-скрипта.
-16. [ ] P2-15 Расширить модель ролей и прав: role foundation (`admin/operator/viewer`) закоммичен, но не закрыт до локального test run.
+16. [x] P2-15 Расширить модель ролей и прав: role foundation (`admin/operator/viewer`) внедрён и подтверждён full pytest.
 
 ## Tests
 
@@ -76,8 +77,8 @@
 23. [x] Добавить asset wiring test для `local-ui-tweaks.css`.
 24. [x] Добавить source-level tests для Docker non-root runtime и документации bind-mount прав.
 25. [x] Добавить route/source tests для admin-only global theme scope.
-26. [ ] Добавить route-level permission tests для viewer/operator/admin: role-foundation tests добавлены, но полная matrix для action-level permissions остаётся в P2-16/P2-20.
-27. [ ] Прогнать обновлённый template compatibility test на Starlette 1.x после dependency bump.
+26. [x] Добавить route-level permission tests для role foundation: `admin/operator/viewer`, legacy `user -> viewer`, создание operator и запрет operator admin/business mutations до action-level permissions.
+27. [x] Прогнать обновлённый template compatibility test на Starlette 1.x после dependency bump.
 
 ## Расшифровка
 
@@ -100,13 +101,15 @@
 17. `notification_timezone` теперь валидируется как IANA timezone, сохраняется отдельным admin-only route и используется при пересборке notification/auto-backup scheduler jobs.
 18. `docker/start-web.sh` теперь используется web image как runtime command, поэтому в репозитории не остаётся неподключённого web start script.
 19. Тема оформления остаётся глобальной настройкой приложения; менять её через backend может только admin, а пользовательский client-side toggle без admin role не мутирует `settings.ui_theme`.
+20. Роли `admin/operator/viewer` внедрены без миграции схемы: новые create/update больше не создают `role=user`, legacy `user` нормализуется в `viewer`, а operator до P2-16/P2-17 не получает business CRUD или доступ к Telegram/backups/users/system settings.
+21. Full pytest после P2-15 на Windows: `276 passed, 8 skipped, 4 warnings in 64.53s`.
 
 ## Аудит 2026-06-29 — follow-up перед production
 
 ### Вердикт
 
 1. Internal/private pilot: готов при условии ручного smoke QA после сборки контейнеров и заполнения `.env` реальными секретами.
-2. Public internet production: пока не выпускать без закрытия P1-AUDIT-1. Функциональные P1 по коду закрыты, полный test run зелёный, но dependency audit показывает известные CVE в runtime-зависимостях.
+2. Public internet production: пока не выпускать без закрытия P1-AUDIT-1. Функциональные P1 по коду закрыты, full pytest зелёный, но dependency audit/Docker smoke должны быть закрыты отдельно.
 3. Telegram-часть безопасна как allowlist-only бот, но для полного управления ботом и удобного разбора сообщений нужен отдельный Telegram management block ниже.
 
 ### Проверено ранее
@@ -121,46 +124,34 @@
 - Обновлён `requirements.txt`: `fastapi==0.138.1`, явный `starlette==1.3.1`, `aiogram==3.29.0`, явный `aiohttp==3.14.1`, `jinja2==3.1.6`, `python-multipart==0.0.32`, `python-dotenv==1.2.2`, `pytest==9.1.1`, `pytest-asyncio==1.4.0`.
 - Добавлен compatibility adapter в `app/web/template_engine.py`, потому что Starlette 1.x удаляет deprecated `TemplateResponse(name, context)`, а текущие routes ещё используют legacy call shape.
 - Добавлен regression assertion в `tests/test_template_engine.py` на наличие compatibility adapter.
-- P1-AUDIT-1 НЕ отмечен `[x]`: текущая sandbox-среда не смогла получить локальный checkout (`Could not resolve host: github.com`), поэтому здесь не были достоверно выполнены `compileall`, `pytest`, `pip-audit`, `docker compose config` и Docker smoke.
+- Full pytest после dependency/role changes подтверждён локально пользователем: `276 passed, 8 skipped, 4 warnings in 64.53s`.
+- P1-AUDIT-1 пока НЕ отмечен `[x]`: для закрытия production dependency blocker ещё нужно повторить `pip-audit -r requirements.txt`, `docker compose config` и Docker smoke.
 
 ### Замечания / follow-up
 
-1. [ ] P1-AUDIT-1 Обновить runtime/development dependencies и повторить full test run:
-   - `jinja2 3.1.5` -> минимум `3.1.6`;
-   - `python-multipart 0.0.20` -> минимум `0.0.31`;
-   - `python-dotenv 1.0.1` -> минимум `1.2.2`;
-   - `aiohttp 3.11.18` приходит транзитивно через `aiogram`, нужен compatible upgrade `aiogram`/`aiohttp` до версии без CVE;
-   - `starlette 0.41.3` приходит через `fastapi`, нужен compatible upgrade `fastapi`/`starlette`;
-   - `pytest 8.3.4` -> `9.0.3` или актуальная безопасная версия для dev-зависимости;
-   - после текущего dependency bump обязательно прогнать: `python -m compileall app init_db.py tests`, `python -m pytest`, `pip-audit -r requirements.txt`, `docker compose config`.
+1. [ ] P1-AUDIT-1 Завершить dependency audit validation:
+   - `pip-audit -r requirements.txt`;
+   - `docker compose config`;
+   - при доступном Docker: `docker compose up -d --build`, `/health`, login smoke, Telegram bot startup logs.
 2. [ ] P2-AUDIT-2 Обновить README под фактическое hardened-состояние: receipts больше не должны описываться как публично обслуживаемые `/uploads`, Telegram allowlist и `/tglog` уже есть, production запуск должен явно включать `APP_ENV=production`, уникальный `SECRET_KEY`, реальные пароли и `COOKIE_SECURE` за HTTPS.
 3. [ ] P2-AUDIT-3 Добавить CI/security gate для dependency audit: `pip-audit -r requirements.txt` или эквивалентный шаг, чтобы новые CVE не всплывали только перед релизом.
 4. [ ] P2-AUDIT-4 Docker smoke QA выполнить в среде с доступным Docker Compose plugin/v1: `docker compose up -d --build`, `/health`, login, Telegram bot startup logs, backup page, receipt upload/download.
-5. [ ] P2-AUDIT-5 Разобрать текущие pytest warnings: deprecated Starlette `TemplateResponse(...)` signature и ошибочные `@pytest.mark.asyncio` на sync tests. Текущий adapter закрывает совместимость со Starlette 1.x, но предупреждения/полный test run нужно подтвердить фактическим `pytest`.
+5. [ ] P2-AUDIT-5 Разобрать текущие pytest warnings: ошибочные `@pytest.mark.asyncio` на sync tests в receipt source-level tests.
 
 ### Permissions and roles block
 
 Цель: заменить бинарную модель `role == admin` + page checkboxes на явные роли и action-level permissions. Admin должен стать отдельной системной сущностью для опасных/технических настроек, а повседневное ведение ЛК должно быть доступно продвинутому пользователю без выдачи ему полного admin.
 
-1. [ ] P2-15 Спроектировать и внедрить роли:
+1. [x] P2-15 Спроектировать и внедрить роли:
    - `admin`: системный администратор приложения; доступ к users/roles/settings, Telegram management, backups/restore, security/audit и всем бизнес-операциям;
-   - `operator`: продвинутый пользователь для полноценного ведения ЛК; role value и GUI уже добавлены, но бизнес-CRUD пока не расширен без P2-16 action-level permissions;
+   - `operator`: role value и GUI добавлены, но business CRUD пока не расширен без P2-16 action-level permissions;
    - `viewer`: обычный пользователь только для просмотра разрешённых страниц без мутаций;
-   - validation pending: `python -m pytest tests/test_permissions.py tests/test_theme_scope.py tests/test_telegram_gui.py`.
+   - validation: full pytest 2026-06-29 — `276 passed, 8 skipped, 4 warnings in 64.53s`.
 2. [ ] P2-16 Добавить action-level permissions вместо page-only permissions.
 3. [ ] P2-17 Перевести текущие admin-only business routes на operator-capable checks, оставив Telegram/backups/restore/users/global settings/security только для `admin`.
 4. [ ] P2-18 Обновить GUI управления пользователями: роли, presets прав, предупреждение о page/action permissions, migration/backfill.
 5. [ ] P2-19 Добавить audit и защиту от self-lockout.
 6. [ ] P2-20 Добавить тесты матрицы доступа.
-
-### P2-15 attempt 2026-06-29 через GitHub connector
-
-- Добавлены роли `admin`, `operator`, `viewer` на существующем поле `users.role`, без миграции схемы.
-- Legacy `role == "user"` сохраняется как читаемый legacy state, но новые create/update нормализуют `user -> viewer`.
-- User management UI теперь показывает выбор `admin/operator/viewer` и предупреждает, что page permissions дают только видимость страниц, а action-level permissions будут отдельным блоком.
-- Operator не получил доступ к Telegram/backups/users/system settings и не получил business CRUD до P2-16/P2-17.
-- Добавлены tests в `tests/test_permissions.py` на роли, legacy normalization, создание operator и запрет operator admin/business mutations.
-- P2-15 НЕ отмечен `[x]` до локального test run.
 
 ### Telegram management block
 
