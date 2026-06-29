@@ -48,13 +48,41 @@ Reviewed files:
 
 ## Validation required before fully closing
 
+First make sure the local checkout is up to date:
+
+```bash
+git status -sb
+git fetch origin
+git pull --ff-only origin audit/main-hardening-followup
+```
+
 Run after implementation in a local environment with Docker available:
 
 ```bash
 python -m pip install -r requirements-dev.txt
 python -m compileall app init_db.py tests && python -m pytest
 docker compose config
+```
+
+Docker smoke command depends on shell:
+
+```bash
+# Linux / WSL / Git Bash
 APP_UID=$(id -u) APP_GID=$(id -g) docker compose up -d --build
+```
+
+```powershell
+# PowerShell on Windows
+$env:APP_UID="1000"
+$env:APP_GID="1000"
+docker compose up -d --build
+```
+
+```bat
+:: Windows cmd.exe
+set APP_UID=1000
+set APP_GID=1000
+docker compose up -d --build
 ```
 
 Manual smoke:
@@ -68,12 +96,14 @@ Manual smoke:
 
 ## Host bind-mount note
 
-The images now run directly as `zhkh` instead of starting as root. Before Docker smoke, ensure writable host directories exist and are writable by the UID/GID passed into compose:
+The images now run directly as `zhkh` instead of starting as root. Before Docker smoke on Linux hosts, ensure writable host directories exist and are writable by the UID/GID passed into compose:
 
 ```bash
 mkdir -p data/uploads backups logs/nginx
 chown -R "$(id -u):$(id -g)" data backups logs
 ```
+
+On Docker Desktop for Windows, Linux-style `chown` usually is not needed for bind mounts, but `APP_UID` / `APP_GID` still need values for the image build args. Use `1000` / `1000` unless the deployment host uses a different service UID/GID.
 
 If the deployment host intentionally uses a different service UID/GID, pass those values through `APP_UID` and `APP_GID` and prepare directory ownership accordingly.
 
