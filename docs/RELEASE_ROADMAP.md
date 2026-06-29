@@ -26,6 +26,7 @@
 16. Web receipt upload проверяет расширение, размер и magic bytes; скачивание чеков идёт через authenticated route с ownership check.
 17. Telegram receipt upload теперь проверяет расширение, заявленный/фактический размер и magic bytes до финального сохранения; invalid/oversized document/photo receipts отклоняются в прямом `#оплачено` workflow и interactive receipt workflow.
 18. Full test run на Windows/Python 3.13 зелёный: `251 passed, 8 skipped, 5 warnings` за 69.76s.
+19. `app/web/static/css/local-ui-tweaks.css` подключён в `base.html`; добавлен asset wiring test.
 
 ## P1
 
@@ -47,7 +48,7 @@
 10. Добавить web UI для журнала Telegram-сообщений на admin-only странице.
 11. Добавить настройки режима Telegram-журнала: логировать только blocked/allowed/all и срок хранения.
 12. Довести timezone до конца: поле в UI, сохранение `settings.notification_timezone`, использование на странице бекапов и в scheduler/notifications, где применимо.
-13. Подключить `app/web/static/css/local-ui-tweaks.css` в `base.html` или удалить файл, если правки больше не нужны.
+13. [x] Подключить `app/web/static/css/local-ui-tweaks.css` в `base.html` или удалить файл, если правки больше не нужны.
 14. Решить scope темы оформления: сейчас `/settings/theme` доступен любому authenticated user, но пишет глобальный `ui_theme`; для multi-user лучше сделать per-user preference или admin-only global setting.
 15. Убрать или подключить `docker/start-web.sh`, чтобы в репозитории не было неиспользуемого runtime-скрипта.
 
@@ -64,6 +65,7 @@
 20. [x] Добавить CSRF tests для `/login`.
 21. [x] Добавить tests для Telegram receipt upload: invalid extension, spoofed PDF/JPG/PNG magic bytes, oversized document/photo.
 22. Добавить route/template tests для сохранения и отображения timezone.
+23. [x] Добавить asset wiring test для `local-ui-tweaks.css`.
 
 ## Расшифровка
 
@@ -82,3 +84,4 @@
 13. Нужны не только helper/source tests, но и ASGI/route tests, которые проходят через middleware, templates и реальные form actions.
 14. Telegram receipt upload теперь проверяет allowed extension, размер и magic bytes для документов и фото до финального сохранения файла в прямом и interactive workflows.
 15. Full test run 2026-06-29 зелёный: 251 passed, 8 skipped, 0 failed.
+16. `local-ui-tweaks.css` оставлен как актуальный UI-fix и подключён после `qa-fixes.css`, чтобы правки select и блока бекапов реально применялись.
