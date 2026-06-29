@@ -25,9 +25,10 @@ COPY alembic/ ./alembic/
 COPY init_db.py .
 COPY docker/start-web.sh /usr/local/bin/start-web
 
-RUN chmod +x /usr/local/bin/start-web \
+RUN sed -i 's/\r$//' /usr/local/bin/start-web \
+    && chmod +x /usr/local/bin/start-web \
     && chown -R zhkh:zhkh /app /var/log/zhkh-bot
 
 USER zhkh
 
-CMD ["start-web"]
+CMD ["/usr/local/bin/start-web"]
