@@ -39,6 +39,7 @@
 29. P1-AUDIT-1 dependency audit/Docker smoke validation закрыт по локальному evidence: dependency audit без known vulnerabilities, Docker smoke build/up/health/login/bot/nginx ok.
 30. P2-AUDIT-2 README hardened-state alignment закрыт: README обновлён под authenticated receipts, Telegram allowlist/management и production checklist; добавлены README regression tests.
 31. P2-AUDIT-3 dependency audit CI gate реализован: добавлен GitHub Actions workflow `dependency-audit.yml`, который запускает `python -m pip_audit -r requirements.txt`, и source-level regression tests для workflow.
+32. P2-AUDIT-4 Docker smoke QA закрыт локальным evidence: smoke helper/test добавлены, `docker_smoke_check.py` прошёл build/up/health/login/uploads-block/log checks, ручная проверка dashboard/backups/receipt upload/download успешна.
 
 ## P1
 
@@ -87,6 +88,7 @@
 28. [x] Добавить source/route tests для action-level permissions: contractor/payment mutations и sensitive admin routes используют named action checks.
 29. [x] Добавить README regression tests для hardened release docs: authenticated receipts, production/Compose secret safety и Telegram allowlist management.
 30. [x] Добавить source-level tests для CI/security gate dependency audit workflow.
+31. [x] Добавить Docker smoke helper/source tests для P2-AUDIT-4: `scripts/docker_smoke_check.py` и `tests/test_docker_smoke_script.py`.
 
 ## Расшифровка
 
@@ -115,6 +117,7 @@
 23. P2-17 дал operator `BUSINESS_ACTION_PERMISSIONS`, оставив Telegram/backups/restore/users/global settings/security за `admin`. Full pytest после P2-17: `287 passed, 4 skipped, 7 warnings in 71.22s`.
 24. P2-AUDIT-2 синхронизировал README с фактическим hardened-состоянием: чеки не публичные `/uploads`, production запуск требует безопасных env-настроек, Telegram allowlist/management описаны без раскрытия секретов.
 25. P2-AUDIT-3 добавил dependency audit gate в GitHub Actions: low-privilege workflow устанавливает `pip-audit` как CI tooling и проверяет runtime `requirements.txt`; секреты, Docker и полный Compose config не используются.
+26. P2-AUDIT-4 закрыт локальным Docker smoke evidence: quiet Compose validation, последовательные web/bot builds, `up -d`, `/health`, `/login`, blocked `/uploads`, bounded logs, manual dashboard/backups/receipt upload/download ok; полный Compose config и секреты не выводились.
 
 ## Аудит 2026-06-29 — follow-up перед production
 
@@ -152,7 +155,7 @@
    - Добавлен `.github/workflows/dependency-audit.yml`; workflow запускает `python -m pip_audit -r requirements.txt` без app secrets/Docker/full Compose config.
    - Добавлен `tests/test_ci_security_gate.py`.
    - Требуется локальный targeted pytest и подтверждение GitHub Actions run после push.
-4. [ ] P2-AUDIT-4 Docker smoke QA выполнить в среде с доступным Docker Compose plugin/v1: `docker compose up -d --build`, `/health`, login, Telegram bot startup logs, backup page, receipt upload/download.
+4. [x] P2-AUDIT-4 Docker smoke QA выполнить в среде с доступным Docker Compose plugin/v1: `docker_smoke_check.py` подтвердил `docker compose config -q`, sequential web/bot builds, `up -d`, `/health`, `/login`, blocked `/uploads`, bounded web/nginx/bot logs; ручная проверка dashboard, `/backups` и receipt upload/download успешна.
 5. [ ] P2-AUDIT-5 Разобрать текущие pytest warnings: ошибочные `@pytest.mark.asyncio` на sync tests в receipt source-level tests.
 
 ### Permissions and roles block
