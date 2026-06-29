@@ -23,3 +23,4 @@
 * `app/web/static/css/local-ui-tweaks.css` подключён в `base.html`; добавлен asset wiring test.
 * Timezone в настройках закрыт: добавлено admin-only UI-поле, сохранение `settings.notification_timezone`, IANA validation, применение в scheduler/notifications/auto-backup и route/template tests.
 * Docker non-root runtime закрыт: web/bot images запускаются под пользователем `zhkh`, `docker/start-web.sh` подключён в web image, README описывает права для bind-mount директорий.
+* Scope темы оформления закрыт: `settings.ui_theme` оставлен глобальной настройкой, но `/settings/theme` теперь обслуживается admin-only route из `system_settings`; обычный пользователь не может мутировать глобальную тему.
