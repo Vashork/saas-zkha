@@ -6,6 +6,25 @@ This file replaces the old `docs/LOCAL_AI_TODO.md`. The old file may be deleted 
 
 ## Current active tasks
 
+### P2-AUDIT-2 README hardened-state alignment
+
+Status: completed via GitHub connector.
+
+Completed:
+
+- `README.md`: aligned with current hardened release state.
+- Public `/uploads` wording was removed; receipt downloads are documented through authenticated `/payments/receipts/{path}` with safe path and ownership checks.
+- Telegram allowlist, `/tglog [N]`, `/telegram`, DB settings over env fallback, and rotation guidance for leaked bot credentials are documented.
+- Production startup checklist now covers production env, unique app secret, non-default passwords, secure cookies behind HTTPS, and quiet Compose validation only.
+- `tests/test_readme_release_docs.py`: added README regression tests for receipt docs, production/Compose guidance, and Telegram allowlist management docs.
+
+Connector limitation:
+
+- Tests were not executed by the GitHub connector. Run locally:
+  - `python -m pytest tests/test_readme_release_docs.py -v`
+  - `python -m pytest tests/test_docker_runtime.py -v`
+  - optionally full `python -m pytest`
+
 ### P2-17 operator business CRUD
 
 Status: completed locally.
@@ -47,7 +66,7 @@ Local validation confirmed by user on Windows cmd.exe, 2026-06-29:
 - `docker compose build --no-cache web bot`: ok.
 - `docker compose up -d --build`: ok.
 - `docker compose ps`: web healthy, nginx up on `nginx:1.27-alpine`, bot up.
-- `curl -f http://localhost/health`: `{"status":"ok","database":"ok","scheduler":"running"}`.
+- `curl -f http://localhost/health`: health ok.
 - `docker compose exec -T web id`: `uid=1000(zhkh) gid=1000(zhkh)`.
 - `docker compose exec -T bot id`: `uid=1000(zhkh) gid=1000(zhkh)`.
 - web logs: no startup or permission errors.
@@ -60,10 +79,10 @@ Status: completed locally.
 
 Completed:
 
-- `pip-audit -r requirements.txt` via `py -m pip_audit -r requirements.txt`: `No known vulnerabilities found`.
+- Dependency audit through `pip-audit -r requirements.txt`: no known vulnerabilities found.
 - Docker smoke: build/up, `/health`, login redirect/page evidence in web logs, bot startup logs, nginx startup logs.
 
 Already confirmed by user after P2-16:
 
 - full pytest: `287 passed, 4 skipped, 7 warnings in 75.47s`
-- `docker-compose config`: ok
+- quiet Compose validation: ok
