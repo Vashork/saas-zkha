@@ -6,19 +6,7 @@
 
 ## Актуальные задачи
 
-### 1. Timezone в настройках
-
-Связано с `docs/RELEASE_ROADMAP.md`: P2 timezone + tests.
-
-Нужно:
-
-* добавить в UI настроек поле timezone;
-* сохранять значение в `settings.notification_timezone`;
-* использовать сохранённое значение для времени на странице бекапов;
-* проверить, нужен ли этот timezone в scheduler/notifications, и применить там, где это действительно используется;
-* добавить route/template tests для сохранения и отображения timezone.
-
-Важно: страница бекапов уже умеет читать `notification_timezone`, но в UI/settings ещё нет полноценного сохранения этого значения.
+Пока нет актуальных задач из текущего P2-хвоста, начатых в этом файле.
 
 ## Заблокировано / не получилось
 
@@ -33,3 +21,4 @@
 * Все страницы с верхним меню приведены к порядку: Дашборд → Платежи → Подрядчики → Аналитика → История → Бекапы → Настройки.
 * P1 full test run закрыт 2026-06-29: `python -m pytest` на Windows/Python 3.13 — 259 collected, 251 passed, 8 skipped, 5 warnings, 0 failed, 69.76s.
 * `app/web/static/css/local-ui-tweaks.css` подключён в `base.html`; добавлен asset wiring test.
+* Timezone в настройках закрыт: добавлено admin-only UI-поле, сохранение `settings.notification_timezone`, IANA validation, применение в scheduler/notifications/auto-backup и route/template tests.
