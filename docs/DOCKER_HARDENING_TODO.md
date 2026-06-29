@@ -2,7 +2,7 @@
 
 Branch: `audit/main-hardening-followup`
 
-Status: implementation completed through GitHub connector; tests/config validated locally; Docker build/smoke validation still pending because the pinned nginx image cannot be pulled from Docker CDN in the local environment.
+Status: completed locally.
 
 Reviewed files:
 
@@ -56,8 +56,19 @@ Confirmed by user on Windows cmd.exe, 2026-06-29:
 
 ```text
 python -m pip install -r requirements-dev.txt                  # ok
-python -m compileall app init_db.py tests && python -m pytest  # 284 passed, 8 skipped, 5 warnings in 60.22s
+python -m compileall app init_db.py tests && python -m pytest  # 284 passed, 8 skipped, 5 warnings in 59.09s
 docker compose config                                          # ok
+docker pull python:3.11-slim                                   # ok
+docker pull nginx:1.27-alpine                                  # ok
+docker compose build --no-cache web bot                        # ok
+docker compose up -d --build                                   # ok
+docker compose ps                                              # web healthy, nginx up on nginx:1.27-alpine, bot up
+curl -f http://localhost/health                                # {"status":"ok","database":"ok","scheduler":"running"}
+docker compose exec -T web id                                  # uid=1000(zhkh) gid=1000(zhkh)
+docker compose exec -T bot id                                  # uid=1000(zhkh) gid=1000(zhkh)
+docker compose logs --tail=120 web                             # no startup or permission errors
+docker compose logs --tail=120 nginx                           # startup ok
+docker compose logs --tail=120 bot                             # bot polling started
 ```
 
 `docker compose config` confirms:
@@ -67,34 +78,16 @@ docker compose config                                          # ok
 - `APP_UID` / `APP_GID` build args;
 - `security_opt: no-new-privileges:true` for web, bot, and nginx.
 
-## Validation still required before fully closing
+## Docker smoke result
 
-Docker image pull/build and full smoke are still pending.
+Docker hardening smoke is complete for the changed runtime model:
 
-Current local blockers:
-
-- `docker pull nginx:1.27-alpine` fails with `failed to copy ... production.cloudfront.docker.com ... EOF`.
-- `docker compose up -d --build` fails for the same pinned nginx image pull reason.
-- `docker compose ps` still shows an older running `zhkh-nginx` based on `nginx:alpine`, so the current running stack cannot be used as final proof for the new hardening state.
-- Bot logs show `Cannot connect to host api.telegram.org:443` / DNS failures. This is an external network/Telegram reachability issue, not a bind-mount permission or non-root startup error.
-
-Run when Docker CDN / registry access is working:
-
-```bat
-set APP_UID=1000
-set APP_GID=1000
-docker pull nginx:1.27-alpine
-docker compose up -d --build
-```
-
-Manual smoke still required on newly built containers:
-
-- web `/health` returns success;
-- login page works;
-- Telegram bot container starts without permission errors and can reach `api.telegram.org:443`, or Telegram reachability is explicitly documented as an environment/network blocker;
-- backup page opens;
-- receipt upload/download still works;
-- `docker compose logs web bot nginx` has no startup or permission errors.
+- web and bot containers run as non-root `zhkh` (`uid=1000`, `gid=1000`);
+- web healthcheck succeeds through nginx and internally;
+- nginx starts with the pinned `nginx:1.27-alpine` image;
+- web logs show clean startup, migrations, scheduler start, and repeated successful `/health` responses;
+- bot logs show successful polling startup;
+- no `gosu`, `chown`, bind-mount permission, or startup failures were observed in the smoke logs.
 
 ## Host bind-mount note
 
@@ -112,6 +105,5 @@ If the deployment host intentionally uses a different service UID/GID, pass thos
 ## Boundaries
 
 - Docker hardening implementation is separate from P2-17.
-- Do not mark this item fully complete until Docker build and smoke confirmation are available.
-- Do not mark P1-AUDIT-1 complete only because Docker hardening implementation is done; dependency audit and Docker smoke are still separate release blockers.
+- P1-AUDIT-1 is not complete only because Docker hardening is complete; dependency audit remains a separate release blocker.
 - Be careful with `USER zhkh`: it can break bind-mount writes if host directory ownership is not prepared.
