@@ -66,6 +66,13 @@ async def permission_db(tmp_path, monkeypatch):
             page_permissions=None,
             is_active=True,
         )
+        operator = User(
+            username="operator",
+            password_hash=hash_password("password123"),
+            role="operator",
+            page_permissions="dashboard,payments,history,contractors,analytics,settings",
+            is_active=True,
+        )
         restricted = User(
             username="restricted",
             password_hash=hash_password("password123"),
@@ -128,6 +135,7 @@ async def permission_db(tmp_path, monkeypatch):
         )
         session.add_all([
             admin,
+            operator,
             restricted,
             settings_user,
             no_access_user,
@@ -141,6 +149,7 @@ async def permission_db(tmp_path, monkeypatch):
         yield SimpleNamespace(
             session=session,
             admin=admin,
+            operator=operator,
             restricted=restricted,
             settings_user=settings_user,
             no_access_user=no_access_user,
@@ -151,6 +160,15 @@ async def permission_db(tmp_path, monkeypatch):
         )
 
     await engine.dispose()
+
+
+def test_auth_declares_admin_operator_viewer_roles():
+    assert [role for role, _ in auth.ROLE_OPTIONS] == ["admin", "operator", "viewer"]
+    assert auth._normalize_role("admin") == "admin"
+    assert auth._normalize_role("operator") == "operator"
+    assert auth._normalize_role("viewer") == "viewer"
+    assert auth._normalize_role("user") == "viewer"
+    assert auth._normalize_role("unexpected") is None
 
 
 @pytest.mark.asyncio
@@ -189,6 +207,47 @@ async def test_empty_page_permissions_mean_no_access(permission_db):
 
 
 @pytest.mark.asyncio
+async def test_admin_can_create_operator_role_without_granting_admin_mutations(permission_db):
+    create_response = await auth.create_user(
+        _request("/settings/users/create", method="POST", user=permission_db.admin),
+        db=permission_db.session,
+        username="new-operator",
+        password="password123",
+        role="operator",
+        page_dashboard="on",
+        page_payments="on",
+        page_history="on",
+        page_contractors="on",
+        page_analytics="on",
+        page_settings="off",
+    )
+    _assert_redirect(create_response, "/settings?success=")
+
+    created = await permission_db.session.scalar(select(User).where(User.username == "new-operator"))
+    assert created is not None
+    assert created.role == "operator"
+    assert created.page_permissions == "dashboard,payments,history,contractors,analytics"
+
+    denied_user_response = await auth.create_user(
+        _request("/settings/users/create", method="POST", user=created),
+        db=permission_db.session,
+        username="blocked-by-operator",
+        password="password123",
+        role="viewer",
+        page_dashboard="on",
+        page_payments="off",
+        page_history="off",
+        page_contractors="off",
+        page_analytics="off",
+        page_settings="off",
+    )
+    _assert_redirect(denied_user_response, "/settings?error=")
+
+    blocked_user = await permission_db.session.scalar(select(User).where(User.username == "blocked-by-operator"))
+    assert blocked_user is None
+
+
+@pytest.mark.asyncio
 async def test_non_admin_cannot_use_user_management_endpoints(permission_db):
     request = _request("/settings/users/create", method="POST", user=permission_db.settings_user)
 
@@ -197,7 +256,7 @@ async def test_non_admin_cannot_use_user_management_endpoints(permission_db):
         db=permission_db.session,
         username="blocked-user",
         password="password123",
-        role="user",
+        role="viewer",
         page_dashboard="on",
         page_payments="off",
         page_history="off",
@@ -214,7 +273,7 @@ async def test_non_admin_cannot_use_user_management_endpoints(permission_db):
         permission_db.admin.id,
         request,
         db=permission_db.session,
-        role="user",
+        role="viewer",
         page_dashboard="on",
         page_payments="on",
         page_history="on",
@@ -234,7 +293,7 @@ async def test_updating_user_with_no_checked_pages_stores_empty_permissions(perm
         permission_db.restricted.id,
         _request("/settings/users/update", method="POST", user=permission_db.admin),
         db=permission_db.session,
-        role="user",
+        role="viewer",
         page_dashboard="off",
         page_payments="off",
         page_history="off",
@@ -246,7 +305,41 @@ async def test_updating_user_with_no_checked_pages_stores_empty_permissions(perm
     _assert_redirect(response, "/settings?success=")
 
     user = await permission_db.session.get(User, permission_db.restricted.id)
+    assert user.role == "viewer"
     assert user.page_permissions == ""
+
+
+@pytest.mark.asyncio
+async def test_operator_cannot_mutate_contractors_or_payments_until_action_permissions(permission_db):
+    request = _request("/contractors/add", method="POST", user=permission_db.operator)
+
+    contractor_response = await contractors.add_contractor(
+        request,
+        db=permission_db.session,
+        name="Blocked by operator",
+        slug="blocked-by-operator",
+        payment_type="fixed",
+        fixed_amount="10",
+        due_day=5,
+        account_number="",
+        description="",
+    )
+    _assert_redirect(contractor_response, "/contractors?error=")
+
+    blocked_contractor = await permission_db.session.scalar(
+        select(Contractor).where(Contractor.slug == "blocked-by-operator")
+    )
+    assert blocked_contractor is None
+
+    payment_response = await payments.delete_payment(
+        permission_db.payment.id,
+        _request("/payments/payment-1/delete", method="POST", user=permission_db.operator),
+        db=permission_db.session,
+    )
+    _assert_redirect(payment_response, "/payments?error=")
+
+    existing_payment = await permission_db.session.get(Payment, permission_db.payment.id)
+    assert existing_payment is not None
 
 
 @pytest.mark.asyncio
@@ -303,7 +396,7 @@ async def test_admin_can_perform_expected_user_contractor_and_payment_actions(pe
 
     created_user = await permission_db.session.scalar(select(User).where(User.username == "new-user"))
     assert created_user is not None
-    assert created_user.role == "user"
+    assert created_user.role == "viewer"
 
     contractor_response = await contractors.add_contractor(
         _request("/contractors/add", method="POST", user=permission_db.admin),
