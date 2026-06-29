@@ -2,10 +2,11 @@
 
 Branch: `audit/main-hardening-followup`
 
-Status: audit findings recorded, implementation not started.
+Status: implementation completed through GitHub connector; Docker build/smoke validation still pending.
 
 Reviewed files:
 
+- `.dockerignore`
 - `docker/Dockerfile.web`
 - `docker/Dockerfile.bot`
 - `docker-compose.yml`
@@ -13,48 +14,47 @@ Reviewed files:
 - `docker/start-bot.sh`
 - `docker/nginx.conf`
 - `requirements.txt`
+- `requirements-dev.txt`
 
-## Current positives
+## Implemented hardening
 
-- web/bot use `python:3.11-slim`.
-- Dockerfiles copy `requirements.txt` before `app/`, so dependency cache is mostly correct.
-- apt install and apt list cleanup are in the same `RUN` layer.
-- Python packages are installed with `pip install --no-cache-dir`.
-- Secrets are not hardcoded in Dockerfiles.
-- web has a `/health` healthcheck in compose.
-- nginx blocks public `/uploads/` access.
+1. Root `.dockerignore` added.
+   - Excludes VCS metadata, local environment files, Python caches, virtualenvs, runtime data, backups, logs, local DB files, coverage output, build artifacts, and large local docs artifacts.
 
-## Required follow-up
+2. Runtime and dev dependencies split.
+   - `requirements.txt` now contains runtime dependencies only.
+   - `requirements-dev.txt` includes `-r requirements.txt` plus `pytest`, `pytest-asyncio`, and `httpx`.
 
-1. Add root `.dockerignore`.
-   Must exclude VCS metadata, local environment files, Python caches, virtualenvs, runtime data, backups, logs, local DB files, coverage output, and optional docs/build artifacts.
+3. Runtime user model hardened.
+   - `docker/Dockerfile.web` and `docker/Dockerfile.bot` now set `USER zhkh`.
+   - `gosu` was removed from runtime images.
+   - Startup scripts no longer perform root-to-user privilege dropping.
+   - Compose build args expose `APP_UID` / `APP_GID` so host bind-mount ownership can be aligned with the container user.
 
-2. Split runtime and dev dependencies.
-   Runtime Docker images should not install test-only packages. Move `pytest`, `pytest-asyncio`, and `httpx` to a dev requirements file.
+4. Unnecessary runtime packages removed.
+   - `curl` was removed from web/bot images.
+   - Compose healthcheck now uses Python stdlib `urllib.request` against `/health`.
 
-3. Rework runtime user model.
-   Current Dockerfiles create user `zhkh`, but containers still start through root and drop privileges in shell scripts using `gosu`. Preferred hardened state is `USER zhkh` in Dockerfiles, with bind-mount permissions prepared on host. If `gosu` remains, document it as a compatibility compromise and test it.
+5. Nginx image version pinned.
+   - `nginx:alpine` replaced with `nginx:1.27-alpine`.
 
-4. Remove unnecessary runtime packages.
-   `curl` is used only for healthcheck. Prefer a Python stdlib healthcheck in compose, then remove `curl` from web/bot images if possible.
+6. Image metadata added.
+   - OCI labels added to web/bot images.
+   - `EXPOSE 8000` added to `docker/Dockerfile.web`.
 
-5. Pin nginx image version.
-   Replace floating `nginx:alpine` with a version-pinned tag such as `nginx:1.27-alpine`, or use a digest-pinned image.
+7. Compose hardening added.
+   - `security_opt: ["no-new-privileges:true"]` added for web, bot, and nginx.
+   - `read_only: true` intentionally not enabled yet because app data, backups, logs, uploads, nginx runtime paths, and tmpfs needs must be handled explicitly first.
 
-6. Add image metadata.
-   Add OCI labels to web/bot images and add `EXPOSE 8000` to the web Dockerfile.
+## Validation required before fully closing
 
-7. Optional compose hardening.
-   Consider `security_opt: ["no-new-privileges:true"]`. Consider `read_only: true` only after writable mounts/tmpfs are explicitly handled for app data, backups, logs, and nginx runtime paths.
-
-## Validation required
-
-Run after implementation:
+Run after implementation in a local environment with Docker available:
 
 ```bash
+python -m pip install -r requirements-dev.txt
 python -m compileall app init_db.py tests && python -m pytest
 docker compose config
-docker compose up -d --build
+APP_UID=$(id -u) APP_GID=$(id -g) docker compose up -d --build
 ```
 
 Manual smoke:
@@ -66,9 +66,20 @@ Manual smoke:
 - receipt upload/download still works;
 - `docker compose logs web bot nginx` has no startup or permission errors.
 
+## Host bind-mount note
+
+The images now run directly as `zhkh` instead of starting as root. Before Docker smoke, ensure writable host directories exist and are writable by the UID/GID passed into compose:
+
+```bash
+mkdir -p data/uploads backups logs/nginx
+chown -R "$(id -u):$(id -g)" data backups logs
+```
+
+If the deployment host intentionally uses a different service UID/GID, pass those values through `APP_UID` and `APP_GID` and prepare directory ownership accordingly.
+
 ## Boundaries
 
-- Do not combine this Docker hardening with P2-17 unless explicitly requested.
-- Do not mark this complete without Docker build and smoke confirmation.
-- Do not mark P1-AUDIT-1 complete only because Docker hardening is done; dependency audit and Docker smoke are still separate release blockers.
+- Docker hardening implementation is separate from P2-17.
+- Do not mark this item fully complete until Docker build and smoke confirmation are available.
+- Do not mark P1-AUDIT-1 complete only because Docker hardening implementation is done; dependency audit and Docker smoke are still separate release blockers.
 - Be careful with `USER zhkh`: it can break bind-mount writes if host directory ownership is not prepared.
