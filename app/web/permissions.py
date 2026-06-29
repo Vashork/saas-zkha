@@ -84,13 +84,13 @@ VIEW_ACTION_PERMISSIONS = frozenset({
 
 ALL_ACTION_PERMISSIONS = VIEW_ACTION_PERMISSIONS | BUSINESS_ACTION_PERMISSIONS | SYSTEM_ACTION_PERMISSIONS
 
-# Transitional defaults:
+# Default role policy:
 # - admin keeps all permissions;
-# - operator is explicitly modeled but gets no mutation permissions until P2-17;
+# - operator can run day-to-day business mutations through named route checks;
 # - viewer/legacy user get no action permissions, page_permissions still control read visibility.
 ROLE_ACTION_PERMISSIONS = {
     ROLE_ADMIN: ALL_ACTION_PERMISSIONS,
-    ROLE_OPERATOR: frozenset(),
+    ROLE_OPERATOR: BUSINESS_ACTION_PERMISSIONS,
     ROLE_VIEWER: frozenset(),
     ROLE_LEGACY_USER: frozenset(),
 }
