@@ -8,7 +8,7 @@ This file replaces the old `docs/LOCAL_AI_TODO.md`. The old file may be deleted 
 
 ### P2-AUDIT-2 README hardened-state alignment
 
-Status: completed via GitHub connector.
+Status: completed and locally validated.
 
 Completed:
 
@@ -18,12 +18,10 @@ Completed:
 - Production startup checklist now covers production env, unique app secret, non-default passwords, secure cookies behind HTTPS, and quiet Compose validation only.
 - `tests/test_readme_release_docs.py`: added README regression tests for receipt docs, production/Compose guidance, and Telegram allowlist management docs.
 
-Connector limitation:
+Local validation confirmed by user on Windows/Python 3.13.14, 2026-06-29:
 
-- Tests were not executed by the GitHub connector. Run locally:
-  - `python -m pytest tests/test_readme_release_docs.py -v`
-  - `python -m pytest tests/test_docker_runtime.py -v`
-  - optionally full `python -m pytest`
+- `python -m pytest tests/test_readme_release_docs.py -v`: `3 passed in 0.14s`.
+- `python -m pytest tests/test_docker_runtime.py -v`: `5 passed in 0.04s`.
 
 ### P2-17 operator business CRUD
 
