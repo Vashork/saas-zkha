@@ -2,8 +2,8 @@
 
 import logging
 
-from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Body, Depends, Form, Request
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +37,34 @@ async def _reschedule_scheduler_after_timezone_change() -> None:
         await _schedule_backup_job()
     except Exception:
         logger.exception("Could not reschedule jobs after notification timezone update")
+
+
+@router.post("/settings/theme")
+async def change_global_theme(
+    request: Request,
+    data: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Save the global UI theme; global theme changes are admin-only."""
+    current_user = await get_current_user(request, db)
+    if not current_user:
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    if current_user.role != "admin":
+        return JSONResponse({"error": "Forbidden"}, status_code=403)
+
+    theme_val = data.get("theme", "dark")
+    normalized_theme = theme_val if theme_val in {"dark", "light"} else "dark"
+    await _upsert_setting(db, "ui_theme", normalized_theme, "Тема интерфейса")
+    await log_admin_action(
+        db,
+        actor=current_user,
+        action="global_theme_update",
+        entity_type="settings",
+        details={"ui_theme": normalized_theme},
+        request=request,
+    )
+    await db.commit()
+    return JSONResponse({"ok": True})
 
 
 @router.post("/settings/timezone")
