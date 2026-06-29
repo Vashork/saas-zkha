@@ -120,5 +120,5 @@ If the deployment host intentionally uses a different service UID/GID, pass thos
 ## Boundaries
 
 - Docker hardening implementation is separate from P2-17.
-- P1-AUDIT-1 is not complete only because Docker hardening is complete; dependency audit remains a separate release blocker.
+- Docker hardening completion does not by itself close non-Docker release validation items; use the current roadmap and validation docs for those statuses.
 - Be careful with `USER zhkh`: it can break bind-mount writes if host directory ownership is not prepared.
