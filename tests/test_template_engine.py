@@ -49,6 +49,15 @@ def test_payments_route_uses_shared_template_engine():
     assert payments.templates is templates
 
 
+def test_template_engine_preserves_legacy_template_response_signature():
+    source = (ROOT / "app" / "web" / "template_engine.py").read_text(encoding="utf-8")
+
+    assert "class CompatJinja2Templates" in source
+    assert "TemplateResponse(name, context)" in source
+    assert "TemplateResponse(request, name" in source
+    assert 'context.get("request")' in source
+
+
 def test_main_no_longer_has_payments_template_workaround():
     main_source = (ROOT / "app" / "web" / "main.py").read_text(encoding="utf-8")
 
