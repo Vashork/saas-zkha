@@ -29,6 +29,7 @@
 19. `app/web/static/css/local-ui-tweaks.css` подключён в `base.html`; добавлен asset wiring test.
 20. Timezone доведён до UI/settings: admin-only сохранение `settings.notification_timezone`, IANA validation, применение к backup page и scheduler jobs, route/template tests.
 21. Docker web/bot images запускаются под non-root пользователем `zhkh`; существующий `docker/start-web.sh` подключён в web image; README описывает права для bind-mount директорий.
+22. Scope темы оформления зафиксирован как admin-only global setting: `/settings/theme` теперь обслуживается hardened route из `system_settings` и не позволяет обычному пользователю менять глобальный `ui_theme`.
 
 ## P1
 
@@ -51,7 +52,7 @@
 11. Добавить настройки режима Telegram-журнала: логировать только blocked/allowed/all и срок хранения.
 12. [x] Довести timezone до конца: поле в UI, сохранение `settings.notification_timezone`, использование на странице бекапов и в scheduler/notifications, где применимо.
 13. [x] Подключить `app/web/static/css/local-ui-tweaks.css` в `base.html` или удалить файл, если правки больше не нужны.
-14. Решить scope темы оформления: сейчас `/settings/theme` доступен любому authenticated user, но пишет глобальный `ui_theme`; для multi-user лучше сделать per-user preference или admin-only global setting.
+14. [x] Решить scope темы оформления: `/settings/theme` оставлен как admin-only global setting; обычные пользователи не могут менять глобальный `ui_theme`.
 15. [x] Убрать или подключить `docker/start-web.sh`, чтобы в репозитории не было неиспользуемого runtime-скрипта.
 
 ## Tests
@@ -69,6 +70,7 @@
 22. [x] Добавить route/template tests для сохранения и отображения timezone.
 23. [x] Добавить asset wiring test для `local-ui-tweaks.css`.
 24. [x] Добавить source-level tests для Docker non-root runtime и документации bind-mount прав.
+25. [x] Добавить route/source tests для admin-only global theme scope.
 
 ## Расшифровка
 
@@ -90,3 +92,4 @@
 16. `local-ui-tweaks.css` оставлен как актуальный UI-fix и подключён после `qa-fixes.css`, чтобы правки select и блока бекапов реально применялись.
 17. `notification_timezone` теперь валидируется как IANA timezone, сохраняется отдельным admin-only route и используется при пересборке notification/auto-backup scheduler jobs.
 18. `docker/start-web.sh` теперь используется web image как runtime command, поэтому в репозитории не остаётся неподключённого web start script.
+19. Тема оформления остаётся глобальной настройкой приложения; менять её через backend может только admin, а пользовательский client-side toggle без admin role не мутирует `settings.ui_theme`.
