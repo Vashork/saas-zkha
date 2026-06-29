@@ -6,11 +6,15 @@
 
 ## Актуальные задачи
 
-Пока нет актуальных задач из текущего P2-хвоста, начатых в этом файле.
+* P1-AUDIT-1: выполнить полный локальный validation после dependency bump: `python -m compileall app init_db.py tests`, `python -m pytest`, `pip-audit -r requirements.txt`, `docker compose config`; при доступном Docker — `docker compose up -d --build`, `/health`, login smoke, Telegram bot startup logs.
 
 ## Заблокировано / не получилось
 
-Пока нет актуальных заблокированных задач.
+* Дата: 2026-06-29
+  * Задача: P1-AUDIT-1 — полный локальный dependency/test/Docker validation после обновления `requirements.txt`.
+  * Что пробовали: перечитали актуальную ветку через GitHub connector; обновили прямые pins для FastAPI/Starlette/aiogram/aiohttp/Jinja2/python-multipart/python-dotenv/pytest/pytest-asyncio; добавили compatibility adapter для legacy `TemplateResponse(name, context)` на Starlette 1.x; попытались получить локальный checkout через `git clone --branch audit/main-hardening-followup --single-branch https://github.com/Vashork/saas-zkha.git /mnt/data/saas-zkha`.
+  * Что не получилось: текущая sandbox-среда не смогла выполнить локальный checkout из-за DNS/network error `Could not resolve host: github.com`; без локального checkout и PyPI/Docker-доступа здесь нельзя достоверно прогнать `compileall`, `pytest`, `pip-audit`, `docker compose config` и Docker smoke.
+  * Следующий шаг: в среде с доступом к GitHub/PyPI/Docker выполнить команды из актуальных задач; P1-AUDIT-1 отмечать `[x]` в roadmap только после зелёного test run и чистого `pip-audit` либо после документированного обоснования остаточных CVE.
 
 ## Выполнено
 
