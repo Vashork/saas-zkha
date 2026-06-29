@@ -7,7 +7,8 @@ prints the resolved Compose config because it may contain secrets from `.env`.
 It performs non-destructive checks that are safe for a local release smoke:
 
 - validate Compose syntax quietly;
-- optionally build/up the stack;
+- optionally build the web and bot images sequentially with a retry;
+- optionally start the stack without forcing a second parallel rebuild;
 - wait for `/health` through nginx;
 - verify `/uploads/...` is not publicly served;
 - verify `/login` reaches the web app;
@@ -34,6 +35,7 @@ from typing import Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASE_URL = "http://localhost"
+SMOKE_SERVICES = ("web", "bot")
 
 
 @dataclass(frozen=True)
@@ -70,6 +72,24 @@ def _run(args: Iterable[str], *, check: bool = True, capture: bool = True) -> Co
     return result
 
 
+def _run_with_retry(args: Iterable[str], *, attempts: int, capture: bool = True) -> CommandResult:
+    last: CommandResult | None = None
+    for attempt in range(1, attempts + 1):
+        result = _run(args, check=False, capture=capture)
+        if result.returncode == 0:
+            return result
+        last = result
+        if attempt < attempts:
+            print(f"command failed with exit code {result.returncode}; retrying once after 5s")
+            time.sleep(5)
+    assert last is not None
+    if last.stdout.strip():
+        print(last.stdout.rstrip())
+    if last.stderr.strip():
+        print(last.stderr.rstrip(), file=sys.stderr)
+    raise SystemExit(last.returncode)
+
+
 def _detect_compose() -> list[str]:
     """Prefer Docker Compose plugin, fall back to docker-compose v1."""
     plugin = _run(["docker", "compose", "version"], check=False)
@@ -79,6 +99,11 @@ def _detect_compose() -> list[str]:
     if legacy.returncode == 0:
         return ["docker-compose"]
     raise SystemExit("Docker Compose plugin/v1 was not found")
+
+
+def _build_images_sequentially(compose: list[str], *, attempts: int) -> None:
+    for service in SMOKE_SERVICES:
+        _run_with_retry([*compose, "build", "--no-cache", service], attempts=attempts, capture=False)
 
 
 def _http_get(url: str, *, timeout: float = 5.0) -> tuple[int, str]:
@@ -126,8 +151,6 @@ def _assert_login_reachable(base_url: str) -> None:
     if status == 200 and ("login" in body.lower() or "csrf" in body.lower() or "пароль" in body.lower()):
         print("/login reachable")
         return
-    # If already logged in through a browser-like environment is impossible here, but keep
-    # the accepted status narrow to catch nginx/app regressions.
     raise SystemExit(f"/login returned unexpected response: HTTP {status}")
 
 
@@ -147,8 +170,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run local Docker smoke QA for ZhKH Bot.")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Base URL exposed by nginx, default: http://localhost")
     parser.add_argument("--health-timeout", type=int, default=90, help="Seconds to wait for /health")
-    parser.add_argument("--skip-build", action="store_true", help="Skip docker compose build --no-cache web bot")
-    parser.add_argument("--skip-up", action="store_true", help="Skip docker compose up -d --build")
+    parser.add_argument("--build-attempts", type=int, default=2, help="Attempts for each image build, default: 2")
+    parser.add_argument("--skip-build", action="store_true", help="Skip sequential image builds")
+    parser.add_argument("--skip-up", action="store_true", help="Skip docker compose up -d")
     parser.add_argument("--skip-logs", action="store_true", help="Skip bounded service log evidence")
     return parser.parse_args()
 
@@ -162,9 +186,10 @@ def main() -> int:
     _run([*compose, "config", "-q"])
 
     if not args.skip_build:
-        _run([*compose, "build", "--no-cache", "web", "bot"], capture=False)
+        _build_images_sequentially(compose, attempts=args.build_attempts)
     if not args.skip_up:
-        _run([*compose, "up", "-d", "--build"], capture=False)
+        # Build is done above sequentially to avoid flaky parallel resolver/index failures.
+        _run([*compose, "up", "-d"], capture=False)
 
     _run([*compose, "ps"], check=False)
     _wait_for_health(args.base_url, timeout_seconds=args.health_timeout)
