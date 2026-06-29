@@ -91,6 +91,14 @@ def test_settings_template_exposes_notification_timezone_field():
     assert "Europe/Berlin" in settings_html
 
 
+def test_scheduler_uses_db_timezone_for_notification_and_backup_jobs():
+    scheduler_py = (ROOT / "app" / "scheduler.py").read_text(encoding="utf-8")
+
+    assert 'Setting.key == "notification_timezone"' in scheduler_py
+    assert "asyncio.create_task(_reschedule_notification_jobs())" in scheduler_py
+    assert 'timezone=settings["timezone"]' in scheduler_py
+
+
 @pytest.mark.asyncio
 async def test_admin_can_save_notification_timezone(timezone_db, monkeypatch):
     session, admin, _ = timezone_db
