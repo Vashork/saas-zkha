@@ -31,6 +31,23 @@ SESSION_COOKIE = "session"
 LEGACY_COOKIES = ("user_id", "username", "user_role", "page_permissions")
 SESSION_BOOT_ID = secrets.token_urlsafe(32)
 
+ROLE_ADMIN = "admin"
+ROLE_OPERATOR = "operator"
+ROLE_VIEWER = "viewer"
+ROLE_LEGACY_USER = "user"
+ALLOWED_ROLES = {ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER}
+ROLE_OPTIONS = [
+    (ROLE_ADMIN, "👑 Системный админ"),
+    (ROLE_OPERATOR, "🛠️ Оператор ЛК"),
+    (ROLE_VIEWER, "👁️ Наблюдатель"),
+]
+ROLE_LABELS = {
+    ROLE_ADMIN: "👑 Системный админ",
+    ROLE_OPERATOR: "🛠️ Оператор ЛК",
+    ROLE_VIEWER: "👁️ Наблюдатель",
+    ROLE_LEGACY_USER: "👁️ Наблюдатель (legacy user)",
+}
+
 PAGES = [
     ("dashboard", "📊 Дашборд"),
     ("payments", "💳 Платежи"),
@@ -39,6 +56,20 @@ PAGES = [
     ("analytics", "📈 Аналитика"),
     ("settings", "⚙️ Настройки"),
 ]
+
+
+def _normalize_role(role: str | None) -> str | None:
+    """Return a supported role value, mapping legacy 'user' to viewer."""
+    value = (role or "").strip().lower()
+    if value == ROLE_LEGACY_USER:
+        return ROLE_VIEWER
+    if value in ALLOWED_ROLES:
+        return value
+    return None
+
+
+def _is_admin_role(role: str | None) -> bool:
+    return role == ROLE_ADMIN
 
 
 def _session_secret() -> bytes:
@@ -177,7 +208,7 @@ async def _require_admin(request: Request):
     user = await _load_current_user(request)
     if not user:
         return _login_redirect(request)
-    if user.role != "admin":
+    if not _is_admin_role(user.role):
         return RedirectResponse(url="/?denied=1", status_code=303)
     return None
 
@@ -194,7 +225,7 @@ async def _require_page(request: Request, page_slug: str):
     if not user:
         return _login_redirect(request)
 
-    if user.role == "admin":
+    if _is_admin_role(user.role):
         return None
 
     if user.page_permissions is None:
@@ -276,6 +307,8 @@ async def settings_page(request: Request, db: AsyncSession = Depends(get_db)):
         "current_user_id": current_user.id,
         "users": users,
         "pages": PAGES,
+        "role_options": ROLE_OPTIONS,
+        "role_labels": ROLE_LABELS,
         "error": request.query_params.get("error"),
         "success": request.query_params.get("success"),
         "settings": settings_dict,
@@ -343,7 +376,7 @@ async def create_user(
     db: AsyncSession = Depends(get_db),
     username: str = Form(""),
     password: str = Form(""),
-    role: str = Form("user"),
+    role: str = Form(ROLE_VIEWER),
     page_dashboard: str = Form("off"),
     page_payments: str = Form("off"),
     page_history: str = Form("off"),
@@ -354,7 +387,7 @@ async def create_user(
     current_user = await get_current_user(request, db)
     if not current_user:
         return _login_redirect(request)
-    if current_user.role != "admin":
+    if not _is_admin_role(current_user.role):
         return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
 
     username = username.strip()
@@ -362,7 +395,8 @@ async def create_user(
         return RedirectResponse(url="/settings?error=Имя+не+может+быть+пустым", status_code=303)
     if len(password) < 8:
         return RedirectResponse(url="/settings?error=Минимум+8+символов", status_code=303)
-    if role not in {"admin", "user"}:
+    normalized_role = _normalize_role(role)
+    if normalized_role is None:
         return RedirectResponse(url="/settings?error=Некорректная+роль", status_code=303)
 
     existing = await db.execute(select(User).where(User.username == username))
@@ -382,7 +416,7 @@ async def create_user(
     new_user = User(
         username=username,
         password_hash=hash_password(password),
-        role=role,
+        role=normalized_role,
         page_permissions=",".join(allowed_pages),
         is_active=True,
     )
@@ -394,7 +428,7 @@ async def create_user(
         action="user_create",
         entity_type="user",
         entity_id=new_user.id,
-        details={"username": username, "role": role, "page_permissions": allowed_pages},
+        details={"username": username, "role": normalized_role, "page_permissions": allowed_pages},
         request=request,
     )
     await db.commit()
@@ -411,7 +445,7 @@ async def toggle_user_active(
     current_user = await get_current_user(request, db)
     if not current_user:
         return _login_redirect(request)
-    if current_user.role != "admin":
+    if not _is_admin_role(current_user.role):
         return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
     if current_user.id == user_id:
         return RedirectResponse(url="/settings?error=Нельзя+деактивировать+себя", status_code=303)
@@ -421,8 +455,8 @@ async def toggle_user_active(
     if not user:
         return RedirectResponse(url="/settings?error=Пользователь+не+найден", status_code=303)
 
-    if user.role == "admin" and user.is_active:
-        admin_count = await db.scalar(select(func.count(User.id)).where(User.role == "admin", User.is_active == True))
+    if _is_admin_role(user.role) and user.is_active:
+        admin_count = await db.scalar(select(func.count(User.id)).where(User.role == ROLE_ADMIN, User.is_active == True))
         if admin_count <= 1:
             return RedirectResponse(url="/settings?error=Нельзя+деактивировать+последнего+админа", status_code=303)
 
@@ -452,7 +486,7 @@ async def delete_user(
     current_user = await get_current_user(request, db)
     if not current_user:
         return _login_redirect(request)
-    if current_user.role != "admin":
+    if not _is_admin_role(current_user.role):
         return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
     if current_user.id == user_id:
         return RedirectResponse(url="/settings?error=Нельзя+удалить+себя", status_code=303)
@@ -462,7 +496,7 @@ async def delete_user(
     if not user:
         return RedirectResponse(url="/settings?error=Пользователь+не+найден", status_code=303)
 
-    if user.role == "admin":
+    if _is_admin_role(user.role):
         return RedirectResponse(url="/settings?error=Админа+нельзя+удалить,+можно+только+деактивировать", status_code=303)
 
     await log_admin_action(
@@ -484,7 +518,7 @@ async def update_user(
     user_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    role: str = Form("user"),
+    role: str = Form(ROLE_VIEWER),
     page_dashboard: str = Form("off"),
     page_payments: str = Form("off"),
     page_history: str = Form("off"),
@@ -495,7 +529,7 @@ async def update_user(
     current_user = await get_current_user(request, db)
     if not current_user:
         return _login_redirect(request)
-    if current_user.role != "admin":
+    if not _is_admin_role(current_user.role):
         return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
 
     result = await db.execute(select(User).where(User.id == user_id))
@@ -503,15 +537,16 @@ async def update_user(
     if not user:
         return RedirectResponse(url="/settings?error=Пользователь+не+найден", status_code=303)
 
-    if role not in {"admin", "user"}:
+    normalized_role = _normalize_role(role)
+    if normalized_role is None:
         return RedirectResponse(url="/settings?error=Некорректная+роль", status_code=303)
 
-    if user.id == current_user.id and current_user.role == "admin" and role != "admin":
+    if user.id == current_user.id and _is_admin_role(current_user.role) and normalized_role != ROLE_ADMIN:
         return RedirectResponse(url="/settings?error=Нельзя+снять+админа+с+себя", status_code=303)
 
     old_role = user.role
     old_permissions = user.page_permissions
-    user.role = role
+    user.role = normalized_role
     perms_map = {
         "dashboard": page_dashboard,
         "payments": page_payments,
@@ -532,7 +567,7 @@ async def update_user(
         details={
             "username": user.username,
             "old_role": old_role,
-            "new_role": role,
+            "new_role": normalized_role,
             "old_page_permissions": old_permissions,
             "new_page_permissions": user.page_permissions,
         },
@@ -553,7 +588,7 @@ async def save_settings(
     current_user = await get_current_user(request, db)
     if not current_user:
         return _login_redirect(request)
-    if current_user.role != "admin":
+    if not _is_admin_role(current_user.role):
         return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
 
     from app.models import Setting as SettingModel
@@ -622,7 +657,7 @@ async def change_user_password(
     current_user = await get_current_user(request, db)
     if not current_user:
         return _login_redirect(request)
-    if current_user.role != "admin":
+    if not _is_admin_role(current_user.role):
         return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
     if len(new_password) < 8:
         return RedirectResponse(url="/settings?error=Минимум+8+символов", status_code=303)
