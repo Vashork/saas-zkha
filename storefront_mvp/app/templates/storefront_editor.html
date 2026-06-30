@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="hero">
+  <div>
+    <h1>Редактор: {{ storefront.subdomain }}.{{ base_domain }}</h1>
+    <p><a href="http://{{ storefront.subdomain }}.{{ base_domain }}/">Открыть публичную страницу</a> · <a href="/s/{{ storefront.subdomain }}">dev-view</a></p>
+  </div>
+</section>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+<section class="card">
+  <h2>Настройки страницы</h2>
+  <form method="post" action="/storefronts/{{ storefront.id }}" enctype="multipart/form-data" class="stack">
+    <label>Заголовок<input name="title" value="{{ storefront.title }}" maxlength="160" required></label>
+    <label>Описание<textarea name="description" rows="4">{{ storefront.description }}</textarea></label>
+    <label>SEO title<input name="seo_title" value="{{ storefront.seo_title }}" maxlength="180"></label>
+    <label>SEO description<input name="seo_description" value="{{ storefront.seo_description }}" maxlength="320"></label>
+    <label>Баннер/обложка<input type="file" name="banner" accept="image/png,image/jpeg,image/webp"></label>
+    <label class="check"><input type="checkbox" name="is_published" value="1" {% if storefront.is_published %}checked{% endif %}> Опубликована</label>
+    <button type="submit">Сохранить страницу</button>
+  </form>
+</section>
+<section class="hero small"><h2>Лоты</h2><a class="button" href="/storefronts/{{ storefront.id }}/lots/new">+ Добавить лот</a></section>
+<section class="grid">
+  <article class="card plus-card"><a class="plus-link" href="/storefronts/{{ storefront.id }}/lots/new"><span class="plus">+</span><span>Добавить лот</span></a></article>
+  {% for lot in storefront.lots %}
+  <article class="card lot-card">
+    {% if lot.image %}<img src="/uploads/{{ lot.image.id }}" alt="{{ lot.title }}">{% endif %}
+    <h3>{{ lot.title }}</h3>
+    <p>{{ lot.description }}</p>
+    <p><strong>{{ '%.2f'|format(lot.price) }}</strong></p>
+    <p>Количество: {% if lot.quantity is none %}∞{% else %}{{ lot.quantity }}{% endif %}</p>
+    <p>{% if lot.is_published %}Опубликован{% else %}Черновик{% endif %}</p>
+    <a class="button" href="/storefronts/{{ storefront.id }}/lots/{{ lot.id }}/edit">Редактировать</a>
+  </article>
+  {% endfor %}
+</section>
+{% endblock %}
