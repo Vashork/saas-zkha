@@ -18,8 +18,7 @@ services:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/zhkh.db
       - UPLOAD_DIR=/app/data/uploads
       - LOG_DIR=/var/log/zhkh-bot
-    env_file:
-      - .env
+    env_file: [.env]
     networks:
       - zhkh-bot-network
     healthcheck:
@@ -46,24 +45,23 @@ services:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/zhkh.db
       - UPLOAD_DIR=/app/data/uploads
       - LOG_DIR=/var/log/zhkh-bot
-    env_file:
-      - .env
+    env_file: [.env]
     networks:
       - zhkh-bot-network
     depends_on:
       - web
 
-  nginx:
-    image: nginx:1.27-alpine
-    container_name: zhkh-nginx
+  angie:
+    image: docker.angie.software/angie:1.11.8-minimal
+    container_name: zhkh-angie
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
     ports:
       - "80:80"
     volumes:
-      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./logs/nginx:/var/log/nginx
+      - ./docker/angie.conf:/etc/angie/angie.conf:ro
+      - ./logs/angie:/var/log/angie
     networks:
       - zhkh-bot-network
     depends_on:
