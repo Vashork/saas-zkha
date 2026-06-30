@@ -15,9 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.audit import log_admin_action
 from app.bot.management import (
     DEFAULT_TELEGRAM_BOT_ENABLED,
+    MANAGED_TELEGRAM_COMMANDS,
     TELEGRAM_BOT_ENABLED_KEY,
     is_telegram_setting_enabled,
     normalize_telegram_enabled_value,
+    telegram_command_setting_key,
 )
 from app.config import get_settings
 from app.database import get_db
@@ -57,6 +59,8 @@ async def _settings_dict(db: AsyncSession) -> dict[str, str]:
     values.setdefault(TELEGRAM_ALLOWED_USER_IDS_KEY, "")
     values.setdefault(TELEGRAM_ADMIN_ID_KEY, "")
     values.setdefault(TELEGRAM_BOT_ENABLED_KEY, DEFAULT_TELEGRAM_BOT_ENABLED)
+    for command in MANAGED_TELEGRAM_COMMANDS:
+        values.setdefault(telegram_command_setting_key(command), "1")
     return values
 
 
@@ -258,6 +262,14 @@ async def telegram_page(
         "effective_telegram_admin_id": effective_admin_id,
         "effective_telegram_allowed_user_ids": effective_allowed_ids,
         "telegram_bot_enabled": is_telegram_setting_enabled(settings.get(TELEGRAM_BOT_ENABLED_KEY)),
+        "telegram_command_toggles": [
+            {
+                "command": command,
+                "key": telegram_command_setting_key(command),
+                "enabled": is_telegram_setting_enabled(settings.get(telegram_command_setting_key(command))),
+            }
+            for command in MANAGED_TELEGRAM_COMMANDS
+        ],
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),
     })
@@ -274,6 +286,7 @@ async def save_telegram_settings(
     telegram_allowed_user_ids: str | None = Form(None),
     telegram_feature_settings_submitted: str | None = Form(None),
     telegram_bot_enabled: str | None = Form(None),
+    telegram_command_settings_submitted: str | None = Form(None),
 ):
     current_user = await get_current_user(request, db)
     if not current_user:
@@ -282,6 +295,7 @@ async def save_telegram_settings(
         return RedirectResponse(url="/?denied=1", status_code=303)
 
     current_settings = await _settings_dict(db)
+    form_data = await request.form()
     raw_log_mode = telegram_log_mode if telegram_log_mode is not None else current_settings.get(TELEGRAM_LOG_MODE_KEY)
     raw_retention_days = telegram_log_retention_days if telegram_log_retention_days is not None else current_settings.get(TELEGRAM_LOG_RETENTION_DAYS_KEY)
     raw_retention_count = telegram_log_retention_count if telegram_log_retention_count is not None else current_settings.get(TELEGRAM_LOG_RETENTION_COUNT_KEY)
@@ -296,6 +310,13 @@ async def save_telegram_settings(
     bot_enabled = current_settings.get(TELEGRAM_BOT_ENABLED_KEY, DEFAULT_TELEGRAM_BOT_ENABLED)
     if telegram_feature_settings_submitted is not None:
         bot_enabled = normalize_telegram_enabled_value(telegram_bot_enabled, default=False)
+    command_enabled: dict[str, str] = {}
+    for command in MANAGED_TELEGRAM_COMMANDS:
+        key = telegram_command_setting_key(command)
+        value = current_settings.get(key, "1")
+        if telegram_command_settings_submitted is not None:
+            value = normalize_telegram_enabled_value(form_data.get(key), default=False)
+        command_enabled[command] = value
     if normalized_admin_id:
         admin_as_list = _parse_int_list(normalized_admin_id)
         allowed = set(_parse_int_list(normalized_allowed_ids))
@@ -311,8 +332,15 @@ async def save_telegram_settings(
         db,
         TELEGRAM_BOT_ENABLED_KEY,
         bot_enabled,
-        "DB-backed Telegram bot kill switch; 1 включён, 0 выключен",
+        "DB-backed Telegram bot runtime flag; 1 включён, 0 выключен",
     )
+    for command, value in command_enabled.items():
+        await _upsert_setting(
+            db,
+            telegram_command_setting_key(command),
+            value,
+            f"DB-backed Telegram /{command} command runtime flag; 1 включена, 0 выключена",
+        )
     deleted = await _apply_telegram_log_retention(db, {
         TELEGRAM_LOG_RETENTION_DAYS_KEY: retention_days,
         TELEGRAM_LOG_RETENTION_COUNT_KEY: retention_count,
@@ -329,6 +357,7 @@ async def save_telegram_settings(
             "telegram_admin_id": normalized_admin_id,
             "telegram_allowed_user_ids": normalized_allowed_ids,
             "telegram_bot_enabled": bot_enabled,
+            "telegram_commands_enabled": command_enabled,
             "deleted_by_retention": deleted,
         },
         request=request,
