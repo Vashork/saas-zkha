@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card narrow">
+  <h1>{% if lot %}Редактировать лот{% else %}Новый лот{% endif %}</h1>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post" enctype="multipart/form-data" action="{% if lot %}/storefronts/{{ storefront.id }}/lots/{{ lot.id }}{% else %}/storefronts/{{ storefront.id }}/lots{% endif %}" class="stack">
+    <label>Фото<input type="file" name="image" accept="image/png,image/jpeg,image/webp"></label>
+    {% if lot and lot.image %}<img class="preview" src="/uploads/{{ lot.image.id }}" alt="{{ lot.title }}">{% endif %}
+    <label>Название<input name="title" value="{{ lot.title if lot else '' }}" maxlength="160" required></label>
+    <label>Описание<textarea name="description" rows="5">{{ lot.description if lot else '' }}</textarea></label>
+    <label>Цена<input name="price" value="{{ lot.price if lot else '' }}" required></label>
+    <label class="check"><input type="checkbox" name="infinite_quantity" value="1" {% if lot and lot.quantity is none %}checked{% endif %}> Бесконечное количество</label>
+    <label>Количество<input type="number" min="0" name="quantity" value="{{ lot.quantity if lot and lot.quantity is not none else '' }}"></label>
+    <label class="check"><input type="checkbox" name="is_published" value="1" {% if not lot or lot.is_published %}checked{% endif %}> Опубликован</label>
+    <button type="submit">Сохранить</button>
+  </form>
+  {% if lot %}
+  <form method="post" action="/storefronts/{{ storefront.id }}/lots/{{ lot.id }}/delete" class="danger-form"><button type="submit">Удалить лот</button></form>
+  {% endif %}
+</section>
+{% endblock %}
