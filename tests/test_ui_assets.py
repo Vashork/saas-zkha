@@ -132,3 +132,59 @@ def test_backups_template_has_mounted_remote_backup_settings():
     assert "/mnt/zhkh-backups" in backups_html
     assert "смонтированную папку" in backups_html
     assert "Не указывайте" in backups_html
+
+
+def test_settings_template_declares_permission_preset_identifiers():
+    settings_html = (ROOT / "app" / "web" / "templates" / "settings.html").read_text(encoding="utf-8")
+
+    assert "const PAGE_PERMISSION_PRESETS" in settings_html
+    assert "'all-pages': ['dashboard', 'payments', 'history', 'contractors', 'analytics', 'settings']" in settings_html
+    assert "'business-pages': ['dashboard', 'payments', 'history', 'contractors', 'analytics']" in settings_html
+    assert "'dashboard-only': ['dashboard']" in settings_html
+    assert "'no-pages': []" in settings_html
+    assert "roleDefaultPreset(role)" in settings_html
+    assert "if (role === 'admin') return 'all-pages';" in settings_html
+    assert "if (role === 'operator') return 'business-pages';" in settings_html
+    assert "return 'dashboard-only';" in settings_html
+
+
+def test_settings_template_wires_create_and_edit_permission_checkbox_classes():
+    settings_html = (ROOT / "app" / "web" / "templates" / "settings.html").read_text(encoding="utf-8")
+
+    assert 'id="createUserRoleSelect"' in settings_html
+    assert "applyPermissionPreset('role-default', 'create-user-page-cb', 'createUserRoleSelect')" in settings_html
+    assert "applyPermissionPreset(this.value, 'create-user-page-cb', 'createUserRoleSelect')" in settings_html
+    assert 'class="create-user-page-cb" data-slug="{{ slug }}" checked' in settings_html
+
+    assert 'id="editUserRoleSelect"' in settings_html
+    assert "applyPermissionPreset('role-default', 'edit-user-page-cb', 'editUserRoleSelect')" in settings_html
+    assert "applyPermissionPreset(this.value, 'edit-user-page-cb', 'editUserRoleSelect')" in settings_html
+    assert 'class="edit-user-page-cb" data-slug="{{ slug }}"' in settings_html
+
+
+def test_settings_template_removes_stale_permission_wording():
+    settings_html = (ROOT / "app" / "web" / "templates" / "settings.html").read_text(encoding="utf-8")
+
+    assert "Operator/viewer пока управляют только видимостью страниц" not in settings_html
+    assert "Мутации будут отделены отдельными action-level permissions в следующих шагах" not in settings_html
+    assert "Operator CRUD будет включаться отдельными action-level permissions и тестами" not in settings_html
+    assert "Роли и права разделены" in settings_html
+    assert "Operator CRUD уже определяется action-level permissions" in settings_html
+
+
+def test_telegram_template_exposes_runtime_bot_toggle():
+    telegram_html = (ROOT / "app" / "web" / "templates" / "telegram.html").read_text(encoding="utf-8")
+
+    assert "telegram_feature_settings_submitted" in telegram_html
+    assert "telegram_bot_enabled" in telegram_html
+    assert "Runtime статус бота" in telegram_html
+
+
+def test_telegram_runtime_toggle_backend_wiring():
+    security_py = (ROOT / "app" / "bot" / "security.py").read_text(encoding="utf-8")
+    telegram_route = (ROOT / "app" / "web" / "routes" / "telegram.py").read_text(encoding="utf-8")
+
+    assert "telegram_bot_runtime_settings" in security_py
+    assert "is_telegram_bot_enabled" in security_py
+    assert "current_settings = await _settings_dict(db)" in telegram_route
+    assert '"telegram_bot_enabled": bot_enabled' in telegram_route

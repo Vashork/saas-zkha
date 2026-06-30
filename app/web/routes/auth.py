@@ -22,6 +22,7 @@ from app.models import User
 from app.utils import verify_password, hash_password
 from app.rate_limiter import _is_rate_limited, _record_attempt
 from app.web.template_engine import templates
+from app.web.permissions import SYSTEM_SETTINGS_MANAGE, USERS_MANAGE, has_action_permission
 
 logger = logging.getLogger("zhkh.auth")
 
@@ -31,6 +32,23 @@ SESSION_COOKIE = "session"
 LEGACY_COOKIES = ("user_id", "username", "user_role", "page_permissions")
 SESSION_BOOT_ID = secrets.token_urlsafe(32)
 
+ROLE_ADMIN = "admin"
+ROLE_OPERATOR = "operator"
+ROLE_VIEWER = "viewer"
+ROLE_LEGACY_USER = "user"
+ALLOWED_ROLES = {ROLE_ADMIN, ROLE_OPERATOR, ROLE_VIEWER}
+ROLE_OPTIONS = [
+    (ROLE_ADMIN, "👑 Системный админ"),
+    (ROLE_OPERATOR, "🛠️ Оператор ЛК"),
+    (ROLE_VIEWER, "👁️ Наблюдатель"),
+]
+ROLE_LABELS = {
+    ROLE_ADMIN: "👑 Системный админ",
+    ROLE_OPERATOR: "🛠️ Оператор ЛК",
+    ROLE_VIEWER: "👁️ Наблюдатель",
+    ROLE_LEGACY_USER: "👁️ Наблюдатель (legacy user)",
+}
+
 PAGES = [
     ("dashboard", "📊 Дашборд"),
     ("payments", "💳 Платежи"),
@@ -39,6 +57,58 @@ PAGES = [
     ("analytics", "📈 Аналитика"),
     ("settings", "⚙️ Настройки"),
 ]
+
+
+def _normalize_role(role: str | None) -> str | None:
+    """Return a supported role value, mapping legacy 'user' to viewer."""
+    value = (role or "").strip().lower()
+    if value == ROLE_LEGACY_USER:
+        return ROLE_VIEWER
+    if value in ALLOWED_ROLES:
+        return value
+    return None
+
+
+def _is_admin_role(role: str | None) -> bool:
+    return role == ROLE_ADMIN
+
+
+async def _active_admin_count(db: AsyncSession) -> int:
+    """Return the number of active admin users for self-lockout guards."""
+    count = await db.scalar(select(func.count(User.id)).where(User.role == ROLE_ADMIN, User.is_active == True))
+    return int(count or 0)
+
+
+async def _audit_user_guard_denied(
+    db: AsyncSession,
+    *,
+    actor: User | None,
+    action: str,
+    target: User | None = None,
+    target_id: int | None = None,
+    reason: str,
+    request: Request | None = None,
+    details: dict | None = None,
+) -> None:
+    """Persist an audit record for denied user-management guardrails."""
+    payload = {
+        "reason": reason,
+        "target_username": getattr(target, "username", None),
+        "target_role": getattr(target, "role", None),
+        "target_active": bool(getattr(target, "is_active", False)) if target is not None else None,
+    }
+    if details:
+        payload.update(details)
+    await log_admin_action(
+        db,
+        actor=actor,
+        action=f"{action}_denied",
+        entity_type="user",
+        entity_id=getattr(target, "id", None) if target is not None else target_id,
+        details=payload,
+        request=request,
+    )
+    await db.commit()
 
 
 def _session_secret() -> bytes:
@@ -177,7 +247,7 @@ async def _require_admin(request: Request):
     user = await _load_current_user(request)
     if not user:
         return _login_redirect(request)
-    if user.role != "admin":
+    if not _is_admin_role(user.role):
         return RedirectResponse(url="/?denied=1", status_code=303)
     return None
 
@@ -194,7 +264,7 @@ async def _require_page(request: Request, page_slug: str):
     if not user:
         return _login_redirect(request)
 
-    if user.role == "admin":
+    if _is_admin_role(user.role):
         return None
 
     if user.page_permissions is None:
@@ -276,6 +346,8 @@ async def settings_page(request: Request, db: AsyncSession = Depends(get_db)):
         "current_user_id": current_user.id,
         "users": users,
         "pages": PAGES,
+        "role_options": ROLE_OPTIONS,
+        "role_labels": ROLE_LABELS,
         "error": request.query_params.get("error"),
         "success": request.query_params.get("success"),
         "settings": settings_dict,
@@ -343,7 +415,7 @@ async def create_user(
     db: AsyncSession = Depends(get_db),
     username: str = Form(""),
     password: str = Form(""),
-    role: str = Form("user"),
+    role: str = Form(ROLE_VIEWER),
     page_dashboard: str = Form("off"),
     page_payments: str = Form("off"),
     page_history: str = Form("off"),
@@ -354,15 +426,24 @@ async def create_user(
     current_user = await get_current_user(request, db)
     if not current_user:
         return _login_redirect(request)
-    if current_user.role != "admin":
-        return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
+    if not has_action_permission(current_user, USERS_MANAGE):
+        await _audit_user_guard_denied(
+            db,
+            actor=current_user,
+            action="user_create",
+            reason="missing_users_manage_permission",
+            request=request,
+            details={"requested_role": role, "requested_username": username.strip()},
+        )
+        return RedirectResponse(url="/settings?error=Недостаточно+прав", status_code=303)
 
     username = username.strip()
     if not username:
         return RedirectResponse(url="/settings?error=Имя+не+может+быть+пустым", status_code=303)
     if len(password) < 8:
         return RedirectResponse(url="/settings?error=Минимум+8+символов", status_code=303)
-    if role not in {"admin", "user"}:
+    normalized_role = _normalize_role(role)
+    if normalized_role is None:
         return RedirectResponse(url="/settings?error=Некорректная+роль", status_code=303)
 
     existing = await db.execute(select(User).where(User.username == username))
@@ -382,7 +463,7 @@ async def create_user(
     new_user = User(
         username=username,
         password_hash=hash_password(password),
-        role=role,
+        role=normalized_role,
         page_permissions=",".join(allowed_pages),
         is_active=True,
     )
@@ -394,7 +475,7 @@ async def create_user(
         action="user_create",
         entity_type="user",
         entity_id=new_user.id,
-        details={"username": username, "role": role, "page_permissions": allowed_pages},
+        details={"username": username, "role": normalized_role, "page_permissions": allowed_pages},
         request=request,
     )
     await db.commit()
@@ -411,9 +492,25 @@ async def toggle_user_active(
     current_user = await get_current_user(request, db)
     if not current_user:
         return _login_redirect(request)
-    if current_user.role != "admin":
-        return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
+    if not has_action_permission(current_user, USERS_MANAGE):
+        await _audit_user_guard_denied(
+            db,
+            actor=current_user,
+            action="user_toggle_active",
+            target_id=user_id,
+            reason="missing_users_manage_permission",
+            request=request,
+        )
+        return RedirectResponse(url="/settings?error=Недостаточно+прав", status_code=303)
     if current_user.id == user_id:
+        await _audit_user_guard_denied(
+            db,
+            actor=current_user,
+            action="user_toggle_active",
+            target=current_user,
+            reason="self_deactivate",
+            request=request,
+        )
         return RedirectResponse(url="/settings?error=Нельзя+деактивировать+себя", status_code=303)
 
     result = await db.execute(select(User).where(User.id == user_id))
@@ -421,9 +518,18 @@ async def toggle_user_active(
     if not user:
         return RedirectResponse(url="/settings?error=Пользователь+не+найден", status_code=303)
 
-    if user.role == "admin" and user.is_active:
-        admin_count = await db.scalar(select(func.count(User.id)).where(User.role == "admin", User.is_active == True))
+    if _is_admin_role(user.role) and user.is_active:
+        admin_count = await _active_admin_count(db)
         if admin_count <= 1:
+            await _audit_user_guard_denied(
+                db,
+                actor=current_user,
+                action="user_toggle_active",
+                target=user,
+                reason="last_active_admin_deactivate",
+                request=request,
+                details={"active_admin_count": admin_count},
+            )
             return RedirectResponse(url="/settings?error=Нельзя+деактивировать+последнего+админа", status_code=303)
 
     old_active = bool(user.is_active)
@@ -452,9 +558,25 @@ async def delete_user(
     current_user = await get_current_user(request, db)
     if not current_user:
         return _login_redirect(request)
-    if current_user.role != "admin":
-        return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
+    if not has_action_permission(current_user, USERS_MANAGE):
+        await _audit_user_guard_denied(
+            db,
+            actor=current_user,
+            action="user_delete",
+            target_id=user_id,
+            reason="missing_users_manage_permission",
+            request=request,
+        )
+        return RedirectResponse(url="/settings?error=Недостаточно+прав", status_code=303)
     if current_user.id == user_id:
+        await _audit_user_guard_denied(
+            db,
+            actor=current_user,
+            action="user_delete",
+            target=current_user,
+            reason="self_delete",
+            request=request,
+        )
         return RedirectResponse(url="/settings?error=Нельзя+удалить+себя", status_code=303)
 
     result = await db.execute(select(User).where(User.id == user_id))
@@ -462,7 +584,15 @@ async def delete_user(
     if not user:
         return RedirectResponse(url="/settings?error=Пользователь+не+найден", status_code=303)
 
-    if user.role == "admin":
+    if _is_admin_role(user.role):
+        await _audit_user_guard_denied(
+            db,
+            actor=current_user,
+            action="user_delete",
+            target=user,
+            reason="delete_admin",
+            request=request,
+        )
         return RedirectResponse(url="/settings?error=Админа+нельзя+удалить,+можно+только+деактивировать", status_code=303)
 
     await log_admin_action(
@@ -484,7 +614,7 @@ async def update_user(
     user_id: int,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    role: str = Form("user"),
+    role: str = Form(ROLE_VIEWER),
     page_dashboard: str = Form("off"),
     page_payments: str = Form("off"),
     page_history: str = Form("off"),
@@ -495,23 +625,56 @@ async def update_user(
     current_user = await get_current_user(request, db)
     if not current_user:
         return _login_redirect(request)
-    if current_user.role != "admin":
-        return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
+    if not has_action_permission(current_user, USERS_MANAGE):
+        await _audit_user_guard_denied(
+            db,
+            actor=current_user,
+            action="user_update",
+            target_id=user_id,
+            reason="missing_users_manage_permission",
+            request=request,
+            details={"requested_role": role},
+        )
+        return RedirectResponse(url="/settings?error=Недостаточно+прав", status_code=303)
 
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
         return RedirectResponse(url="/settings?error=Пользователь+не+найден", status_code=303)
 
-    if role not in {"admin", "user"}:
+    normalized_role = _normalize_role(role)
+    if normalized_role is None:
         return RedirectResponse(url="/settings?error=Некорректная+роль", status_code=303)
 
-    if user.id == current_user.id and current_user.role == "admin" and role != "admin":
+    if user.id == current_user.id and _is_admin_role(current_user.role) and normalized_role != ROLE_ADMIN:
+        await _audit_user_guard_denied(
+            db,
+            actor=current_user,
+            action="user_update",
+            target=user,
+            reason="self_admin_downgrade",
+            request=request,
+            details={"requested_role": normalized_role},
+        )
         return RedirectResponse(url="/settings?error=Нельзя+снять+админа+с+себя", status_code=303)
+
+    if _is_admin_role(user.role) and user.is_active and normalized_role != ROLE_ADMIN:
+        admin_count = await _active_admin_count(db)
+        if admin_count <= 1:
+            await _audit_user_guard_denied(
+                db,
+                actor=current_user,
+                action="user_update",
+                target=user,
+                reason="last_active_admin_downgrade",
+                request=request,
+                details={"active_admin_count": admin_count, "requested_role": normalized_role},
+            )
+            return RedirectResponse(url="/settings?error=Нельзя+снять+последнего+админа", status_code=303)
 
     old_role = user.role
     old_permissions = user.page_permissions
-    user.role = role
+    user.role = normalized_role
     perms_map = {
         "dashboard": page_dashboard,
         "payments": page_payments,
@@ -532,7 +695,7 @@ async def update_user(
         details={
             "username": user.username,
             "old_role": old_role,
-            "new_role": role,
+            "new_role": normalized_role,
             "old_page_permissions": old_permissions,
             "new_page_permissions": user.page_permissions,
         },
@@ -553,8 +716,8 @@ async def save_settings(
     current_user = await get_current_user(request, db)
     if not current_user:
         return _login_redirect(request)
-    if current_user.role != "admin":
-        return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
+    if not has_action_permission(current_user, SYSTEM_SETTINGS_MANAGE):
+        return RedirectResponse(url="/settings?error=Недостаточно+прав", status_code=303)
 
     from app.models import Setting as SettingModel
 
@@ -622,8 +785,16 @@ async def change_user_password(
     current_user = await get_current_user(request, db)
     if not current_user:
         return _login_redirect(request)
-    if current_user.role != "admin":
-        return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
+    if not has_action_permission(current_user, USERS_MANAGE):
+        await _audit_user_guard_denied(
+            db,
+            actor=current_user,
+            action="user_password_reset",
+            target_id=user_id,
+            reason="missing_users_manage_permission",
+            request=request,
+        )
+        return RedirectResponse(url="/settings?error=Недостаточно+прав", status_code=303)
     if len(new_password) < 8:
         return RedirectResponse(url="/settings?error=Минимум+8+символов", status_code=303)
 

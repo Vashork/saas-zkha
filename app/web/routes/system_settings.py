@@ -13,6 +13,7 @@ from app.database import get_db
 from app.models import Setting
 from app.timezone_settings import normalize_timezone
 from app.web.routes.auth import get_current_user
+from app.web.permissions import SYSTEM_SETTINGS_MANAGE, has_action_permission
 
 logger = logging.getLogger("zhkh.system_settings")
 
@@ -49,7 +50,7 @@ async def change_global_theme(
     current_user = await get_current_user(request, db)
     if not current_user:
         return JSONResponse({"error": "Unauthorized"}, status_code=401)
-    if current_user.role != "admin":
+    if not has_action_permission(current_user, SYSTEM_SETTINGS_MANAGE):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
 
     theme_val = data.get("theme", "dark")
@@ -76,8 +77,8 @@ async def save_notification_timezone(
     current_user = await get_current_user(request, db)
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
-    if current_user.role != "admin":
-        return RedirectResponse(url="/settings?error=Только+для+админа", status_code=303)
+    if not has_action_permission(current_user, SYSTEM_SETTINGS_MANAGE):
+        return RedirectResponse(url="/settings?error=Недостаточно+прав", status_code=303)
 
     configured_default = get_settings().NOTIFICATION_TIMEZONE
     normalized_timezone = normalize_timezone(notification_timezone, configured_default)

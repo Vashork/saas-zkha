@@ -44,6 +44,8 @@
             <input type="hidden" name="telegram_log_mode" value="{{ settings.get('telegram_log_mode', 'all') }}">
             <input type="hidden" name="telegram_log_retention_days" value="{{ settings.get('telegram_log_retention_days', '30') }}">
             <input type="hidden" name="telegram_log_retention_count" value="{{ settings.get('telegram_log_retention_count', '1000') }}">
+            <input type="hidden" name="telegram_feature_settings_submitted" value="1">
+            <input type="hidden" name="telegram_command_settings_submitted" value="1">
             <h4 style="margin-bottom:12px;">🔐 Управление доступом Telegram</h4>
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
                 <div class="form-group">
@@ -57,14 +59,61 @@
                     <small style="color:var(--text-muted);display:block;margin-top:6px;">Сохраняется в БД и применяется ботом без пересборки контейнера.</small>
                 </div>
             </div>
+            <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border);">
+                <h4 style="margin-bottom:12px;">🟢 Runtime-управление ботом</h4>
+                <label style="display:flex;align-items:center;gap:10px;">
+                    <input type="checkbox" name="telegram_bot_enabled" value="1" {% if telegram_bot_enabled %}checked{% endif %}>
+                    <span>Бот включён</span>
+                </label>
+                <small style="color:var(--text-muted);display:block;margin-top:6px;">Сохраняется в БД и применяется middleware бота без пересборки контейнера. Если выключить, входящие сообщения продолжают логироваться по выбранному режиму, но обработчики команд и оплат не вызываются.</small>
+            </div>
+            <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border);">
+                <h4 style="margin-bottom:12px;">🧩 Команды Telegram</h4>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;">
+                    {% for toggle in telegram_command_toggles %}
+                    <label style="display:flex;align-items:center;gap:10px;">
+                        <input type="checkbox" name="{{ toggle.key }}" value="1" {% if toggle.enabled %}checked{% endif %}>
+                        <span>/{{ toggle.command }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                <small style="color:var(--text-muted);display:block;margin-top:6px;">Отключённая команда продолжает попадать во входящий журнал, но её handler не вызывается. /cancel не отключается, чтобы пользователь мог выйти из интерактивного сценария.</small>
+            </div>
             <button type="submit" class="btn-secondary-custom">🔐 Сохранить доступ Telegram</button>
         </form>
         <div style="margin-top:14px;color:var(--text-muted);font-size:13px;">
             <div><strong>Эффективный admin id:</strong> {{ effective_telegram_admin_id or 'не задан' }}</div>
             <div><strong>Эффективный allowlist:</strong> {% if effective_telegram_allowed_user_ids %}{{ effective_telegram_allowed_user_ids | join(', ') }}{% else %}пусто{% endif %}</div>
+            <div><strong>Runtime статус бота:</strong> {{ 'включён' if telegram_bot_enabled else 'выключен' }}</div>
             <div><strong>Env TELEGRAM_ADMIN_ID:</strong> {{ telegram_admin_id or 'не задан' }}</div>
             <div><strong>Env allowlist:</strong> {% if telegram_allowed_user_ids %}{{ telegram_allowed_user_ids | join(', ') }}{% else %}пусто{% endif %}</div>
         </div>
+    </div>
+
+    <div class="card-custom" style="margin-bottom:24px;">
+        <h3 style="margin-bottom:16px;">📝 Шаблоны ответов Telegram</h3>
+        <form method="post" action="/telegram/settings">
+            <input type="hidden" name="_csrf" value="{{ _csrf }}">
+            <input type="hidden" name="telegram_template_settings_submitted" value="1">
+            {% for tpl in telegram_response_templates %}
+            <div style="padding:14px 0;border-top:1px solid var(--border);">
+                <div class="form-group">
+                    <label>{{ tpl.name }}</label>
+                    <textarea class="input-custom" name="{{ tpl.setting_key }}" rows="5" style="font-family:monospace;">{{ tpl.text }}</textarea>
+                    <small style="color:var(--text-muted);display:block;margin-top:6px;">
+                        Allowed placeholders:
+                        {% if tpl.allowed_placeholders %}{{ tpl.allowed_placeholders | join(', ') }}{% else %}нет{% endif %}
+                    </small>
+                    {% if tpl.error %}
+                    <small style="color:var(--overdue);display:block;margin-top:6px;">{{ tpl.error }}</small>
+                    {% endif %}
+                    <div style="margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:8px;white-space:pre-wrap;background:rgba(255,255,255,0.03);">{{ tpl.preview }}</div>
+                </div>
+            </div>
+            {% endfor %}
+            <button type="submit" class="btn-secondary-custom">📝 Сохранить шаблоны Telegram</button>
+        </form>
+        <p style="color:var(--text-muted);font-size:13px;margin-top:10px;">Шаблоны валидируются на сервере перед сохранением. Неподдерживаемые placeholders отклоняются, а изменения пишутся в audit log без сохранения полного текста шаблонов в audit details.</p>
     </div>
 
     <div class="card-custom" style="margin-bottom:24px;">
@@ -127,7 +176,27 @@
                         </td>
                         <td>{{ m.chat_id or '—' }}</td>
                         <td>{{ m.message_type }}</td>
-                        <td style="max-width:520px;white-space:pre-wrap;word-break:break-word;">{{ m.text or 'без текста' }}</td>
+                        <td style="max-width:520px;white-space:pre-wrap;word-break:break-word;">
+                            <div>{{ m.text or 'без текста' }}</div>
+                            {% set linked_events = telegram_business_events.get(m.id, []) %}
+                            {% if linked_events %}
+                            <div class="telegram-business-events" style="margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,0.03);font-size:12px;white-space:normal;">
+                                <strong>🔗 Бизнес-события:</strong>
+                                {% for event in linked_events %}
+                                <div class="telegram-business-event" style="margin-top:6px;">
+                                    <span>#{{ event.audit_id }}</span>
+                                    <span>{{ event.created_at }}</span>
+                                    <span>{{ event.action }}</span>
+                                    <span>{{ event.contractor_name }}</span>
+                                    <span>{{ event.amount }} ₽</span>
+                                    <span>{{ event.period }}</span>
+                                    <span>payment #{{ event.payment_id }}</span>
+                                    <span>чек: {{ 'да' if event.receipt_saved else 'нет' }}</span>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </td>
                         <td style="min-width:260px;">
                             {% if m.chat_id %}
                             <form method="post" action="/telegram/messages/{{ m.id }}/reply">

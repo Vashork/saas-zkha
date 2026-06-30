@@ -7,10 +7,6 @@ PaymentTransaction record. Unlinked files return 404/redirect.
 from pathlib import Path
 import mimetypes
 
-import pytest
-
-pytestmark = pytest.mark.asyncio
-
 
 def _payments_route_source() -> str:
     import app.web.routes.payments as payments_mod
@@ -35,7 +31,7 @@ def test_ownership_check_returns_404_for_unlinked():
     assert source.count("error=Файл+не+найден") >= 2  # one for file-not-found, one for ownership
 
 
-async def test_receipt_ownership_query_constructs_correctly():
+def test_receipt_ownership_query_constructs_correctly():
     """Verify the ownership query pattern is valid SQLAlchemy."""
     from sqlalchemy import select
     from app.models import Payment, PaymentTransaction

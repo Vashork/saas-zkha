@@ -14,6 +14,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.audit import log_admin_action
+from app.bot.business_events import telegram_payment_business_details
 from app.database import async_session_factory
 from app.models import Contractor, Payment
 from app.bot.payment_actions import (
@@ -22,6 +24,7 @@ from app.bot.payment_actions import (
     validate_bot_payment_amount,
 )
 from app.bot.parsers import parse_payment_message
+from app.bot.response_templates import render_telegram_response_template
 from app.bot.security import recent_telegram_messages, telegram_admin_id_for_commands
 from app.config import get_settings
 from app.utils import (
@@ -42,28 +45,20 @@ def _message_text(message: Message) -> str:
     return message.text or message.caption or ""
 
 
+async def _response_template(name: str, context: dict[str, object] | None = None) -> str:
+    """Render a Telegram response template using current DB settings."""
+    async with async_session_factory() as session:
+        return await render_telegram_response_template(session, name, context)
+
+
 async def start_handler(message: Message):
     """Handle /start command."""
-    await help_handler(message)
+    await message.answer(await _response_template("start"), parse_mode="HTML")
 
 
 async def help_handler(message: Message):
     """Handle /help command."""
-    await message.answer(
-        "🏠 Добро пожаловать в систему учета ЖКХ!\n\n"
-        "💡 Как зафиксировать оплату:\n"
-        "Перешлите чек и напишите в сообщении или подписи к чеку:\n"
-        "<code>#оплачено #мосэнергосбыт #сумма:3200</code>\n\n"
-        "Для старого долга добавьте период:\n"
-        "<code>#оплачено #мосэнергосбыт #сумма:1000 #период:2026-06</code>\n\n"
-        "Можно просто прислать чек без тегов — я спрошу подрядчика, сумму и период.\n\n"
-        "📋 Команды:\n"
-        "/balance — остатки по платежам за текущий месяц\n"
-        "/contractors — список подрядчиков и их теги\n"
-        "/tglog [N] — журнал сообщений боту, только для Telegram-админа\n"
-        "/help — это сообщение",
-        parse_mode="HTML",
-    )
+    await message.answer(await _response_template("help"), parse_mode="HTML")
 
 
 async def balance_handler(message: Message):
@@ -175,9 +170,7 @@ async def paid_handler(message: Message):
     parsed = parse_payment_message(_message_text(message))
     if not parsed:
         await message.answer(
-            "❌ Неверный формат. Используйте: "
-            "<code>#оплачено #[slug] #сумма:X</code> или "
-            "<code>#оплачено #[slug] #сумма:X #период:2026-06</code>",
+            await _response_template("error_invalid_payment_format"),
             parse_mode="HTML",
         )
         return
@@ -239,7 +232,13 @@ async def paid_handler(message: Message):
                 message, session, target_year, target_month
             )
             if receipt_path is None:
-                await message.answer("❌ Недопустимый файл чека. Пришлите PDF, JPG или PNG до 10MB.")
+                await message.answer(
+                    await render_telegram_response_template(
+                        session,
+                        "error_invalid_receipt_file",
+                    ),
+                    parse_mode="HTML",
+                )
                 return
 
         ok, apply_message = apply_bot_payment(
@@ -252,15 +251,36 @@ async def paid_handler(message: Message):
         if not ok:
             await message.answer(f"❌ {apply_message}")
             return
+        await log_admin_action(
+            session,
+            actor=None,
+            action="telegram_payment_recorded",
+            entity_type="payment",
+            entity_id=payment.id,
+            details=telegram_payment_business_details(
+                message=message,
+                payment_id=str(payment.id),
+                contractor_id=str(contractor.id),
+                contractor_name=str(contractor.name),
+                amount=amount,
+                year=target_year,
+                month=target_month,
+                receipt_path=receipt_path,
+            ),
+        )
         await session.commit()
+        payment_confirmation_text = await render_telegram_response_template(
+            session,
+            "payment_confirmation",
+            {
+                "contractor_name": html.escape(str(contractor.name)),
+                "amount": amount,
+                "period": f"{month_name(target_month)} {target_year}",
+                "receipt_saved_line": "\n📎 Чек сохранён" if receipt_path else "",
+            },
+        )
 
-    await message.answer(
-        f"✅ Оплата <b>{contractor.name}</b> зафиксирована!\n"
-        f"💰 Сумма: {amount} ₽\n"
-        f"📅 Период: {month_name(target_month)} {target_year}"
-        + ("\n📎 Чек сохранён" if receipt_path else ""),
-        parse_mode="HTML",
-    )
+    await message.answer(payment_confirmation_text, parse_mode="HTML")
 
 
 def _telegram_admin_id(raw: str) -> int | None:

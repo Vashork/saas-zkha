@@ -9,16 +9,12 @@ Validates that:
 
 import pytest
 from io import BytesIO
-from starlette.testclient import TestClient
-from starlette.requests import Request
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from datetime import date
-from decimal import Decimal
 
 from app.database import Base
-from app.models import Payment, Contractor, User
+from app.models import User
 from app.utils import hash_password
-from app.web.routes import payments, auth
+from app.web.routes import auth
 
 
 # --- Magic byte constants ---

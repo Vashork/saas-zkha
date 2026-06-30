@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+from typing import Any, cast
 from urllib import error as urlerror
 from urllib import request as urlrequest
 
@@ -13,10 +14,28 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.audit import log_admin_action
+from app.bot.management import (
+    DEFAULT_TELEGRAM_BOT_ENABLED,
+    MANAGED_TELEGRAM_COMMANDS,
+    TELEGRAM_BOT_ENABLED_KEY,
+    is_telegram_setting_enabled,
+    normalize_telegram_enabled_value,
+    telegram_command_setting_key,
+)
+from app.bot.response_templates import (
+    DEFAULT_TELEGRAM_RESPONSE_TEMPLATES,
+    TelegramTemplateValidationError,
+    render_template_text,
+    telegram_response_template_definitions,
+    telegram_template_setting_key,
+    validate_template_placeholders,
+)
+from app.bot.business_events import telegram_text_hash
 from app.config import get_settings
 from app.database import get_db
-from app.models import Setting, TelegramMessageLog, TelegramOutboundMessageLog
+from app.models import AuditLog, Setting, TelegramMessageLog, TelegramOutboundMessageLog
 from app.web.routes.auth import get_current_user
+from app.web.permissions import TELEGRAM_MANAGE, has_action_permission
 from app.web.template_engine import templates
 
 router = APIRouter()
@@ -49,6 +68,11 @@ async def _settings_dict(db: AsyncSession) -> dict[str, str]:
     values.setdefault(TELEGRAM_LOG_RETENTION_COUNT_KEY, DEFAULT_TELEGRAM_LOG_RETENTION_COUNT)
     values.setdefault(TELEGRAM_ALLOWED_USER_IDS_KEY, "")
     values.setdefault(TELEGRAM_ADMIN_ID_KEY, "")
+    values.setdefault(TELEGRAM_BOT_ENABLED_KEY, DEFAULT_TELEGRAM_BOT_ENABLED)
+    for command in MANAGED_TELEGRAM_COMMANDS:
+        values.setdefault(telegram_command_setting_key(command), "1")
+    for name, default_text in DEFAULT_TELEGRAM_RESPONSE_TEMPLATES.items():
+        values.setdefault(telegram_template_setting_key(name), default_text)
     return values
 
 
@@ -90,6 +114,110 @@ def _row_status(row: TelegramMessageLog) -> str:
     if row.is_admin:
         return "admin"
     return "allowed" if row.is_allowed else "blocked"
+
+
+def _telegram_template_preview_context(name: str) -> dict[str, str]:
+    if name == "payment_confirmation":
+        return {
+            "contractor_name": "Мосэнергосбыт",
+            "amount": "3200",
+            "period": "июнь 2026",
+            "receipt_saved_line": "\n📎 Чек сохранён",
+        }
+    return {}
+
+
+def _telegram_template_context(settings: dict[str, str]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for definition in telegram_response_template_definitions():
+        text = settings.get(definition.setting_key, definition.default_text)
+        preview = ""
+        error_message = ""
+        try:
+            preview = render_template_text(
+                definition.name,
+                text,
+                _telegram_template_preview_context(definition.name),
+            )
+        except TelegramTemplateValidationError as exc:
+            error_message = str(exc)
+        rows.append({
+            "name": definition.name,
+            "setting_key": definition.setting_key,
+            "text": text,
+            "default_text": definition.default_text,
+            "allowed_placeholders": sorted(definition.allowed_placeholders),
+            "preview": preview,
+            "error": error_message,
+        })
+    return rows
+
+
+def _safe_audit_details(raw_details: str | None) -> dict[str, Any]:
+    """Parse audit details defensively for Telegram business-event display."""
+    if not raw_details:
+        return {}
+    try:
+        parsed = json.loads(raw_details)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _telegram_business_event_context(audit: AuditLog, details: dict[str, object]) -> dict[str, object]:
+    """Return compact, safe template context for a linked Telegram business event."""
+    month = details.get("month")
+    year = details.get("year")
+    try:
+        period = f"{int(str(year))}-{int(str(month)):02d}" if month and year else "—"
+    except (TypeError, ValueError):
+        period = "—"
+    return {
+        "audit_id": audit.id,
+        "created_at": audit.created_at,
+        "action": audit.action,
+        "contractor_name": details.get("contractor_name") or "—",
+        "amount": details.get("amount") or "—",
+        "period": period,
+        "payment_id": details.get("payment_id") or audit.entity_id or "—",
+        "receipt_saved": bool(details.get("receipt_saved")),
+    }
+
+
+async def _telegram_business_events_for_rows(
+    db: AsyncSession,
+    rows: list[TelegramMessageLog],
+) -> dict[int, list[dict[str, object]]]:
+    """Map visible Telegram log rows to payment audit events by normalized text hash."""
+    hash_to_row_ids: dict[str, list[int]] = {}
+    for row in rows:
+        row_id = cast(int, row.id)
+        text_hash = telegram_text_hash(cast(str | None, row.text))
+        hash_to_row_ids.setdefault(text_hash, []).append(row_id)
+
+    if not hash_to_row_ids:
+        return {}
+
+    hash_conditions = [AuditLog.details.contains(text_hash) for text_hash in hash_to_row_ids]
+    audit_query = (
+        select(AuditLog)
+        .where(AuditLog.action == "telegram_payment_recorded")
+        .where(or_(*hash_conditions))
+        .order_by(AuditLog.id.desc())
+    )
+    result = await db.execute(audit_query)
+
+    events_by_row_id: dict[int, list[dict[str, object]]] = {cast(int, row.id): [] for row in rows}
+    for audit in result.scalars().all():
+        details = _safe_audit_details(cast(str | None, audit.details))
+        text_hash = str(details.get("telegram_text_hash") or "")
+        if text_hash not in hash_to_row_ids:
+            continue
+        event = _telegram_business_event_context(audit, details)
+        for row_id in hash_to_row_ids[text_hash]:
+            events_by_row_id.setdefault(row_id, []).append(event)
+
+    return events_by_row_id
 
 
 def _bot_api_request(token: str, method: str, payload: dict) -> dict:
@@ -176,7 +304,7 @@ async def telegram_page(
     current_user = await get_current_user(request, db)
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
-    if current_user.role != "admin":
+    if not has_action_permission(current_user, TELEGRAM_MANAGE):
         return RedirectResponse(url="/?denied=1", status_code=303)
 
     normalized_status = _normalize_status(status)
@@ -211,6 +339,7 @@ async def telegram_page(
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
     result = await db.execute(query.order_by(TelegramMessageLog.id.desc()).limit(safe_limit))
     rows = result.scalars().all()
+    telegram_business_events = await _telegram_business_events_for_rows(db, list(rows))
     outbound_result = await db.execute(
         select(TelegramOutboundMessageLog)
         .order_by(TelegramOutboundMessageLog.id.desc())
@@ -232,6 +361,7 @@ async def telegram_page(
         "user_theme": settings.get("ui_theme", "dark"),
         "active_page": "telegram",
         "messages": rows,
+        "telegram_business_events": telegram_business_events,
         "outbound_messages": outbound_messages,
         "message_status": _row_status,
         "total": total or 0,
@@ -249,6 +379,16 @@ async def telegram_page(
         "telegram_allowed_user_ids": sorted(app_settings.TELEGRAM_ALLOWED_USER_IDS),
         "effective_telegram_admin_id": effective_admin_id,
         "effective_telegram_allowed_user_ids": effective_allowed_ids,
+        "telegram_bot_enabled": is_telegram_setting_enabled(settings.get(TELEGRAM_BOT_ENABLED_KEY)),
+        "telegram_command_toggles": [
+            {
+                "command": command,
+                "key": telegram_command_setting_key(command),
+                "enabled": is_telegram_setting_enabled(settings.get(telegram_command_setting_key(command))),
+            }
+            for command in MANAGED_TELEGRAM_COMMANDS
+        ],
+        "telegram_response_templates": _telegram_template_context(settings),
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),
     })
@@ -258,23 +398,64 @@ async def telegram_page(
 async def save_telegram_settings(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    telegram_log_mode: str = Form(DEFAULT_TELEGRAM_LOG_MODE),
-    telegram_log_retention_days: str = Form(DEFAULT_TELEGRAM_LOG_RETENTION_DAYS),
-    telegram_log_retention_count: str = Form(DEFAULT_TELEGRAM_LOG_RETENTION_COUNT),
-    telegram_admin_id: str = Form(""),
-    telegram_allowed_user_ids: str = Form(""),
+    telegram_log_mode: str | None = Form(None),
+    telegram_log_retention_days: str | None = Form(None),
+    telegram_log_retention_count: str | None = Form(None),
+    telegram_admin_id: str | None = Form(None),
+    telegram_allowed_user_ids: str | None = Form(None),
+    telegram_feature_settings_submitted: str | None = Form(None),
+    telegram_bot_enabled: str | None = Form(None),
+    telegram_command_settings_submitted: str | None = Form(None),
+    telegram_template_settings_submitted: str | None = Form(None),
 ):
     current_user = await get_current_user(request, db)
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
-    if current_user.role != "admin":
+    if not has_action_permission(current_user, TELEGRAM_MANAGE):
         return RedirectResponse(url="/?denied=1", status_code=303)
 
-    mode = telegram_log_mode if telegram_log_mode in TELEGRAM_LOG_MODES else DEFAULT_TELEGRAM_LOG_MODE
-    retention_days = str(_safe_int(telegram_log_retention_days, 30, minimum=0, maximum=3650))
-    retention_count = str(_safe_int(telegram_log_retention_count, 1000, minimum=0, maximum=100000))
-    normalized_admin_id = _normalize_int_csv(telegram_admin_id)
-    normalized_allowed_ids = _normalize_int_csv(telegram_allowed_user_ids)
+    current_settings = await _settings_dict(db)
+    form_data = await request.form()
+    raw_log_mode = telegram_log_mode if telegram_log_mode is not None else current_settings.get(TELEGRAM_LOG_MODE_KEY)
+    raw_retention_days = telegram_log_retention_days if telegram_log_retention_days is not None else current_settings.get(TELEGRAM_LOG_RETENTION_DAYS_KEY)
+    raw_retention_count = telegram_log_retention_count if telegram_log_retention_count is not None else current_settings.get(TELEGRAM_LOG_RETENTION_COUNT_KEY)
+    raw_admin_id = telegram_admin_id if telegram_admin_id is not None else current_settings.get(TELEGRAM_ADMIN_ID_KEY)
+    raw_allowed_ids = telegram_allowed_user_ids if telegram_allowed_user_ids is not None else current_settings.get(TELEGRAM_ALLOWED_USER_IDS_KEY)
+
+    mode = raw_log_mode if raw_log_mode in TELEGRAM_LOG_MODES else DEFAULT_TELEGRAM_LOG_MODE
+    retention_days = str(_safe_int(raw_retention_days, 30, minimum=0, maximum=3650))
+    retention_count = str(_safe_int(raw_retention_count, 1000, minimum=0, maximum=100000))
+    normalized_admin_id = _normalize_int_csv(raw_admin_id)
+    normalized_allowed_ids = _normalize_int_csv(raw_allowed_ids)
+    bot_enabled = current_settings.get(TELEGRAM_BOT_ENABLED_KEY, DEFAULT_TELEGRAM_BOT_ENABLED)
+    if telegram_feature_settings_submitted is not None:
+        bot_enabled = normalize_telegram_enabled_value(telegram_bot_enabled, default=False)
+    command_enabled: dict[str, str] = {}
+    for command in MANAGED_TELEGRAM_COMMANDS:
+        key = telegram_command_setting_key(command)
+        value = current_settings.get(key, "1")
+        if telegram_command_settings_submitted is not None:
+            value = normalize_telegram_enabled_value(form_data.get(key), default=False)
+        command_enabled[command] = value
+    template_values: dict[str, str] = {}
+    template_changed: list[str] = []
+    if telegram_template_settings_submitted is not None:
+        for definition in telegram_response_template_definitions():
+            current_text = current_settings.get(definition.setting_key, definition.default_text)
+            raw_template = form_data.get(definition.setting_key)
+            value = str(raw_template if raw_template is not None else current_text).strip()
+            if not value:
+                value = definition.default_text
+            try:
+                validate_template_placeholders(definition.name, value)
+            except TelegramTemplateValidationError as exc:
+                return RedirectResponse(
+                    url=f"/telegram?error=Ошибка+шаблона+Telegram:+{exc}",
+                    status_code=303,
+                )
+            template_values[definition.name] = value
+            if value != current_text:
+                template_changed.append(definition.name)
     if normalized_admin_id:
         admin_as_list = _parse_int_list(normalized_admin_id)
         allowed = set(_parse_int_list(normalized_allowed_ids))
@@ -286,6 +467,28 @@ async def save_telegram_settings(
     await _upsert_setting(db, TELEGRAM_LOG_RETENTION_COUNT_KEY, retention_count, "Максимум записей Telegram-журнала; 0 отключает")
     await _upsert_setting(db, TELEGRAM_ADMIN_ID_KEY, normalized_admin_id, "Telegram admin user id для команд управления")
     await _upsert_setting(db, TELEGRAM_ALLOWED_USER_IDS_KEY, normalized_allowed_ids, "Allowlist Telegram user id через GUI")
+    await _upsert_setting(
+        db,
+        TELEGRAM_BOT_ENABLED_KEY,
+        bot_enabled,
+        "DB-backed Telegram bot runtime flag; 1 включён, 0 выключен",
+    )
+    for command, value in command_enabled.items():
+        await _upsert_setting(
+            db,
+            telegram_command_setting_key(command),
+            value,
+            f"DB-backed Telegram /{command} command runtime flag; 1 включена, 0 выключена",
+        )
+    for definition in telegram_response_template_definitions():
+        if definition.name not in template_values:
+            continue
+        await _upsert_setting(
+            db,
+            definition.setting_key,
+            template_values[definition.name],
+            f"DB-backed Telegram response template: {definition.name}",
+        )
     deleted = await _apply_telegram_log_retention(db, {
         TELEGRAM_LOG_RETENTION_DAYS_KEY: retention_days,
         TELEGRAM_LOG_RETENTION_COUNT_KEY: retention_count,
@@ -301,6 +504,9 @@ async def save_telegram_settings(
             "telegram_log_retention_count": retention_count,
             "telegram_admin_id": normalized_admin_id,
             "telegram_allowed_user_ids": normalized_allowed_ids,
+            "telegram_bot_enabled": bot_enabled,
+            "telegram_commands_enabled": command_enabled,
+            "telegram_templates_changed": template_changed,
             "deleted_by_retention": deleted,
         },
         request=request,
@@ -319,7 +525,7 @@ async def reply_to_telegram_message(
     current_user = await get_current_user(request, db)
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
-    if current_user.role != "admin":
+    if not has_action_permission(current_user, TELEGRAM_MANAGE):
         return RedirectResponse(url="/?denied=1", status_code=303)
 
     text = reply_text.strip()
@@ -373,7 +579,7 @@ async def edit_telegram_outbound_message(
     current_user = await get_current_user(request, db)
     if not current_user:
         return RedirectResponse(url="/login", status_code=303)
-    if current_user.role != "admin":
+    if not has_action_permission(current_user, TELEGRAM_MANAGE):
         return RedirectResponse(url="/?denied=1", status_code=303)
 
     text = edited_text.strip()

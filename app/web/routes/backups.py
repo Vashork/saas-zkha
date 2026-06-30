@@ -37,6 +37,7 @@ from app.backup_settings import (
 from app.database import async_session_factory, get_db
 from app.models import BackupHistory, Setting
 from app.web.routes.auth import get_current_user
+from app.web.permissions import BACKUPS_MANAGE, BACKUPS_RESTORE, has_action_permission
 from app.web.template_engine import templates
 
 logger = logging.getLogger("zhkh.backups")
@@ -151,11 +152,11 @@ async def _reschedule_auto_backup() -> None:
         logger.exception("Could not reschedule auto-backup after settings update")
 
 
-async def _require_admin(request: Request, db: AsyncSession):
+async def _require_action_user(request: Request, db: AsyncSession, permission: str):
     current_user = await get_current_user(request, db)
     if not current_user:
         return None, RedirectResponse(url="/login", status_code=303)
-    if current_user.role != "admin":
+    if not has_action_permission(current_user, permission):
         return current_user, RedirectResponse(url="/?denied=1", status_code=303)
     return current_user, None
 
@@ -232,7 +233,7 @@ def _locked_redirect() -> RedirectResponse:
 
 @router.get("/backups")
 async def backups_page(request: Request, db: AsyncSession = Depends(get_db)):
-    current_user, redirect = await _require_admin(request, db)
+    current_user, redirect = await _require_action_user(request, db, BACKUPS_MANAGE)
     if redirect:
         return redirect
 
@@ -269,7 +270,7 @@ async def save_backup_settings(
     backup_remote_path: str = Form(""),
     backup_keep_local_copy: str = Form(""),
 ):
-    current_user, redirect = await _require_admin(request, db)
+    current_user, redirect = await _require_action_user(request, db, BACKUPS_MANAGE)
     if redirect:
         return redirect
 
@@ -322,7 +323,7 @@ async def save_backup_settings(
 
 @router.post("/backups/create")
 async def create_backup(request: Request, db: AsyncSession = Depends(get_db)):
-    current_user, redirect = await _require_admin(request, db)
+    current_user, redirect = await _require_action_user(request, db, BACKUPS_MANAGE)
     if redirect:
         return redirect
 
@@ -436,7 +437,7 @@ async def upload_and_restore_backup(
     db: AsyncSession = Depends(get_db),
     backup_file: UploadFile = File(...),
 ):
-    current_user, redirect = await _require_admin(request, db)
+    current_user, redirect = await _require_action_user(request, db, BACKUPS_RESTORE)
     if redirect:
         return redirect
 
@@ -482,7 +483,7 @@ async def upload_and_restore_backup(
 
 @router.post("/backups/restore/{filename}")
 async def restore_backup(filename: str, request: Request, db: AsyncSession = Depends(get_db)):
-    current_user, redirect = await _require_admin(request, db)
+    current_user, redirect = await _require_action_user(request, db, BACKUPS_RESTORE)
     if redirect:
         return redirect
 
@@ -514,7 +515,7 @@ async def restore_backup(filename: str, request: Request, db: AsyncSession = Dep
 
 @router.post("/backups/discard/{filename}")
 async def discard_backup(filename: str, request: Request, db: AsyncSession = Depends(get_db)):
-    current_user, redirect = await _require_admin(request, db)
+    current_user, redirect = await _require_action_user(request, db, BACKUPS_MANAGE)
     if redirect:
         return redirect
 
@@ -542,7 +543,7 @@ async def discard_backup(filename: str, request: Request, db: AsyncSession = Dep
 
 @router.get("/backups/download/{filename}")
 async def download_backup(filename: str, request: Request, db: AsyncSession = Depends(get_db)):
-    _, redirect = await _require_admin(request, db)
+    _, redirect = await _require_action_user(request, db, BACKUPS_MANAGE)
     if redirect:
         return redirect
 

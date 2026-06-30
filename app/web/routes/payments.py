@@ -19,6 +19,16 @@ from app.database import get_db
 from app.models import Payment, Contractor, PaymentTransaction
 from app.utils import month_name, is_allowed_file, get_upload_path, MAX_FILE_SIZE, payment_color_class
 from app.web.routes.auth import _require_page, get_current_user
+from app.web.permissions import (
+    PAYMENT_TRANSACTIONS_CREATE,
+    PAYMENT_TRANSACTIONS_DELETE,
+    PAYMENT_TRANSACTIONS_UPDATE,
+    PAYMENTS_CREATE,
+    PAYMENTS_DELETE,
+    PAYMENTS_RECEIPTS_CLEANUP,
+    PAYMENTS_UPDATE,
+    has_action_permission,
+)
 from app.audit import log_admin_action
 
 # --- Magic byte signatures for allowed file types ---
@@ -60,13 +70,13 @@ router = APIRouter()
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./data/uploads")
 
 
-async def _require_admin_user(request: Request, db: AsyncSession):
-    """Return active admin user or a redirect response."""
+async def _require_action_user(request: Request, db: AsyncSession, permission: str):
+    """Return active user with a named action permission or a redirect response."""
     current_user = await get_current_user(request, db)
     if not current_user:
         return None, RedirectResponse(url="/login", status_code=303)
-    if current_user.role != "admin":
-        return current_user, RedirectResponse(url="/payments?error=Только+для+админа", status_code=303)
+    if not has_action_permission(current_user, permission):
+        return current_user, RedirectResponse(url="/payments?error=Недостаточно+прав", status_code=303)
     return current_user, None
 
 
@@ -419,7 +429,7 @@ async def add_payment(
     month: int = Form(None),
     receipt: UploadFile = File(None),
 ):
-    current_user, redirect = await _require_admin_user(request, db)
+    current_user, redirect = await _require_action_user(request, db, PAYMENTS_CREATE)
     if redirect:
         return redirect
 
@@ -529,7 +539,7 @@ async def add_payment_transaction(
     paid_date_str: str = Form(""),
     receipt: UploadFile = File(None),
 ):
-    current_user, redirect = await _require_admin_user(request, db)
+    current_user, redirect = await _require_action_user(request, db, PAYMENT_TRANSACTIONS_CREATE)
     if redirect:
         return redirect
 
@@ -619,7 +629,7 @@ async def edit_payment_transaction(
     paid_date_str: str = Form(""),
     receipt: UploadFile = File(None),
 ):
-    current_user, redirect = await _require_admin_user(request, db)
+    current_user, redirect = await _require_action_user(request, db, PAYMENT_TRANSACTIONS_UPDATE)
     if redirect:
         return redirect
 
@@ -684,7 +694,7 @@ async def delete_payment_transaction(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    current_user, redirect = await _require_admin_user(request, db)
+    current_user, redirect = await _require_action_user(request, db, PAYMENT_TRANSACTIONS_DELETE)
     if redirect:
         return redirect
 
@@ -727,7 +737,7 @@ async def edit_payment(
     paid_date_str: str = Form(""),
     receipt: UploadFile = File(None),
 ):
-    current_user, redirect = await _require_admin_user(request, db)
+    current_user, redirect = await _require_action_user(request, db, PAYMENTS_UPDATE)
     if redirect:
         return redirect
 
@@ -869,7 +879,7 @@ async def cleanup_orphan_receipts(
     month: int = Form(None),
     status_filter: str = Form(""),
 ):
-    _, redirect = await _require_admin_user(request, db)
+    _, redirect = await _require_action_user(request, db, PAYMENTS_RECEIPTS_CLEANUP)
     if redirect:
         return redirect
 
@@ -897,7 +907,7 @@ async def delete_payment(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    current_user, redirect = await _require_admin_user(request, db)
+    current_user, redirect = await _require_action_user(request, db, PAYMENTS_DELETE)
     if redirect:
         return redirect
 

@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlencode
 
 import pytest
 from sqlalchemy import select
@@ -21,6 +22,19 @@ async def _empty_receive():
     return {"type": "http.request", "body": b"", "more_body": False}
 
 
+def _form_receive(body: bytes):
+    sent = False
+
+    async def receive():
+        nonlocal sent
+        if sent:
+            return {"type": "http.request", "body": b"", "more_body": False}
+        sent = True
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    return receive
+
+
 def _request(path: str, *, method: str = "GET", user: User | None = None, query: str = "") -> Request:
     headers = []
     if user is not None:
@@ -38,6 +52,28 @@ def _request(path: str, *, method: str = "GET", user: User | None = None, query:
             "scheme": "http",
         },
         receive=_empty_receive,
+    )
+
+
+def _form_request(path: str, *, user: User, form: dict[str, str]) -> Request:
+    cookie = f"{auth.SESSION_COOKIE}={auth._sign_user_id(user.id)}"
+    body = urlencode(form).encode("ascii")
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": path,
+            "headers": [
+                (b"cookie", cookie.encode("ascii")),
+                (b"content-type", b"application/x-www-form-urlencoded"),
+                (b"content-length", str(len(body)).encode("ascii")),
+            ],
+            "query_string": b"",
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+            "scheme": "http",
+        },
+        receive=_form_receive(body),
     )
 
 
@@ -101,6 +137,8 @@ def test_telegram_router_registered_and_nav_visible_for_admin():
     assert 'name="telegram_log_mode"' in template
     assert 'name="telegram_admin_id"' in template
     assert 'name="telegram_allowed_user_ids"' in template
+    assert 'name="telegram_bot_enabled"' in template
+    assert 'name="telegram_command_settings_submitted"' in template
     assert 'action="/telegram/messages/{{ m.id }}/reply"' in template
     assert 'action="/telegram/outbound/{{ out.id }}/edit"' in template
     assert "TelegramMessageLog" not in template  # implementation detail stays in route, not UI text
@@ -175,6 +213,42 @@ async def test_admin_can_save_telegram_log_settings_and_apply_retention(telegram
     assert saved_allowlist == "222,333"
     old_exists = await session.scalar(select(TelegramMessageLog.id).where(TelegramMessageLog.username == "old_user"))
     assert old_exists is None
+
+
+@pytest.mark.asyncio
+async def test_admin_can_save_telegram_runtime_command_toggles(telegram_db):
+    session, admin, _ = telegram_db
+
+    response = await telegram.save_telegram_settings(
+        _form_request(
+            "/telegram/settings",
+            user=admin,
+            form={
+                "telegram_feature_settings_submitted": "1",
+                "telegram_command_settings_submitted": "1",
+                "telegram_admin_id": "333",
+                "telegram_allowed_user_ids": "222",
+                "telegram_command_help_enabled": "1",
+                "telegram_command_contractors_enabled": "1",
+            },
+        ),
+        db=session,
+        telegram_feature_settings_submitted="1",
+        telegram_command_settings_submitted="1",
+        telegram_admin_id="333",
+        telegram_allowed_user_ids="222",
+    )
+
+    assert isinstance(response, RedirectResponse)
+    assert response.status_code == 303
+    saved_bot_enabled = await session.scalar(select(Setting.value).where(Setting.key == "telegram_bot_enabled"))
+    saved_help = await session.scalar(select(Setting.value).where(Setting.key == "telegram_command_help_enabled"))
+    saved_balance = await session.scalar(select(Setting.value).where(Setting.key == "telegram_command_balance_enabled"))
+    saved_contractors = await session.scalar(select(Setting.value).where(Setting.key == "telegram_command_contractors_enabled"))
+    assert saved_bot_enabled == "0"
+    assert saved_help == "1"
+    assert saved_balance == "0"
+    assert saved_contractors == "1"
 
 
 @pytest.mark.asyncio
