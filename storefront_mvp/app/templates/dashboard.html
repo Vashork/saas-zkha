@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="hero">
+  <div>
+    <h1>Ваши страницы и витрины</h1>
+    <p>Базовый домен: <strong>{{ base_domain }}</strong></p>
+  </div>
+  <a class="settings-link" href="/settings">Настройки</a>
+</section>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+<section class="grid">
+  <article class="card plus-card">
+    <form method="post" action="/storefronts" class="stack">
+      <div class="plus">+</div>
+      <label>L3 subdomain<input name="subdomain" placeholder="knigi" pattern="[a-z0-9-]{1,63}" required></label>
+      <button type="submit">Создать страницу</button>
+    </form>
+  </article>
+  {% for sf in storefronts %}
+  <article class="card">
+    <h2>{{ sf.title }}</h2>
+    <p><a href="http://{{ sf.subdomain }}.{{ base_domain }}/">{{ sf.subdomain }}.{{ base_domain }}</a></p>
+    <p>{{ sf.description or 'Описание пока не задано' }}</p>
+    <a class="button" href="/storefronts/{{ sf.id }}">Редактировать</a>
+  </article>
+  {% endfor %}
+</section>
+{% endblock %}
