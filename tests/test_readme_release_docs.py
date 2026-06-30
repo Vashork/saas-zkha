@@ -42,3 +42,19 @@ def test_readme_documents_telegram_allowlist_management_and_commands():
     assert "`/tglog [N]`" in readme
     assert "Admin-only web UI `/telegram`" in readme
     assert "DB-настройки Telegram имеют приоритет над env fallback" in readme
+
+
+def test_readme_documents_angie_reverse_proxy_and_dns_tls_plan():
+    readme = _readme()
+
+    assert "│ │ angie        │" in readme
+    assert "`zhkh-angie`" in readme
+    assert "Angie проксирует" in readme
+    assert "Docker Compose: `web`, `bot`, `angie`" in readme
+    assert "logs/angie" in readme
+    assert "docker compose logs --tail=120 angie" in readme
+    assert "docker/angie.conf" in readme
+    assert "docs/PRODUCTION_DNS_TLS_ROADMAP.md" in readme
+    assert "zhkh-nginx" not in readme
+    assert "logs/nginx" not in readme
+    assert "docker/nginx.conf" not in readme

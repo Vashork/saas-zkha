@@ -2,14 +2,14 @@
 """Docker smoke QA helper for the hardened runtime model.
 
 This script intentionally uses only quiet Compose validation (`config -q`) and never
-prints the resolved Compose config because it may contain secrets from `.env`.
+prints the resolved Compose config because it may contain local secrets.
 
 It performs non-destructive checks that are safe for a local release smoke:
 
 - validate Compose syntax quietly;
 - optionally build the web and bot images sequentially with a retry;
 - optionally start the stack without forcing a second parallel rebuild;
-- wait for `/health` through nginx;
+- wait for `/health` through Angie;
 - verify `/uploads/...` is not publicly served;
 - verify `/login` reaches the web app;
 - show bounded service status/log tails for evidence.
@@ -36,6 +36,7 @@ from typing import Iterable
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASE_URL = "http://localhost"
 SMOKE_SERVICES = ("web", "bot")
+PROXY_SERVICE = "angie"
 
 
 @dataclass(frozen=True)
@@ -168,7 +169,7 @@ def _print_bounded_logs(compose: list[str], service: str) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run local Docker smoke QA for ZhKH Bot.")
-    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Base URL exposed by nginx, default: http://localhost")
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Base URL exposed by Angie, default: http://localhost")
     parser.add_argument("--health-timeout", type=int, default=90, help="Seconds to wait for /health")
     parser.add_argument("--build-attempts", type=int, default=2, help="Attempts for each image build, default: 2")
     parser.add_argument("--skip-build", action="store_true", help="Skip sequential image builds")
@@ -182,7 +183,7 @@ def main() -> int:
     compose = _detect_compose()
     print(f"Using Compose command: {' '.join(compose)}")
 
-    # Do not replace this with plain `config`: full config may print secrets from .env.
+    # Do not replace this with plain `config`: full config may print local secrets.
     _run([*compose, "config", "-q"])
 
     if not args.skip_build:
@@ -197,7 +198,7 @@ def main() -> int:
     _assert_uploads_not_public(args.base_url)
 
     if not args.skip_logs:
-        for service in ("web", "nginx", "bot"):
+        for service in ("web", PROXY_SERVICE, "bot"):
             _print_bounded_logs(compose, service)
 
     print("SUCCESS: Docker smoke QA baseline passed.")
