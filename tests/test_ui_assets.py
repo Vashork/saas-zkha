@@ -170,3 +170,21 @@ def test_settings_template_removes_stale_permission_wording():
     assert "Operator CRUD будет включаться отдельными action-level permissions и тестами" not in settings_html
     assert "Роли и права разделены" in settings_html
     assert "Operator CRUD уже определяется action-level permissions" in settings_html
+
+
+def test_telegram_template_exposes_runtime_bot_toggle():
+    telegram_html = (ROOT / "app" / "web" / "templates" / "telegram.html").read_text(encoding="utf-8")
+
+    assert "telegram_feature_settings_submitted" in telegram_html
+    assert "telegram_bot_enabled" in telegram_html
+    assert "Runtime статус бота" in telegram_html
+
+
+def test_telegram_runtime_toggle_backend_wiring():
+    security_py = (ROOT / "app" / "bot" / "security.py").read_text(encoding="utf-8")
+    telegram_route = (ROOT / "app" / "web" / "routes" / "telegram.py").read_text(encoding="utf-8")
+
+    assert "telegram_bot_runtime_settings" in security_py
+    assert "is_telegram_bot_enabled" in security_py
+    assert "current_settings = await _settings_dict(db)" in telegram_route
+    assert '"telegram_bot_enabled": bot_enabled' in telegram_route

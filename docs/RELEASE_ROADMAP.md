@@ -209,9 +209,11 @@
 2. [x] P2-11 Настройки режима Telegram-журнала.
 3. [ ] P2-12 Полное admin-управление ботом из web UI:
    - [x] просмотр и изменение Telegram admin id / allowed user ids через БД/settings с audit log;
-   - включение/выключение бота или отдельных команд без пересборки контейнера, если архитектура будет переведена с env-only на DB/settings;
-   - настройка шаблонов ответов `/start`, `/help`, ошибок и подтверждений оплаты;
-   - предпросмотр шаблонов и validation placeholders перед сохранением;
-   - audit log всех изменений Telegram-настроек.
+   - [x] runtime включение/выключение бота через DB/settings без пересборки контейнера (`docs/P2_12_TELEGRAM_RUNTIME_TOGGLE_HANDOFF.md`);
+   - [ ] включение/выключение отдельных команд без пересборки контейнера;
+   - [ ] настройка шаблонов ответов `/start`, `/help`, ошибок и подтверждений оплаты;
+   - [ ] предпросмотр шаблонов и validation placeholders перед сохранением;
+   - [x] audit log изменений runtime/access Telegram-настроек;
+   - validation: `python -m pytest tests/test_ui_assets.py` — 19 passed; full pytest — 334 passed, 4 skipped.
 4. [x] P2-13 Управление ответами на входящие сообщения.
 5. [ ] P2-14 Связать Telegram-журнал с бизнес-событиями.

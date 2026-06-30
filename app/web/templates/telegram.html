@@ -44,6 +44,7 @@
             <input type="hidden" name="telegram_log_mode" value="{{ settings.get('telegram_log_mode', 'all') }}">
             <input type="hidden" name="telegram_log_retention_days" value="{{ settings.get('telegram_log_retention_days', '30') }}">
             <input type="hidden" name="telegram_log_retention_count" value="{{ settings.get('telegram_log_retention_count', '1000') }}">
+            <input type="hidden" name="telegram_feature_settings_submitted" value="1">
             <h4 style="margin-bottom:12px;">🔐 Управление доступом Telegram</h4>
             <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
                 <div class="form-group">
@@ -57,11 +58,20 @@
                     <small style="color:var(--text-muted);display:block;margin-top:6px;">Сохраняется в БД и применяется ботом без пересборки контейнера.</small>
                 </div>
             </div>
+            <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border);">
+                <h4 style="margin-bottom:12px;">🟢 Runtime-управление ботом</h4>
+                <label style="display:flex;align-items:center;gap:10px;">
+                    <input type="checkbox" name="telegram_bot_enabled" value="1" {% if telegram_bot_enabled %}checked{% endif %}>
+                    <span>Бот включён</span>
+                </label>
+                <small style="color:var(--text-muted);display:block;margin-top:6px;">Сохраняется в БД и применяется middleware бота без пересборки контейнера. Если выключить, входящие сообщения продолжают логироваться по выбранному режиму, но обработчики команд и оплат не вызываются.</small>
+            </div>
             <button type="submit" class="btn-secondary-custom">🔐 Сохранить доступ Telegram</button>
         </form>
         <div style="margin-top:14px;color:var(--text-muted);font-size:13px;">
             <div><strong>Эффективный admin id:</strong> {{ effective_telegram_admin_id or 'не задан' }}</div>
             <div><strong>Эффективный allowlist:</strong> {% if effective_telegram_allowed_user_ids %}{{ effective_telegram_allowed_user_ids | join(', ') }}{% else %}пусто{% endif %}</div>
+            <div><strong>Runtime статус бота:</strong> {{ 'включён' if telegram_bot_enabled else 'выключен' }}</div>
             <div><strong>Env TELEGRAM_ADMIN_ID:</strong> {{ telegram_admin_id or 'не задан' }}</div>
             <div><strong>Env allowlist:</strong> {% if telegram_allowed_user_ids %}{{ telegram_allowed_user_ids | join(', ') }}{% else %}пусто{% endif %}</div>
         </div>
