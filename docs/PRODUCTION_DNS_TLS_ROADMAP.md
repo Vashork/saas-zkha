@@ -18,7 +18,7 @@ Goal: publish the application behind a DNS name, terminate HTTPS on Angie, and s
 - [x] Update Docker runtime tests for Angie config/service expectations.
 - [x] Update `docker-compose.yml` to replace the `nginx` service with `angie`.
 - [x] Remove `docker/nginx.conf` after Compose uses `docker/angie.conf`.
-- [ ] Update README architecture and runtime directory docs from nginx to Angie.
+- [x] Update README architecture and runtime directory docs from nginx to Angie.
 - [ ] Run targeted tests and Docker smoke evidence.
 
 ## Phase 2 — DNS publication prerequisites

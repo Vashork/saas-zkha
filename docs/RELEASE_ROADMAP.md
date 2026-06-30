@@ -1,6 +1,6 @@
 # Release roadmap and implementation summary
 
-Branch: `audit/main-hardening-followup`
+Branch: `docker/angie-dns-tls-roadmap`
 
 This file is the single source of truth for the audit/release roadmap, local AI changes, Docker hardening evidence, permissions work, and Telegram management work.
 
@@ -27,6 +27,10 @@ docker compose config -q
 ## Latest accepted validation evidence
 
 ```text
+Angie README/docs targeted 2026-06-30: 14 passed in 0.15s
+Angie README/docs full pytest 2026-06-30: 354 passed, 4 skipped, 3 warnings in 126.71s
+Docker Compose/smoke validation not captured in this local run: current user is not in the docker group and sudo requires a password, so Docker socket access fails with PermissionError(13, 'Permission denied').
+
 P2-12 Telegram template UI targeted: 36 passed in 8.05s
 P2-12 full pytest: 345 passed, 8 skipped in 100.12s
 
@@ -99,10 +103,11 @@ Completed:
 * [x] `gosu` and runtime `curl` removed from web/bot images.
 * [x] Startup scripts simplified; no root-to-user privilege dropping.
 * [x] Healthcheck uses Python stdlib.
-* [x] Nginx image pinned to `nginx:1.27-alpine`.
+* [x] Angie image pinned to `docker.angie.software/angie:1.11.8-minimal`.
 * [x] OCI labels and `EXPOSE 8000` added where applicable.
 * [x] `no-new-privileges:true` added for services.
 * [x] Docker runtime tests updated.
+* [x] Angie/DNS/TLS follow-up is documented in `docs/PRODUCTION_DNS_TLS_ROADMAP.md`; DNS/TLS is not production-ready until real DNS, certificate issuance, and renewal dry-run evidence are captured.
 
 Key files:
 

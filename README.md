@@ -24,7 +24,7 @@
 │ Docker Network: zhkh-bot-network                          │
 │                                                            │
 │ ┌──────────────┐      ┌──────────────┐   ┌──────────────┐ │
-│ │ nginx        │ ───► │ web          │   │ bot          │ │
+│ │ angie        │ ───► │ web          │   │ bot          │ │
 │ │ reverse      │      │ FastAPI      │   │ aiogram      │ │
 │ │ proxy :80    │      │ :8000        │   │ polling      │ │
 │ └──────────────┘      └──────────────┘   └──────────────┘ │
@@ -38,18 +38,18 @@
 
 | Контейнер | Назначение | Порт |
 |-----------|------------|------|
-| `zhkh-nginx` | Reverse proxy, ждет `web` healthy | `80 → web:8000` |
+| `zhkh-angie` | Angie reverse proxy, ждет `web` healthy | `80 → web:8000` |
 | `zhkh-web` | FastAPI + Jinja2 + static assets | `8000` внутри сети |
 | `zhkh-bot` | aiogram 3.x + APScheduler jobs | — |
 
-Статики (`/static`) обслуживает FastAPI, Nginx проксирует все запросы к web. `/uploads` не монтируется как публичная статика: сохраненные чеки лежат в `data/uploads`, но скачиваются только через authenticated route `/payments/receipts/{path}` после проверки сессии, page permission, безопасного пути и ownership check в БД.
+Статики (`/static`) обслуживает FastAPI, Angie проксирует все запросы к web. `/uploads` не монтируется как публичная статика: сохраненные чеки лежат в `data/uploads`, но скачиваются только через authenticated route `/payments/receipts/{path}` после проверки сессии, page permission, безопасного пути и ownership check в БД.
 
 ## Стек
 
 - Python 3.11+, FastAPI, Starlette, aiogram 3.x.
 - SQLite + SQLAlchemy 2.0 async + aiosqlite.
 - Jinja2 + Bootstrap 5 + Chart.js.
-- Docker Compose: `web`, `bot`, `nginx`.
+- Docker Compose: `web`, `bot`, `angie`.
 
 ## Предварительные требования
 
@@ -100,7 +100,7 @@ USER_PASSWORD=<strong-user-password>
 Образы `web` и `bot` запускают приложение не от root, а напрямую от пользователя `zhkh` с UID/GID `1000:1000` через Dockerfile `USER zhkh`. Startup-скрипты больше не делают `chown` и не используют `gosu`; они только создают ожидаемые директории и запускают Python-процесс. Поэтому для Linux/WSL подготовьте права bind-mount директорий перед первым запуском:
 
 ```bash
-mkdir -p data/uploads backups logs/nginx
+mkdir -p data/uploads backups logs/angie
 sudo chown -R 1000:1000 data backups logs
 ```
 
@@ -155,6 +155,8 @@ docker compose config -q
 Не прикладывайте полный вывод `docker compose config`, потому что он может содержать `TELEGRAM_BOT_TOKEN` и другие секреты. Если Telegram token попал в лог, чат или публичный артефакт, считайте его скомпрометированным и перевыпустите у BotFather.
 
 За HTTPS-терминацией держите `COOKIE_SECURE=true`. Если приложение временно запускается только локально по `http://localhost`, используйте development environment и отдельные тестовые секреты.
+
+DNS/TLS rollout для публичного production-домена ведется отдельным планом в `docs/PRODUCTION_DNS_TLS_ROADMAP.md`: сначала подтвердите FQDN, доступность портов `80/443`, способ ACME challenge, persistent storage сертификатов и renewal/reload drill. Не добавляйте self-signed production placeholders и не включайте HTTPS в default Compose без реальных DNS/TLS evidence.
 
 ## Telegram-бот
 
@@ -255,7 +257,7 @@ docker compose up -d --build
 docker compose ps
 curl -f http://localhost/health
 docker compose logs --tail=120 web
-docker compose logs --tail=120 nginx
+docker compose logs --tail=120 angie
 docker compose logs --tail=120 bot
 ```
 
@@ -268,4 +270,4 @@ docker compose logs --tail=120 bot
 | Порт 80 занят | Поменяйте mapping в `docker-compose.yml`, например `8080:80`. |
 | Бот не отвечает | Проверьте, что `TELEGRAM_BOT_TOKEN` задан, пользователь есть в allowlist, и в логах `zhkh-bot` нет startup errors. |
 | Чек не открывается | Чеки не доступны через `/uploads`; используйте ссылку из UI на `/payments/receipts/{path}` после входа в систему. |
-| CSS не загружается | Проверьте `/static` и `docker/nginx.conf`; `/uploads` не должен быть static mount. |
+| CSS не загружается | Проверьте `/static` и `docker/angie.conf`; `/uploads` не должен быть static mount. |

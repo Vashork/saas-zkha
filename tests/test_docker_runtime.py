@@ -14,7 +14,7 @@ def test_web_dockerfile_runs_as_non_root_user_and_uses_start_script():
     assert "useradd" in dockerfile
     assert "mkdir -p /app/data/uploads /app/backups /var/log/zhkh-bot" in dockerfile
     assert "COPY docker/start-web.sh /usr/local/bin/start-web" in dockerfile
-    assert "sed -i 's/\r$//' /usr/local/bin/start-web" in dockerfile
+    assert r"sed -i 's/\r$//' /usr/local/bin/start-web" in dockerfile
     assert "USER zhkh" in dockerfile
     assert "EXPOSE 8000" in dockerfile
     assert "org.opencontainers.image.title" in dockerfile
@@ -43,7 +43,7 @@ def test_bot_dockerfile_runs_as_non_root_user():
     assert "useradd" in dockerfile
     assert "mkdir -p /app/data/uploads /var/log/zhkh-bot" in dockerfile
     assert "COPY docker/start-bot.sh /usr/local/bin/start-bot" in dockerfile
-    assert "sed -i 's/\r$//' /usr/local/bin/start-bot" in dockerfile
+    assert r"sed -i 's/\r$//' /usr/local/bin/start-bot" in dockerfile
     assert "USER zhkh" in dockerfile
     assert "org.opencontainers.image.title" in dockerfile
     assert "gosu" not in dockerfile
