@@ -44,6 +44,7 @@
 34. P2-18 user management GUI закрыт: добавлены presets видимости страниц для create/edit user, UI-предупреждения о разделении role/action/page permissions, regression tests в `tests/test_ui_assets.py`; локальный evidence `298 passed, 8 skipped in 75.95s`.
 35. P2-19 audit/self-lockout guardrails закрыт: denied user-management guardrails пишут audit entries для self deactivate/delete/admin downgrade, delete admin, last active admin downgrade/deactivate и missing `USERS_MANAGE`; targeted tests `4 passed`, full pytest `302 passed, 8 skipped`.
 36. P2-20 access matrix tests закрыт: добавлены helper-level role matrix tests и route-level matrix tests для page visibility, business mutations, user management и backups manage; full pytest `328 passed, 8 skipped in 109.06s`.
+37. P2-12 Telegram response template foundation добавлен: DB-backed шаблоны для `/start`, `/help`, ошибок формата/чека и подтверждения оплаты, handler wiring и source/unit tests; полный P2-12 не закрыт до preview/edit UI и audit log для изменений шаблонов.
 
 ## P1
 
@@ -211,9 +212,11 @@
    - [x] просмотр и изменение Telegram admin id / allowed user ids через БД/settings с audit log;
    - [x] runtime включение/выключение бота через DB/settings без пересборки контейнера (`docs/P2_12_TELEGRAM_RUNTIME_TOGGLE_HANDOFF.md`);
    - [x] включение/выключение отдельных managed-команд без пересборки контейнера: `/start`, `/help`, `/balance`, `/contractors`, `/tglog`;
-   - [ ] настройка шаблонов ответов `/start`, `/help`, ошибок и подтверждений оплаты;
+   - [x] backend/template foundation для шаблонов ответов `/start`, `/help`, ошибок формата/чека и подтверждения оплаты через DB-backed `telegram_template_*` settings (`docs/P2_12_TELEGRAM_TEMPLATES_HANDOFF.md`);
+   - [ ] admin UI для редактирования шаблонов ответов `/start`, `/help`, ошибок и подтверждений оплаты;
    - [ ] предпросмотр шаблонов и validation placeholders перед сохранением;
    - [x] audit log изменений runtime/access/command-toggle Telegram-настроек;
-   - validation: Telegram runtime targeted `11 passed in 13.12s`; full pytest 2026-06-30 — `339 passed, 4 skipped, 3 warnings in 117.17s`.
+   - [ ] audit log изменений Telegram response templates;
+   - validation: Telegram runtime targeted `11 passed in 13.12s`; template foundation targeted 2026-06-30 `19 passed in 5.88s`; full pytest 2026-06-30 — `345 passed, 4 skipped, 3 warnings in 123.79s`.
 4. [x] P2-13 Управление ответами на входящие сообщения.
 5. [ ] P2-14 Связать Telegram-журнал с бизнес-событиями.
