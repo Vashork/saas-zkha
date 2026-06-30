@@ -27,9 +27,9 @@ docker compose config -q
 ## Latest accepted validation evidence
 
 ```text
-Angie README/docs targeted 2026-06-30: 14 passed in 0.15s
-Angie README/docs full pytest 2026-06-30: 354 passed, 4 skipped, 3 warnings in 126.71s
-Docker Compose/smoke validation not captured in this local run: current user is not in the docker group and sudo requires a password, so Docker socket access fails with PermissionError(13, 'Permission denied').
+Angie README/docs targeted re-run 2026-06-30: 14 passed in 0.14s
+Angie README/docs full pytest re-run 2026-06-30: 354 passed, 4 skipped, 3 warnings in 128.79s
+Docker Compose/smoke validation not captured in this local run: Docker CLI has no Compose v2 plugin, Docker Compose v1 requires Docker socket access, and current user is not in the docker group, so Docker socket access fails with PermissionError(13, 'Permission denied').
 
 P2-12 Telegram template UI targeted: 36 passed in 8.05s
 P2-12 full pytest: 345 passed, 8 skipped in 100.12s
@@ -322,7 +322,10 @@ docs/TELEGRAM_MANAGEMENT_IMPLEMENTATION_SUMMARY.md
 
 ## Still open before merge
 
-* [ ] Re-run the validation command after doc cleanup.
+* [x] Re-run validation after Angie doc cleanup:
+
+  * targeted handoff tests: `tests/test_docker_runtime.py tests/test_docker_smoke_script.py tests/test_readme_release_docs.py`;
+  * full pytest suite.
 * [ ] Merge/rebase `audit/main-hardening-followup` with latest `main`, because the branch is ahead but also behind `main` by one commit.
 * [ ] Run manual smoke check:
 
