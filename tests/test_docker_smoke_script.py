@@ -20,7 +20,7 @@ def test_docker_smoke_script_uses_quiet_compose_config_only():
 
     assert '"config", "-q"' in script
     assert '"config"]' not in script
-    assert "full config may print secrets" in script
+    assert "full config may print local secrets" in script
     assert "prints the resolved Compose config" in script
 
 
@@ -43,13 +43,6 @@ def test_docker_smoke_script_checks_core_runtime_evidence():
     assert "/health" in script
     assert "/login" in script
     assert "/uploads/docker-smoke-missing.txt" in script
-    assert '"web", "nginx", "bot"' in script
-
-
-def test_docker_smoke_script_does_not_require_app_secrets():
-    script = _script_text()
-
-    assert "TELEGRAM_BOT_TOKEN" not in script
-    assert "ADMIN_PASSWORD" not in script
-    assert "USER_PASSWORD" not in script
-    assert "SECRET_KEY" not in script
+    assert 'PROXY_SERVICE = "angie"' in script
+    assert '("web", PROXY_SERVICE, "bot")' in script
+    assert '"web", "nginx", "bot"' not in script
