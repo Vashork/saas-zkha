@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or 'Storefront Builder' }}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/dashboard">Storefront Builder</a>
+  <nav>
+    {% if user %}
+      <a href="/dashboard">Dashboard</a>
+      {% if user.role == 'admin' %}<a href="/settings">Настройки</a>{% endif %}
+      <form method="post" action="/logout" class="inline"><button type="submit">Выйти</button></form>
+    {% else %}
+      <a href="/login">Войти</a>
+    {% endif %}
+  </nav>
+</header>
+<main class="container">
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>
