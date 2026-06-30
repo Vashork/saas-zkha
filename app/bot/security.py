@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
 
+from app.bot.management import is_telegram_bot_enabled, telegram_bot_runtime_settings
 from app.database import async_session_factory
 from app.models import Setting, TelegramMessageLog
 
@@ -34,6 +35,7 @@ class TelegramAllowlistMiddleware(BaseMiddleware):
         user_id = getattr(user, "id", None)
         allowed_user_ids = set(self.allowed_user_ids)
         admin_user_id = self.admin_user_id
+        bot_enabled = True
         try:
             async with async_session_factory() as session:
                 allowed_user_ids, admin_user_id = await _effective_telegram_access(
@@ -41,6 +43,7 @@ class TelegramAllowlistMiddleware(BaseMiddleware):
                     self.allowed_user_ids,
                     self.admin_user_id,
                 )
+                bot_enabled = is_telegram_bot_enabled(await telegram_bot_runtime_settings(session))
         except Exception:
             logger.exception("Could not load Telegram access settings; falling back to env allowlist")
         is_allowed = bool(allowed_user_ids) and user_id in allowed_user_ids
@@ -48,6 +51,10 @@ class TelegramAllowlistMiddleware(BaseMiddleware):
 
         if isinstance(event, Message):
             await log_telegram_message(event, is_allowed=is_allowed, is_admin=is_admin)
+
+        if not bot_enabled:
+            logger.info("Telegram bot disabled by DB settings; ignoring message from user id=%s", user_id)
+            return None
 
         if not allowed_user_ids:
             if not self._warned_empty_allowlist:
