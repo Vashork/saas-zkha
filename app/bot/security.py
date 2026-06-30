@@ -10,7 +10,11 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
 
-from app.bot.management import is_telegram_bot_enabled, telegram_bot_runtime_settings
+from app.bot.management import (
+    is_telegram_bot_enabled,
+    is_telegram_command_enabled,
+    telegram_bot_runtime_settings,
+)
 from app.database import async_session_factory
 from app.models import Setting, TelegramMessageLog
 
@@ -35,6 +39,7 @@ class TelegramAllowlistMiddleware(BaseMiddleware):
         user_id = getattr(user, "id", None)
         allowed_user_ids = set(self.allowed_user_ids)
         admin_user_id = self.admin_user_id
+        runtime_settings: dict[str, str] = {}
         bot_enabled = True
         try:
             async with async_session_factory() as session:
@@ -43,7 +48,8 @@ class TelegramAllowlistMiddleware(BaseMiddleware):
                     self.allowed_user_ids,
                     self.admin_user_id,
                 )
-                bot_enabled = is_telegram_bot_enabled(await telegram_bot_runtime_settings(session))
+                runtime_settings = await telegram_bot_runtime_settings(session)
+                bot_enabled = is_telegram_bot_enabled(runtime_settings)
         except Exception:
             logger.exception("Could not load Telegram access settings; falling back to env allowlist")
         is_allowed = bool(allowed_user_ids) and user_id in allowed_user_ids
@@ -54,6 +60,15 @@ class TelegramAllowlistMiddleware(BaseMiddleware):
 
         if not bot_enabled:
             logger.info("Telegram bot disabled by DB settings; ignoring message from user id=%s", user_id)
+            return None
+
+        command_name = _telegram_command_name(event)
+        if command_name and not is_telegram_command_enabled(runtime_settings, command_name):
+            logger.info(
+                "Telegram command /%s disabled by DB settings; ignoring message from user id=%s",
+                command_name,
+                user_id,
+            )
             return None
 
         if not allowed_user_ids:
@@ -85,6 +100,16 @@ def is_allowed_message(message: Message, allowed_user_ids: set[int]) -> bool:
     """Small helper for unit tests and future non-message handlers."""
     user_id = message.from_user.id if message.from_user else None
     return bool(allowed_user_ids) and user_id in allowed_user_ids
+
+
+def _telegram_command_name(event: TelegramObject) -> str | None:
+    """Extract a Telegram slash command name from text messages."""
+    text = getattr(event, "text", None)
+    if not text or not str(text).startswith("/"):
+        return None
+    first_token = str(text).split(maxsplit=1)[0]
+    command = first_token[1:].split("@", 1)[0].strip().lower()
+    return command or None
 
 
 def _message_text(message: Message) -> str | None:
