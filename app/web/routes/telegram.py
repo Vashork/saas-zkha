@@ -21,6 +21,14 @@ from app.bot.management import (
     normalize_telegram_enabled_value,
     telegram_command_setting_key,
 )
+from app.bot.response_templates import (
+    DEFAULT_TELEGRAM_RESPONSE_TEMPLATES,
+    TelegramTemplateValidationError,
+    render_template_text,
+    telegram_response_template_definitions,
+    telegram_template_setting_key,
+    validate_template_placeholders,
+)
 from app.config import get_settings
 from app.database import get_db
 from app.models import Setting, TelegramMessageLog, TelegramOutboundMessageLog
@@ -61,6 +69,8 @@ async def _settings_dict(db: AsyncSession) -> dict[str, str]:
     values.setdefault(TELEGRAM_BOT_ENABLED_KEY, DEFAULT_TELEGRAM_BOT_ENABLED)
     for command in MANAGED_TELEGRAM_COMMANDS:
         values.setdefault(telegram_command_setting_key(command), "1")
+    for name, default_text in DEFAULT_TELEGRAM_RESPONSE_TEMPLATES.items():
+        values.setdefault(telegram_template_setting_key(name), default_text)
     return values
 
 
@@ -102,6 +112,43 @@ def _row_status(row: TelegramMessageLog) -> str:
     if row.is_admin:
         return "admin"
     return "allowed" if row.is_allowed else "blocked"
+
+
+def _telegram_template_preview_context(name: str) -> dict[str, str]:
+    if name == "payment_confirmation":
+        return {
+            "contractor_name": "Мосэнергосбыт",
+            "amount": "3200",
+            "period": "июнь 2026",
+            "receipt_saved_line": "\n📎 Чек сохранён",
+        }
+    return {}
+
+
+def _telegram_template_context(settings: dict[str, str]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for definition in telegram_response_template_definitions():
+        text = settings.get(definition.setting_key, definition.default_text)
+        preview = ""
+        error_message = ""
+        try:
+            preview = render_template_text(
+                definition.name,
+                text,
+                _telegram_template_preview_context(definition.name),
+            )
+        except TelegramTemplateValidationError as exc:
+            error_message = str(exc)
+        rows.append({
+            "name": definition.name,
+            "setting_key": definition.setting_key,
+            "text": text,
+            "default_text": definition.default_text,
+            "allowed_placeholders": sorted(definition.allowed_placeholders),
+            "preview": preview,
+            "error": error_message,
+        })
+    return rows
 
 
 def _bot_api_request(token: str, method: str, payload: dict) -> dict:
@@ -270,6 +317,7 @@ async def telegram_page(
             }
             for command in MANAGED_TELEGRAM_COMMANDS
         ],
+        "telegram_response_templates": _telegram_template_context(settings),
         "success": request.query_params.get("success"),
         "error": request.query_params.get("error"),
     })
@@ -287,6 +335,7 @@ async def save_telegram_settings(
     telegram_feature_settings_submitted: str | None = Form(None),
     telegram_bot_enabled: str | None = Form(None),
     telegram_command_settings_submitted: str | None = Form(None),
+    telegram_template_settings_submitted: str | None = Form(None),
 ):
     current_user = await get_current_user(request, db)
     if not current_user:
@@ -317,6 +366,25 @@ async def save_telegram_settings(
         if telegram_command_settings_submitted is not None:
             value = normalize_telegram_enabled_value(form_data.get(key), default=False)
         command_enabled[command] = value
+    template_values: dict[str, str] = {}
+    template_changed: list[str] = []
+    if telegram_template_settings_submitted is not None:
+        for definition in telegram_response_template_definitions():
+            current_text = current_settings.get(definition.setting_key, definition.default_text)
+            raw_template = form_data.get(definition.setting_key)
+            value = str(raw_template if raw_template is not None else current_text).strip()
+            if not value:
+                value = definition.default_text
+            try:
+                validate_template_placeholders(definition.name, value)
+            except TelegramTemplateValidationError as exc:
+                return RedirectResponse(
+                    url=f"/telegram?error=Ошибка+шаблона+Telegram:+{exc}",
+                    status_code=303,
+                )
+            template_values[definition.name] = value
+            if value != current_text:
+                template_changed.append(definition.name)
     if normalized_admin_id:
         admin_as_list = _parse_int_list(normalized_admin_id)
         allowed = set(_parse_int_list(normalized_allowed_ids))
@@ -341,6 +409,15 @@ async def save_telegram_settings(
             value,
             f"DB-backed Telegram /{command} command runtime flag; 1 включена, 0 выключена",
         )
+    for definition in telegram_response_template_definitions():
+        if definition.name not in template_values:
+            continue
+        await _upsert_setting(
+            db,
+            definition.setting_key,
+            template_values[definition.name],
+            f"DB-backed Telegram response template: {definition.name}",
+        )
     deleted = await _apply_telegram_log_retention(db, {
         TELEGRAM_LOG_RETENTION_DAYS_KEY: retention_days,
         TELEGRAM_LOG_RETENTION_COUNT_KEY: retention_count,
@@ -358,6 +435,7 @@ async def save_telegram_settings(
             "telegram_allowed_user_ids": normalized_allowed_ids,
             "telegram_bot_enabled": bot_enabled,
             "telegram_commands_enabled": command_enabled,
+            "telegram_templates_changed": template_changed,
             "deleted_by_retention": deleted,
         },
         request=request,
