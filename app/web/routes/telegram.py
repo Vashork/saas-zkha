@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 import json
+from typing import Any, cast
 from urllib import error as urlerror
 from urllib import request as urlrequest
 
@@ -29,9 +30,10 @@ from app.bot.response_templates import (
     telegram_template_setting_key,
     validate_template_placeholders,
 )
+from app.bot.business_events import telegram_text_hash
 from app.config import get_settings
 from app.database import get_db
-from app.models import Setting, TelegramMessageLog, TelegramOutboundMessageLog
+from app.models import AuditLog, Setting, TelegramMessageLog, TelegramOutboundMessageLog
 from app.web.routes.auth import get_current_user
 from app.web.permissions import TELEGRAM_MANAGE, has_action_permission
 from app.web.template_engine import templates
@@ -149,6 +151,73 @@ def _telegram_template_context(settings: dict[str, str]) -> list[dict[str, objec
             "error": error_message,
         })
     return rows
+
+
+def _safe_audit_details(raw_details: str | None) -> dict[str, Any]:
+    """Parse audit details defensively for Telegram business-event display."""
+    if not raw_details:
+        return {}
+    try:
+        parsed = json.loads(raw_details)
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _telegram_business_event_context(audit: AuditLog, details: dict[str, object]) -> dict[str, object]:
+    """Return compact, safe template context for a linked Telegram business event."""
+    month = details.get("month")
+    year = details.get("year")
+    try:
+        period = f"{int(str(year))}-{int(str(month)):02d}" if month and year else "—"
+    except (TypeError, ValueError):
+        period = "—"
+    return {
+        "audit_id": audit.id,
+        "created_at": audit.created_at,
+        "action": audit.action,
+        "contractor_name": details.get("contractor_name") or "—",
+        "amount": details.get("amount") or "—",
+        "period": period,
+        "payment_id": details.get("payment_id") or audit.entity_id or "—",
+        "receipt_saved": bool(details.get("receipt_saved")),
+    }
+
+
+async def _telegram_business_events_for_rows(
+    db: AsyncSession,
+    rows: list[TelegramMessageLog],
+) -> dict[int, list[dict[str, object]]]:
+    """Map visible Telegram log rows to payment audit events by normalized text hash."""
+    hash_to_row_ids: dict[str, list[int]] = {}
+    for row in rows:
+        row_id = cast(int, row.id)
+        text_hash = telegram_text_hash(cast(str | None, row.text))
+        hash_to_row_ids.setdefault(text_hash, []).append(row_id)
+
+    if not hash_to_row_ids:
+        return {}
+
+    hash_conditions = [AuditLog.details.contains(text_hash) for text_hash in hash_to_row_ids]
+    audit_query = (
+        select(AuditLog)
+        .where(AuditLog.action == "telegram_payment_recorded")
+        .where(or_(*hash_conditions))
+        .order_by(AuditLog.id.desc())
+    )
+    result = await db.execute(audit_query)
+
+    events_by_row_id: dict[int, list[dict[str, object]]] = {cast(int, row.id): [] for row in rows}
+    for audit in result.scalars().all():
+        details = _safe_audit_details(cast(str | None, audit.details))
+        text_hash = str(details.get("telegram_text_hash") or "")
+        if text_hash not in hash_to_row_ids:
+            continue
+        event = _telegram_business_event_context(audit, details)
+        for row_id in hash_to_row_ids[text_hash]:
+            events_by_row_id.setdefault(row_id, []).append(event)
+
+    return events_by_row_id
 
 
 def _bot_api_request(token: str, method: str, payload: dict) -> dict:
@@ -270,6 +339,7 @@ async def telegram_page(
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
     result = await db.execute(query.order_by(TelegramMessageLog.id.desc()).limit(safe_limit))
     rows = result.scalars().all()
+    telegram_business_events = await _telegram_business_events_for_rows(db, list(rows))
     outbound_result = await db.execute(
         select(TelegramOutboundMessageLog)
         .order_by(TelegramOutboundMessageLog.id.desc())
@@ -291,6 +361,7 @@ async def telegram_page(
         "user_theme": settings.get("ui_theme", "dark"),
         "active_page": "telegram",
         "messages": rows,
+        "telegram_business_events": telegram_business_events,
         "outbound_messages": outbound_messages,
         "message_status": _row_status,
         "total": total or 0,

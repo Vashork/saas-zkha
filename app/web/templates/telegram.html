@@ -176,7 +176,27 @@
                         </td>
                         <td>{{ m.chat_id or '—' }}</td>
                         <td>{{ m.message_type }}</td>
-                        <td style="max-width:520px;white-space:pre-wrap;word-break:break-word;">{{ m.text or 'без текста' }}</td>
+                        <td style="max-width:520px;white-space:pre-wrap;word-break:break-word;">
+                            <div>{{ m.text or 'без текста' }}</div>
+                            {% set linked_events = telegram_business_events.get(m.id, []) %}
+                            {% if linked_events %}
+                            <div class="telegram-business-events" style="margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:8px;background:rgba(255,255,255,0.03);font-size:12px;white-space:normal;">
+                                <strong>🔗 Бизнес-события:</strong>
+                                {% for event in linked_events %}
+                                <div class="telegram-business-event" style="margin-top:6px;">
+                                    <span>#{{ event.audit_id }}</span>
+                                    <span>{{ event.created_at }}</span>
+                                    <span>{{ event.action }}</span>
+                                    <span>{{ event.contractor_name }}</span>
+                                    <span>{{ event.amount }} ₽</span>
+                                    <span>{{ event.period }}</span>
+                                    <span>payment #{{ event.payment_id }}</span>
+                                    <span>чек: {{ 'да' if event.receipt_saved else 'нет' }}</span>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </td>
                         <td style="min-width:260px;">
                             {% if m.chat_id %}
                             <form method="post" action="/telegram/messages/{{ m.id }}/reply">

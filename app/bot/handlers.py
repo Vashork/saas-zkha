@@ -14,6 +14,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.audit import log_admin_action
+from app.bot.business_events import telegram_payment_business_details
 from app.database import async_session_factory
 from app.models import Contractor, Payment
 from app.bot.payment_actions import (
@@ -249,6 +251,23 @@ async def paid_handler(message: Message):
         if not ok:
             await message.answer(f"❌ {apply_message}")
             return
+        await log_admin_action(
+            session,
+            actor=None,
+            action="telegram_payment_recorded",
+            entity_type="payment",
+            entity_id=payment.id,
+            details=telegram_payment_business_details(
+                message=message,
+                payment_id=str(payment.id),
+                contractor_id=str(contractor.id),
+                contractor_name=str(contractor.name),
+                amount=amount,
+                year=target_year,
+                month=target_month,
+                receipt_path=receipt_path,
+            ),
+        )
         await session.commit()
         payment_confirmation_text = await render_telegram_response_template(
             session,

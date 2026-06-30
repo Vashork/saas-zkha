@@ -45,6 +45,7 @@
 35. P2-19 audit/self-lockout guardrails закрыт: denied user-management guardrails пишут audit entries для self deactivate/delete/admin downgrade, delete admin, last active admin downgrade/deactivate и missing `USERS_MANAGE`; targeted tests `4 passed`, full pytest `302 passed, 8 skipped`.
 36. P2-20 access matrix tests закрыт: добавлены helper-level role matrix tests и route-level matrix tests для page visibility, business mutations, user management и backups manage; full pytest `328 passed, 8 skipped in 109.06s`.
 37. P2-12 Telegram response template foundation добавлен: DB-backed шаблоны для `/start`, `/help`, ошибок формата/чека и подтверждения оплаты, handler wiring и source/unit tests; полный P2-12 не закрыт до preview/edit UI и audit log для изменений шаблонов.
+38. P2-14 Telegram business-event linkage закрыт: Telegram payment confirmations создают audit events `telegram_payment_recorded` с hash/metadata и payment context; `/telegram` показывает связанные бизнес-события для видимых строк журнала без миграции схемы.
 
 ## P1
 
@@ -219,4 +220,7 @@
    - [ ] audit log изменений Telegram response templates;
    - validation: Telegram runtime targeted `11 passed in 13.12s`; template foundation targeted 2026-06-30 `19 passed in 5.88s`; full pytest 2026-06-30 — `345 passed, 4 skipped, 3 warnings in 123.79s`.
 4. [x] P2-13 Управление ответами на входящие сообщения.
-5. [ ] P2-14 Связать Telegram-журнал с бизнес-событиями.
+5. [x] P2-14 Связать Telegram-журнал с бизнес-событиями.
+   - Telegram payment confirmations create `telegram_payment_recorded` audit events with Telegram metadata hash and payment context.
+   - `/telegram` shows linked business events for visible Telegram log rows without storing full template text or adding a schema migration.
+   - validation: targeted P2-14 tests `24 passed in 16.30s`; full pytest `353 passed, 4 skipped, 3 warnings in 128.72s`; warning count unchanged from current baseline (`multiprocessing` fork deprecation in backup lock tests).
