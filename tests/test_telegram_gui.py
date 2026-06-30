@@ -141,6 +141,11 @@ def test_telegram_router_registered_and_nav_visible_for_admin():
     assert 'name="telegram_command_settings_submitted"' in template
     assert 'action="/telegram/messages/{{ m.id }}/reply"' in template
     assert 'action="/telegram/outbound/{{ out.id }}/edit"' in template
+    assert template.count('<details class="card-custom telegram-section">') == 5
+    assert template.count('<summary class="telegram-section-summary">') == 5
+    assert '<details class="card-custom telegram-section" open' not in template
+    assert "telegram-section-body" in template
+    assert "line-height: 1.55" in template
     assert "TelegramMessageLog" not in template  # implementation detail stays in route, not UI text
 
 
