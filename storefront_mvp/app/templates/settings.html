@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card narrow">
+  <h1>Настройки</h1>
+  <p>Здесь хранятся технические настройки приложения и базовый L2-домен.</p>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <form method="post" action="/settings" class="stack">
+    <label>Базовый L2-домен<input name="base_domain" value="{{ base_domain }}" required></label>
+    <button type="submit">Сохранить</button>
+  </form>
+  <hr>
+  <h2>Production note</h2>
+  <p>DNS должен указывать <code>{{ base_domain }}</code> и <code>*.{{ base_domain }}</code> на reverse proxy. Angie принимает оба имени и передает исходный Host в backend.</p>
+</section>
+{% endblock %}
