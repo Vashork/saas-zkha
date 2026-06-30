@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ storefront.seo_title or storefront.title }}</title>
+  {% if storefront.seo_description %}<meta name="description" content="{{ storefront.seo_description }}">{% endif %}
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<main class="container public">
+  <section class="public-hero">
+    {% if storefront.banner_image %}<img src="/uploads/{{ storefront.banner_image.id }}" alt="{{ storefront.title }}">{% endif %}
+    <h1>{{ storefront.title }}</h1>
+    <p>{{ storefront.description }}</p>
+  </section>
+  <section class="grid">
+    {% for lot in lots %}
+    <article class="card lot-card">
+      {% if lot.image %}<img src="/uploads/{{ lot.image.id }}" alt="{{ lot.title }}">{% endif %}
+      <h2>{{ lot.title }}</h2>
+      <p>{{ lot.description }}</p>
+      <p class="price">{{ '%.2f'|format(lot.price) }}</p>
+      <p>Доступно: {% if lot.quantity is none %}unlimited{% else %}{{ lot.quantity }}{% endif %}</p>
+    </article>
+    {% else %}
+    <article class="card plus-card"><div class="plus">+</div><p>Лоты скоро появятся</p></article>
+    {% endfor %}
+  </section>
+</main>
+</body>
+</html>
