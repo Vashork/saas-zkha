@@ -10,7 +10,6 @@
 <body>
 <main class="container public">
   <section class="public-hero">
-    {% if storefront.banner_image %}<img src="/uploads/{{ storefront.banner_image.id }}" alt="{{ storefront.title }}">{% endif %}
     <h1>{{ storefront.title }}</h1>
     <p>{{ storefront.description }}</p>
   </section>
@@ -21,10 +20,10 @@
       <h2>{{ lot.title }}</h2>
       <p>{{ lot.description }}</p>
       <p class="price">{{ '%.2f'|format(lot.price) }}</p>
-      <p>Доступно: {% if lot.quantity is none %}unlimited{% else %}{{ lot.quantity }}{% endif %}</p>
+      <p>Available: {% if lot.quantity is none %}unlimited{% else %}{{ lot.quantity }}{% endif %}</p>
     </article>
     {% else %}
-    <article class="card plus-card"><div class="plus">+</div><p>Лоты скоро появятся</p></article>
+    <article class="card plus-card"><div class="plus">+</div><p>No lots yet</p></article>
     {% endfor %}
   </section>
 </main>
