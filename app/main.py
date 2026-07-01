@@ -6,7 +6,7 @@ import re
 import secrets
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path, PurePath
 from typing import AsyncGenerator
@@ -26,6 +26,8 @@ RESERVED_SUBDOMAINS = {"www", "admin", "api", "static", "root", "mail", "ftp", "
 SUBDOMAIN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 IMAGE_EXT_BY_MIME = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+REQUEST_STATUSES = {"new", "confirmed", "cancelled", "procurement", "fulfilled"}
+PROCUREMENT_STATUSES = {"new", "confirmed"}
 
 
 class Base(DeclarativeBase):
@@ -71,6 +73,7 @@ class Storefront(Base):
     owner: Mapped[User] = relationship(back_populates="storefronts")
     lots: Mapped[list["Lot"]] = relationship(back_populates="storefront", cascade="all, delete-orphan", order_by="Lot.id")
     banner_image: Mapped["UploadedImage | None"] = relationship(foreign_keys=[banner_image_id])
+    purchase_requests: Mapped[list["PurchaseRequest"]] = relationship(back_populates="storefront")
 
 
 class UploadedImage(Base):
@@ -102,6 +105,65 @@ class Lot(Base):
 
     storefront: Mapped[Storefront] = relationship(back_populates="lots")
     image: Mapped[UploadedImage | None] = relationship()
+
+
+class Cart(Base):
+    __tablename__ = "carts"
+    __table_args__ = (UniqueConstraint("storefront_id", "token_hash", name="uq_carts_storefront_token"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    storefront_id: Mapped[int] = mapped_column(ForeignKey("storefronts.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    storefront: Mapped[Storefront] = relationship()
+    items: Mapped[list["CartItem"]] = relationship(back_populates="cart", cascade="all, delete-orphan")
+
+
+class CartItem(Base):
+    __tablename__ = "cart_items"
+    __table_args__ = (UniqueConstraint("cart_id", "lot_id", name="uq_cart_items_cart_lot"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    cart_id: Mapped[int] = mapped_column(ForeignKey("carts.id", ondelete="CASCADE"), nullable=False, index=True)
+    lot_id: Mapped[int] = mapped_column(ForeignKey("lots.id", ondelete="CASCADE"), nullable=False, index=True)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    cart: Mapped[Cart] = relationship(back_populates="items")
+    lot: Mapped[Lot] = relationship()
+
+
+class PurchaseRequest(Base):
+    __tablename__ = "purchase_requests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    storefront_id: Mapped[int] = mapped_column(ForeignKey("storefronts.id", ondelete="CASCADE"), nullable=False, index=True)
+    buyer_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    buyer_contact: Mapped[str] = mapped_column(String(160), nullable=False)
+    buyer_email: Mapped[str] = mapped_column(String(254), default="", nullable=False)
+    comment: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="new", nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+    storefront: Mapped[Storefront] = relationship(back_populates="purchase_requests")
+    items: Mapped[list["PurchaseRequestItem"]] = relationship(back_populates="purchase_request", cascade="all, delete-orphan")
+
+
+class PurchaseRequestItem(Base):
+    __tablename__ = "purchase_request_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    purchase_request_id: Mapped[int] = mapped_column(ForeignKey("purchase_requests.id", ondelete="CASCADE"), nullable=False, index=True)
+    lot_id: Mapped[int | None] = mapped_column(ForeignKey("lots.id", ondelete="SET NULL"), nullable=True, index=True)
+    lot_title: Mapped[str] = mapped_column(String(160), nullable=False)
+    price: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    purchase_request: Mapped[PurchaseRequest] = relationship(back_populates="items")
+    lot: Mapped[Lot | None] = relationship()
 
 
 @dataclass(frozen=True)
@@ -200,6 +262,10 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
+def token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode("ascii")).hexdigest()
+
+
 def parse_price(value: str) -> Decimal:
     try:
         price = Decimal(value.replace(",", ".")).quantize(Decimal("0.01"))
@@ -222,6 +288,23 @@ def parse_quantity(is_infinite: str | None, quantity_raw: str | None) -> int | N
     if quantity < 0:
         raise HTTPException(status_code=400, detail="Quantity must be non-negative")
     return quantity
+
+
+def parse_order_quantity(quantity_raw: str | int | None) -> int:
+    try:
+        quantity = int(str(quantity_raw or "").strip())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid cart quantity") from exc
+    if quantity < 1:
+        raise HTTPException(status_code=400, detail="Cart quantity must be at least 1")
+    return quantity
+
+
+def clean_form_text(value: str, max_length: int, *, required: bool = False) -> str:
+    cleaned = " ".join(value.strip().split())
+    if required and not cleaned:
+        raise HTTPException(status_code=400, detail="Required field is empty")
+    return cleaned[:max_length]
 
 
 def detect_image_mime(data: bytes) -> str | None:
@@ -288,7 +371,7 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         return user
 
     async def get_storefront_for_owner(storefront_id: int, user: User, session: AsyncSession) -> Storefront:
-        query = select(Storefront).where(Storefront.id == storefront_id).options(selectinload(Storefront.lots).selectinload(Lot.image))
+        query = select(Storefront).where(Storefront.id == storefront_id).options(selectinload(Storefront.lots).selectinload(Lot.image), selectinload(Storefront.banner_image))
         storefront = (await session.execute(query)).scalar_one_or_none()
         if not storefront:
             raise HTTPException(status_code=404, detail="Storefront not found")
@@ -329,13 +412,162 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         await session.flush()
         return image
 
-    async def render_public_storefront(request: Request, storefront: Storefront, session: AsyncSession) -> HTMLResponse:
+    async def get_storefront_by_subdomain(subdomain: str, session: AsyncSession) -> Storefront:
+        try:
+            normalized = validate_subdomain(subdomain)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        query = select(Storefront).where(Storefront.subdomain == normalized).options(selectinload(Storefront.banner_image))
+        storefront = (await session.execute(query)).scalar_one_or_none()
+        if not storefront:
+            raise HTTPException(status_code=404, detail="Storefront not found")
+        return storefront
+
+    async def get_storefront_from_host(request: Request, session: AsyncSession) -> Storefront:
+        base_domain = await get_base_domain(session)
+        subdomain = extract_subdomain_from_host(request.headers.get("host"), base_domain)
+        if not subdomain:
+            raise HTTPException(status_code=404, detail="Storefront host required")
+        return await get_storefront_by_subdomain(subdomain, session)
+
+    async def load_cart(request: Request, storefront: Storefront, session: AsyncSession) -> Cart | None:
+        token_by_storefront = request.session.get("cart_tokens", {})
+        token = token_by_storefront.get(str(storefront.id)) if isinstance(token_by_storefront, dict) else None
+        if not token:
+            return None
+        cart = (
+            await session.execute(
+                select(Cart)
+                .where(Cart.storefront_id == storefront.id, Cart.token_hash == token_hash(token))
+                .options(selectinload(Cart.items).selectinload(CartItem.lot).selectinload(Lot.image))
+            )
+        ).scalar_one_or_none()
+        if cart and cart.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+            await session.delete(cart)
+            await session.commit()
+            return None
+        return cart
+
+    async def get_or_create_cart(request: Request, storefront: Storefront, session: AsyncSession) -> Cart:
+        cart = await load_cart(request, storefront, session)
+        if cart:
+            return cart
+        token = secrets.token_urlsafe(32)
+        token_by_storefront = request.session.get("cart_tokens", {})
+        if not isinstance(token_by_storefront, dict):
+            token_by_storefront = {}
+        token_by_storefront[str(storefront.id)] = token
+        request.session["cart_tokens"] = token_by_storefront
+        cart = Cart(
+            storefront_id=storefront.id,
+            token_hash=token_hash(token),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        )
+        session.add(cart)
+        await session.flush()
+        return cart
+
+    def validate_lot_for_cart(storefront: Storefront, lot: Lot | None, quantity: int) -> Lot:
+        if not lot or lot.storefront_id != storefront.id or not lot.is_published:
+            raise HTTPException(status_code=404, detail="Published lot not found for this storefront")
+        if lot.quantity is not None and quantity > lot.quantity:
+            raise HTTPException(status_code=400, detail="Requested quantity exceeds available quantity")
+        return lot
+
+    async def render_public_storefront(request: Request, storefront: Storefront, session: AsyncSession, public_prefix: str) -> HTMLResponse:
         if not storefront.is_published:
             raise HTTPException(status_code=404, detail="Storefront is not published")
-        lots = (await session.execute(
-            select(Lot).where(Lot.storefront_id == storefront.id, Lot.is_published.is_(True)).options(selectinload(Lot.image)).order_by(Lot.id)
-        )).scalars().all()
-        return templates.TemplateResponse(request, "public_storefront.html", {"storefront": storefront, "lots": lots, "base_domain": await get_base_domain(session)})
+        lots = (
+            await session.execute(
+                select(Lot).where(Lot.storefront_id == storefront.id, Lot.is_published.is_(True)).options(selectinload(Lot.image)).order_by(Lot.id)
+            )
+        ).scalars().all()
+        cart = await load_cart(request, storefront, session)
+        cart_count = sum(item.quantity for item in cart.items) if cart else 0
+        return templates.TemplateResponse(
+            request,
+            "public_storefront.html",
+            {"storefront": storefront, "lots": lots, "base_domain": await get_base_domain(session), "public_prefix": public_prefix, "cart_count": cart_count},
+        )
+
+    async def render_cart(request: Request, storefront: Storefront, session: AsyncSession, public_prefix: str, error: str | None = None) -> HTMLResponse:
+        cart = await load_cart(request, storefront, session)
+        items = cart.items if cart else []
+        return templates.TemplateResponse(request, "cart.html", {"storefront": storefront, "items": items, "public_prefix": public_prefix, "error": error})
+
+    async def add_cart_item(request: Request, storefront: Storefront, lot_id: int, quantity_raw: str, session: AsyncSession, public_prefix: str) -> RedirectResponse:
+        quantity = parse_order_quantity(quantity_raw)
+        lot = validate_lot_for_cart(storefront, await session.get(Lot, lot_id), quantity)
+        cart = await get_or_create_cart(request, storefront, session)
+        existing = (await session.execute(select(CartItem).where(CartItem.cart_id == cart.id, CartItem.lot_id == lot.id))).scalar_one_or_none()
+        new_quantity = quantity + (existing.quantity if existing else 0)
+        validate_lot_for_cart(storefront, lot, new_quantity)
+        if existing:
+            existing.quantity = new_quantity
+        else:
+            session.add(CartItem(cart_id=cart.id, lot_id=lot.id, quantity=quantity))
+        cart.updated_at = datetime.now(timezone.utc)
+        await session.commit()
+        return RedirectResponse(f"{public_prefix}/cart", status_code=303)
+
+    async def update_cart_item(request: Request, storefront: Storefront, lot_id: int, quantity_raw: str, action: str, session: AsyncSession, public_prefix: str) -> RedirectResponse:
+        cart = await load_cart(request, storefront, session)
+        if not cart:
+            return RedirectResponse(f"{public_prefix}/cart", status_code=303)
+        item = (await session.execute(select(CartItem).where(CartItem.cart_id == cart.id, CartItem.lot_id == lot_id))).scalar_one_or_none()
+        if not item:
+            raise HTTPException(status_code=404, detail="Cart item not found")
+        if action == "delete":
+            await session.delete(item)
+        else:
+            quantity = parse_order_quantity(quantity_raw)
+            lot = validate_lot_for_cart(storefront, await session.get(Lot, lot_id), quantity)
+            item.quantity = quantity
+            item.lot = lot
+        cart.updated_at = datetime.now(timezone.utc)
+        await session.commit()
+        return RedirectResponse(f"{public_prefix}/cart", status_code=303)
+
+    async def create_purchase_request_from_cart(
+        request: Request,
+        storefront: Storefront,
+        buyer_name: str,
+        buyer_contact: str,
+        buyer_email: str,
+        comment: str,
+        session: AsyncSession,
+        public_prefix: str,
+    ) -> RedirectResponse | HTMLResponse:
+        cart = await load_cart(request, storefront, session)
+        if not cart or not cart.items:
+            return await render_cart(request, storefront, session, public_prefix, "Корзина пуста")
+        name = clean_form_text(buyer_name, 160, required=True)
+        contact = clean_form_text(buyer_contact, 160, required=True)
+        email = clean_form_text(buyer_email, 254)
+        safe_comment = comment.strip()[:2000]
+        order = PurchaseRequest(storefront_id=storefront.id, buyer_name=name, buyer_contact=contact, buyer_email=email, comment=safe_comment, status="new")
+        session.add(order)
+        await session.flush()
+        for item in list(cart.items):
+            lot = validate_lot_for_cart(storefront, await session.get(Lot, item.lot_id), item.quantity)
+            session.add(PurchaseRequestItem(purchase_request_id=order.id, lot_id=lot.id, lot_title=lot.title, price=lot.price, quantity=item.quantity))
+            await session.delete(item)
+        cart.updated_at = datetime.now(timezone.utc)
+        await session.commit()
+        return RedirectResponse(f"{public_prefix}/order/success", status_code=303)
+
+    async def get_purchase_request_for_user(request_id: int, user: User, session: AsyncSession) -> PurchaseRequest:
+        query = (
+            select(PurchaseRequest)
+            .where(PurchaseRequest.id == request_id)
+            .options(selectinload(PurchaseRequest.items), selectinload(PurchaseRequest.storefront))
+        )
+        if user.role != "admin":
+            query = query.join(Storefront).where(Storefront.owner_id == user.id)
+        purchase_request = (await session.execute(query)).scalar_one_or_none()
+        if not purchase_request:
+            raise HTTPException(status_code=404, detail="Request not found")
+        return purchase_request
 
     @app.on_event("startup")
     async def on_startup() -> None:
@@ -362,24 +594,78 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         base_domain = await get_base_domain(session)
         subdomain = extract_subdomain_from_host(request.headers.get("host"), base_domain)
         if subdomain:
-            storefront = (await session.execute(select(Storefront).where(Storefront.subdomain == subdomain))).scalar_one_or_none()
-            if not storefront:
-                raise HTTPException(status_code=404, detail="Storefront not found")
-            return await render_public_storefront(request, storefront, session)
+            storefront = await get_storefront_by_subdomain(subdomain, session)
+            return await render_public_storefront(request, storefront, session, "")
         if user:
             return RedirectResponse("/dashboard", status_code=303)
         return RedirectResponse("/login", status_code=303)
 
     @app.get("/s/{subdomain}", response_class=HTMLResponse)
     async def local_public_route(subdomain: str, request: Request, session: AsyncSession = Depends(get_session)):
-        try:
-            normalized = validate_subdomain(subdomain)
-        except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        storefront = (await session.execute(select(Storefront).where(Storefront.subdomain == normalized))).scalar_one_or_none()
-        if not storefront:
-            raise HTTPException(status_code=404, detail="Storefront not found")
-        return await render_public_storefront(request, storefront, session)
+        storefront = await get_storefront_by_subdomain(subdomain, session)
+        return await render_public_storefront(request, storefront, session, f"/s/{storefront.subdomain}")
+
+    @app.post("/cart/items")
+    async def host_add_cart_item(request: Request, lot_id: int = Form(...), quantity: str = Form("1"), session: AsyncSession = Depends(get_session)):
+        storefront = await get_storefront_from_host(request, session)
+        return await add_cart_item(request, storefront, lot_id, quantity, session, "")
+
+    @app.post("/s/{subdomain}/cart/items")
+    async def dev_add_cart_item(subdomain: str, request: Request, lot_id: int = Form(...), quantity: str = Form("1"), session: AsyncSession = Depends(get_session)):
+        storefront = await get_storefront_by_subdomain(subdomain, session)
+        return await add_cart_item(request, storefront, lot_id, quantity, session, f"/s/{storefront.subdomain}")
+
+    @app.get("/cart", response_class=HTMLResponse)
+    async def host_cart(request: Request, session: AsyncSession = Depends(get_session)):
+        storefront = await get_storefront_from_host(request, session)
+        return await render_cart(request, storefront, session, "")
+
+    @app.get("/s/{subdomain}/cart", response_class=HTMLResponse)
+    async def dev_cart(subdomain: str, request: Request, session: AsyncSession = Depends(get_session)):
+        storefront = await get_storefront_by_subdomain(subdomain, session)
+        return await render_cart(request, storefront, session, f"/s/{storefront.subdomain}")
+
+    @app.post("/cart/items/{lot_id}")
+    async def host_update_cart_item(request: Request, lot_id: int, quantity: str = Form("1"), action: str = Form("update"), session: AsyncSession = Depends(get_session)):
+        storefront = await get_storefront_from_host(request, session)
+        return await update_cart_item(request, storefront, lot_id, quantity, action, session, "")
+
+    @app.post("/s/{subdomain}/cart/items/{lot_id}")
+    async def dev_update_cart_item(subdomain: str, request: Request, lot_id: int, quantity: str = Form("1"), action: str = Form("update"), session: AsyncSession = Depends(get_session)):
+        storefront = await get_storefront_by_subdomain(subdomain, session)
+        return await update_cart_item(request, storefront, lot_id, quantity, action, session, f"/s/{storefront.subdomain}")
+
+    @app.get("/checkout", response_class=HTMLResponse)
+    async def host_checkout_form(request: Request, session: AsyncSession = Depends(get_session)):
+        storefront = await get_storefront_from_host(request, session)
+        cart = await load_cart(request, storefront, session)
+        return templates.TemplateResponse(request, "checkout.html", {"storefront": storefront, "items": cart.items if cart else [], "public_prefix": "", "error": None})
+
+    @app.get("/s/{subdomain}/checkout", response_class=HTMLResponse)
+    async def dev_checkout_form(subdomain: str, request: Request, session: AsyncSession = Depends(get_session)):
+        storefront = await get_storefront_by_subdomain(subdomain, session)
+        cart = await load_cart(request, storefront, session)
+        return templates.TemplateResponse(request, "checkout.html", {"storefront": storefront, "items": cart.items if cart else [], "public_prefix": f"/s/{storefront.subdomain}", "error": None})
+
+    @app.post("/checkout")
+    async def host_checkout(request: Request, buyer_name: str = Form(...), buyer_contact: str = Form(...), buyer_email: str = Form(""), comment: str = Form(""), session: AsyncSession = Depends(get_session)):
+        storefront = await get_storefront_from_host(request, session)
+        return await create_purchase_request_from_cart(request, storefront, buyer_name, buyer_contact, buyer_email, comment, session, "")
+
+    @app.post("/s/{subdomain}/checkout")
+    async def dev_checkout(subdomain: str, request: Request, buyer_name: str = Form(...), buyer_contact: str = Form(...), buyer_email: str = Form(""), comment: str = Form(""), session: AsyncSession = Depends(get_session)):
+        storefront = await get_storefront_by_subdomain(subdomain, session)
+        return await create_purchase_request_from_cart(request, storefront, buyer_name, buyer_contact, buyer_email, comment, session, f"/s/{storefront.subdomain}")
+
+    @app.get("/order/success", response_class=HTMLResponse)
+    async def host_order_success(request: Request, session: AsyncSession = Depends(get_session)):
+        storefront = await get_storefront_from_host(request, session)
+        return templates.TemplateResponse(request, "order_success.html", {"storefront": storefront, "public_prefix": ""})
+
+    @app.get("/s/{subdomain}/order/success", response_class=HTMLResponse)
+    async def dev_order_success(subdomain: str, request: Request, session: AsyncSession = Depends(get_session)):
+        storefront = await get_storefront_by_subdomain(subdomain, session)
+        return templates.TemplateResponse(request, "order_success.html", {"storefront": storefront, "public_prefix": f"/s/{storefront.subdomain}"})
 
     @app.get("/login", response_class=HTMLResponse)
     async def login_form(request: Request):
@@ -416,14 +702,16 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         except ValueError as exc:
             storefronts = (await session.execute(select(Storefront).where(Storefront.owner_id == user.id))).scalars().all()
             return templates.TemplateResponse(request, "dashboard.html", {"user": user, "storefronts": storefronts, "base_domain": await get_base_domain(session), "error": str(exc)}, status_code=400)
-        storefront = Storefront(owner_id=user.id, subdomain=normalized, title=normalized.capitalize())
+        owner_id = user.id
+        user_view = {"id": user.id, "username": user.username, "role": user.role}
+        storefront = Storefront(owner_id=owner_id, subdomain=normalized, title=normalized.capitalize())
         session.add(storefront)
         try:
             await session.commit()
         except IntegrityError:
             await session.rollback()
-            storefronts = (await session.execute(select(Storefront).where(Storefront.owner_id == user.id))).scalars().all()
-            return templates.TemplateResponse(request, "dashboard.html", {"user": user, "storefronts": storefronts, "base_domain": await get_base_domain(session), "error": "Subdomain already exists"}, status_code=409)
+            storefronts = (await session.execute(select(Storefront).where(Storefront.owner_id == owner_id))).scalars().all()
+            return templates.TemplateResponse(request, "dashboard.html", {"user": user_view, "storefronts": storefronts, "base_domain": await get_base_domain(session), "error": "Subdomain already exists"}, status_code=409)
         return RedirectResponse(f"/storefronts/{storefront.id}", status_code=303)
 
     @app.get("/storefronts/{storefront_id}", response_class=HTMLResponse)
@@ -528,6 +816,64 @@ def build_app(settings: Settings | None = None) -> FastAPI:
         await session.delete(lot)
         await session.commit()
         return RedirectResponse(f"/storefronts/{storefront.id}", status_code=303)
+
+    @app.get("/requests", response_class=HTMLResponse)
+    async def requests_list(request: Request, user: User = Depends(require_user), session: AsyncSession = Depends(get_session)):
+        query = select(PurchaseRequest).options(selectinload(PurchaseRequest.storefront), selectinload(PurchaseRequest.items)).order_by(PurchaseRequest.id.desc())
+        if user.role != "admin":
+            query = query.join(Storefront).where(Storefront.owner_id == user.id)
+        purchase_requests = (await session.execute(query)).scalars().all()
+        return templates.TemplateResponse(request, "requests.html", {"user": user, "requests": purchase_requests})
+
+    @app.get("/requests/{request_id}", response_class=HTMLResponse)
+    async def request_detail(request_id: int, request: Request, user: User = Depends(require_user), session: AsyncSession = Depends(get_session)):
+        purchase_request = await get_purchase_request_for_user(request_id, user, session)
+        return templates.TemplateResponse(request, "request_detail.html", {"user": user, "request_item": purchase_request, "statuses": sorted(REQUEST_STATUSES)})
+
+    @app.post("/requests/{request_id}/status")
+    async def update_request_status(request_id: int, status_value: str = Form(...), user: User = Depends(require_user), session: AsyncSession = Depends(get_session)):
+        if status_value not in REQUEST_STATUSES:
+            raise HTTPException(status_code=400, detail="Unknown request status")
+        purchase_request = await get_purchase_request_for_user(request_id, user, session)
+        purchase_request.status = status_value
+        purchase_request.updated_at = datetime.now(timezone.utc)
+        await session.commit()
+        return RedirectResponse(f"/requests/{purchase_request.id}", status_code=303)
+
+    @app.get("/procurement", response_class=HTMLResponse)
+    async def procurement(request: Request, user: User = Depends(require_user), session: AsyncSession = Depends(get_session)):
+        query = (
+            select(PurchaseRequest)
+            .where(PurchaseRequest.status.in_(PROCUREMENT_STATUSES))
+            .options(selectinload(PurchaseRequest.items), selectinload(PurchaseRequest.storefront))
+            .order_by(PurchaseRequest.id)
+        )
+        if user.role != "admin":
+            query = query.join(Storefront).where(Storefront.owner_id == user.id)
+        purchase_requests = (await session.execute(query)).scalars().all()
+        lot_ids = {item.lot_id for pr in purchase_requests for item in pr.items if item.lot_id is not None}
+        lots_by_id: dict[int, Lot] = {}
+        if lot_ids:
+            lots_by_id = {lot.id: lot for lot in (await session.execute(select(Lot).where(Lot.id.in_(lot_ids)))).scalars().all()}
+        aggregated: dict[tuple[int, int | None], dict[str, object]] = {}
+        for pr in purchase_requests:
+            for item in pr.items:
+                key = (pr.storefront_id, item.lot_id)
+                row = aggregated.setdefault(
+                    key,
+                    {
+                        "storefront": pr.storefront,
+                        "lot_title": item.lot_title,
+                        "quantity": 0,
+                        "available_quantity": lots_by_id[item.lot_id].quantity if item.lot_id in lots_by_id else None,
+                        "estimated_total": Decimal("0.00"),
+                        "request_ids": [],
+                    },
+                )
+                row["quantity"] = int(row["quantity"]) + item.quantity
+                row["estimated_total"] = Decimal(row["estimated_total"]) + item.price * item.quantity
+                row["request_ids"] = [*row["request_ids"], pr.id]
+        return templates.TemplateResponse(request, "procurement.html", {"user": user, "rows": list(aggregated.values())})
 
     @app.get("/settings", response_class=HTMLResponse)
     async def settings_form(request: Request, user: User = Depends(require_admin), session: AsyncSession = Depends(get_session)):
