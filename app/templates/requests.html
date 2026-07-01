@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="hero"><h1>Заявки</h1><a class="button" href="/procurement">Закупочный список</a></section>
+<section class="stack">
+{% for req in requests %}
+  <article class="card">
+    <h2><a href="/requests/{{ req.id }}">Заявка #{{ req.id }}</a></h2>
+    <p>{{ req.storefront.title }} · {{ req.buyer_name }} · {{ req.buyer_contact }} · статус: <strong>{{ req.status }}</strong></p>
+    <p>{% for item in req.items %}{{ item.lot_title }} × {{ item.quantity }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+  </article>
+{% else %}
+  <article class="card"><p>Заявок пока нет.</p></article>
+{% endfor %}
+</section>
+{% endblock %}
