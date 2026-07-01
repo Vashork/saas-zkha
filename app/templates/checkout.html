@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Оформление заявки — {{ storefront.title }}</title><link rel="stylesheet" href="/static/app.css"></head>
+<body>
+<main class="container public">
+  <section class="card narrow">
+    <h1>Оформить заявку</h1>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    {% if items %}
+    <ul>{% for item in items %}<li>{{ item.lot.title }} × {{ item.quantity }}</li>{% endfor %}</ul>
+    <form method="post" action="{{ public_prefix }}/checkout" class="stack">
+      <label>Имя<input name="buyer_name" maxlength="160" required></label>
+      <label>Телефон или Telegram<input name="buyer_contact" maxlength="160" required></label>
+      <label>Email опционально<input type="email" name="buyer_email" maxlength="254"></label>
+      <label>Комментарий<textarea name="comment" rows="4" maxlength="2000"></textarea></label>
+      <button type="submit">Отправить заявку</button>
+    </form>
+    {% else %}<p>Корзина пуста.</p>{% endif %}
+  </section>
+</main>
+</body>
+</html>
