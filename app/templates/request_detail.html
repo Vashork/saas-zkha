@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+  <h1>Заявка #{{ request_item.id }}</h1>
+  <p>Витрина: {{ request_item.storefront.title }} / {{ request_item.storefront.subdomain }}</p>
+  <p>Имя: <strong>{{ request_item.buyer_name }}</strong></p>
+  <p>Контакт: {{ request_item.buyer_contact }}</p>
+  {% if request_item.buyer_email %}<p>Email: {{ request_item.buyer_email }}</p>{% endif %}
+  {% if request_item.comment %}<p>Комментарий: {{ request_item.comment }}</p>{% endif %}
+  <h2>Лоты</h2>
+  <ul>{% for item in request_item.items %}<li>{{ item.lot_title }}: {{ item.quantity }} x {{ '%.2f'|format(item.price) }}</li>{% endfor %}</ul>
+  <form method="post" action="/requests/{{ request_item.id }}/status" class="stack narrow-left">
+    <label>Статус<select name="status_value">{% for status in statuses %}<option value="{{ status }}" {% if request_item.status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select></label>
+    <button type="submit">Сменить статус</button>
+  </form>
+</section>
+{% endblock %}
