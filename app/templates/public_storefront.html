@@ -10,8 +10,10 @@
 <body>
 <main class="container public">
   <section class="public-hero">
+    {% if storefront.banner_image %}<img src="/uploads/{{ storefront.banner_image.id }}" alt="{{ storefront.title }}">{% endif %}
     <h1>{{ storefront.title }}</h1>
     <p>{{ storefront.description }}</p>
+    <p><a class="button" href="{{ public_prefix }}/cart">Корзина{% if cart_count %}: {{ cart_count }}{% endif %}</a></p>
   </section>
   <section class="grid">
     {% for lot in lots %}
@@ -20,7 +22,12 @@
       <h2>{{ lot.title }}</h2>
       <p>{{ lot.description }}</p>
       <p class="price">{{ '%.2f'|format(lot.price) }}</p>
-      <p>Available: {% if lot.quantity is none %}unlimited{% else %}{{ lot.quantity }}{% endif %}</p>
+      <p>Доступно: {% if lot.quantity is none %}без ограничения{% else %}{{ lot.quantity }}{% endif %}</p>
+      <form method="post" action="{{ public_prefix }}/cart/items" class="buy-form">
+        <input type="hidden" name="lot_id" value="{{ lot.id }}">
+        <label>Количество<input type="number" min="1" {% if lot.quantity is not none %}max="{{ lot.quantity }}"{% endif %} name="quantity" value="1" required></label>
+        <button type="submit">Куплю</button>
+      </form>
     </article>
     {% else %}
     <article class="card plus-card"><div class="plus">+</div><p>No lots yet</p></article>
