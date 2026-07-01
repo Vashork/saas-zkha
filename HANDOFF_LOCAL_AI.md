@@ -5,7 +5,7 @@ Project state: standalone storefront/page-builder from repository root.
 
 ## Mission
 
-Review and validate the MVP scaffold for a subdomain-based storefront/page builder. Treat it as a new project seed that will move into a separate clean repository.
+Review and validate the MVP for a subdomain-based storefront/page builder. Treat it as a new project seed that will move into a separate clean repository.
 
 ## Removed from runtime
 
@@ -17,6 +17,17 @@ The legacy billing/domain-specific runtime must not be present in the standalone
 - old containers/networks/docs unrelated to storefront builder.
 
 Notifications may be added later as a new clean adapter for purchase requests, not by carrying over old domain-specific code.
+
+## Current implemented workflow
+
+- Storefronts are created in DB and resolved by `Host` header.
+- Public dev fallback is `/s/{subdomain}`.
+- Public visitors can add published lots to a storefront-bound cart.
+- Cart token is random; DB stores only `token_hash`; signed session stores the per-storefront token.
+- Cart rejects unpublished lots, cross-storefront lots, quantity below `1`, and quantity above finite stock.
+- Checkout creates a purchase request without payment and snapshots lot title/price/quantity.
+- Owner/admin can list request details and change request status.
+- Procurement aggregates `new`/`confirmed` requests by storefront and lot.
 
 ## Do not do
 
@@ -31,6 +42,7 @@ Notifications may be added later as a new clean adapter for purchase requests, n
 
 ```bash
 python -m pip install -r requirements-dev.txt
+python -m compileall app migrations tests
 python -m pytest
 docker compose config -q
 docker compose up -d --build
@@ -44,6 +56,16 @@ python -m compileall app migrations tests
 python -m pytest
 ```
 
+## Validation already performed in sandbox
+
+```bash
+python -m compileall app tests
+python -m pytest -q
+# 18 passed
+```
+
+Docker was not available/validated in the sandbox. Run the Docker smoke commands above in the target environment.
+
 ## Manual smoke scenario
 
 1. Copy `.env.example` to `.env` and set unique local `SECRET_KEY` and `ADMIN_PASSWORD`.
@@ -56,29 +78,32 @@ python -m pytest
    ```
 
 4. Start Docker.
-5. Open `http://guru.localhost/login`.
+5. Open `http://guru.localhost/login` or `http://localhost/login`.
 6. Login as admin.
 7. Create storefront `knigi`.
 8. Edit title to `Книги` and description.
 9. Add a lot with PNG/JPEG/WEBP image.
 10. Open `http://knigi.guru.localhost/` and confirm public render.
 11. Confirm `http://localhost/s/knigi` works as dev fallback.
+12. Add item to cart, edit quantity, delete item.
+13. Checkout with name/contact/email/comment.
+14. Confirm owner/admin can see request and procurement aggregation.
 
 ## Review focus
 
 - `validate_subdomain` rejects reserved/invalid names.
 - Storefront subdomain uniqueness is enforced in DB and handled without 500.
-- Owner cannot read/edit someone else's storefront.
+- Owner cannot read/edit someone else's storefront or requests.
 - `Host` maps only one-level L3 labels under configured base domain.
 - Uploaded files never use user filename as stored path.
 - Uploaded files are served only by DB-backed `image_id`.
 - `ensure_child_path` blocks traversal.
 - `APP_ENV=production` blocks unsafe secret/default password combinations.
 - Angie preserves original `Host` header.
+- Public request success page does not expose buyer PII.
 
 ## Known gaps intentionally not closed yet
 
-- Public cart and checkout request workflow is not merged into the branch yet.
 - CSRF protection is not implemented yet.
 - Login/checkout rate limit is not implemented yet.
 - Audit log is not implemented yet.
