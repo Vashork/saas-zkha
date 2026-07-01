@@ -1,9 +1,9 @@
 # Storefront Builder Roadmap
 
-## P0 — MVP foundation
+## P0 — Standalone foundation
 
-- [x] Архитектурное решение: wildcard DNS + Host routing.
-- [x] Статичный Angie config, без runtime mutation и reload на каждый L3.
+- [x] Repository tree runs from root, not from nested scaffold folder.
+- [x] Static Angie config without runtime mutation or reload per L3.
 - [x] FastAPI scaffold.
 - [x] SQLite + SQLAlchemy async.
 - [x] Alembic initial migration.
@@ -17,8 +17,8 @@
 - [x] Lot CRUD.
 - [x] Image upload validation.
 - [x] Docker Compose + Angie.
-- [x] README and handoff.
-- [x] Tests added for MVP acceptance paths.
+- [x] README and handoff moved to standalone root layout.
+- [x] Tests added for current scaffold acceptance paths.
 
 Evidence required before closing as release-ready:
 
@@ -29,11 +29,26 @@ docker compose up -d --build
 curl -f http://localhost/health
 ```
 
+## P0/P1 — Cart, checkout and request workflow
+
+- [ ] Public cart bound to storefront.
+- [ ] Prevent adding unpublished lots.
+- [ ] Prevent mixing lots from another storefront.
+- [ ] Quantity validation for finite and infinite stock.
+- [ ] Checkout without payment creates purchase request.
+- [ ] Snapshot lot title and price on checkout.
+- [ ] Owner request list/detail.
+- [ ] Admin can see all requests.
+- [ ] Owner can see only own storefront requests.
+- [ ] Request status update for owner/admin.
+- [ ] Procurement list aggregation for `new`/`confirmed` requests.
+- [ ] Public cannot read request list/detail.
+
 ## P1 — Security hardening before public production
 
-- [ ] Add CSRF protection for all mutating web forms.
-- [ ] Add login rate limiting with trusted proxy handling.
-- [ ] Add audit log for auth, storefront, lot and settings mutations.
+- [ ] Add CSRF protection for all mutating web forms, including public cart/checkout and admin forms.
+- [ ] Add login and public checkout rate limiting with trusted proxy handling.
+- [ ] Add audit log for auth, storefront, lot, request and settings mutations.
 - [ ] Add admin UI for user management and owner assignment.
 - [ ] Add stronger password policy and password change flow.
 - [ ] Add strict security headers at Angie/app layer.
@@ -49,10 +64,10 @@ curl -f http://localhost/health
 - [ ] Draft preview links.
 - [ ] SEO sitemap/robots controls.
 - [ ] Custom owner profile/contact settings.
-- [ ] Public contact/order request form with anti-spam controls.
 - [ ] External object storage adapter.
 - [ ] PostgreSQL migration path.
 - [ ] Import/export lots CSV.
+- [ ] New notification adapter for request events: Telegram, email, webhook.
 
 ## Release gate rule
 
