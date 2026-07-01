@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Корзина — {{ storefront.title }}</title><link rel="stylesheet" href="/static/app.css"></head>
+<body>
+<main class="container public">
+  <section class="hero"><h1>Корзина</h1><a href="{{ public_prefix or '/' }}">Вернуться к витрине</a></section>
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+  <section class="stack">
+    {% for item in items %}
+    <article class="card cart-row">
+      <div><h2>{{ item.lot.title }}</h2><p>{{ '%.2f'|format(item.lot.price) }}</p></div>
+      <form method="post" action="{{ public_prefix }}/cart/items/{{ item.lot.id }}" class="inline-form">
+        <label>Количество<input type="number" min="1" {% if item.lot.quantity is not none %}max="{{ item.lot.quantity }}"{% endif %} name="quantity" value="{{ item.quantity }}" required></label>
+        <button type="submit" name="action" value="update">Обновить</button>
+        <button type="submit" name="action" value="delete" class="secondary">Удалить</button>
+      </form>
+    </article>
+    {% else %}
+    <article class="card"><p>Корзина пуста.</p></article>
+    {% endfor %}
+  </section>
+  {% if items %}<p><a class="button" href="{{ public_prefix }}/checkout">Оформить заявку</a></p>{% endif %}
+</main>
+</body>
+</html>
