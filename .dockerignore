@@ -1,56 +1,10 @@
-# VCS and editor metadata
 .git
-.gitignore
-.github
-.idea
-.vscode
-
-# Local environment and secrets
-.env
-.env.*
-!.env.example
-*.pem
-*.key
-
-# Python caches and virtualenvs
 __pycache__/
 *.py[cod]
-*$py.class
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.coverage
-coverage.xml
-htmlcov/
-.tox/
-.venv/
-venv/
-env/
-
-# Runtime state and local data
-/data/
-/backups/
-/logs/
-/uploads/
-*.db
-*.db-*
-*.sqlite
-*.sqlite3
-*.log
-
-# Build/package artifacts
-build/
-dist/
-*.egg-info/
-.eggs/
-
-# OS and temporary files
+.env
+data/
+logs/
 .DS_Store
-Thumbs.db
-*.tmp
-*.swp
-
-# Large/local docs artifacts that are not needed in runtime images
-docs/**/*.pdf
-docs/**/*.docx
-docs/**/*.xlsx

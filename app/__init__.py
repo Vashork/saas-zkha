@@ -1,1 +1,1 @@
-"""zhkh-bot application package."""
+"""Storefront Builder MVP package."""

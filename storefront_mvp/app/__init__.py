@@ -1,1 +1,0 @@
-"""Storefront Builder MVP package."""
