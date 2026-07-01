@@ -29,11 +29,11 @@ FastAPI:
 
 ## MVP scope сейчас
 
-Закрыто scaffold-реализацией:
+Закрыто текущей реализацией:
 
 - FastAPI backend;
 - SQLite + SQLAlchemy async;
-- Alembic migration `20260701_0001`;
+- Alembic migrations `20260701_0001` и `20260701_0002`;
 - Jinja2 UI;
 - Docker Compose;
 - Angie reverse proxy config под wildcard/host routing;
@@ -50,7 +50,13 @@ FastAPI:
   - UUID stored filename;
   - запрет path traversal;
   - отдача только через DB-backed `/uploads/{image_id}`;
-- тесты на subdomain validation, reserved names, duplicate subdomain, Host routing, owner access, public page render и upload validation.
+- публичная корзина, привязанная к storefront;
+- checkout без оплаты, создающий заявку/предзаказ;
+- snapshot title/price/quantity на момент заявки;
+- owner/admin список и детали заявок;
+- смена статуса заявки;
+- закупочный список по статусам `new`/`confirmed`;
+- тесты на subdomain validation, reserved names, duplicate subdomain, Host routing, owner access, public page render, upload validation, cart, checkout, request access и procurement aggregation.
 
 ## Структура
 
@@ -65,6 +71,7 @@ docker/
 migrations/
   env.py
   versions/20260701_0001_initial.py
+  versions/20260701_0002_cart_purchase_requests.py
 tests/test_mvp.py
 .env.example
 docker-compose.yml
@@ -72,6 +79,7 @@ requirements.txt
 requirements-dev.txt
 ROADMAP.md
 HANDOFF_LOCAL_AI.md
+QA_CHECKLIST.md
 ```
 
 ## Локальный запуск
@@ -128,15 +136,43 @@ curl -f http://localhost/health
 ```text
 http://guru.localhost/login
 http://knigi.guru.localhost/
+http://knigi.guru.localhost/cart
 ```
 
 Вариант B, без изменения hosts-файла: публичный dev-view доступен как:
 
 ```text
 http://localhost/s/knigi
+http://localhost/s/knigi/cart
 ```
 
 Этот route нужен только для локальной проверки. Production path остается Host routing.
+
+## Корзина и заявки
+
+Публичный пользователь без логина может:
+
+1. открыть публичную витрину;
+2. добавить опубликованный лот в корзину;
+3. указать количество;
+4. открыть корзину;
+5. изменить количество или удалить позицию;
+6. оформить заявку без оплаты;
+7. указать имя, телефон или Telegram, опциональный email и комментарий;
+8. увидеть публичную страницу “Заявка принята”.
+
+Корзина хранит случайный per-storefront token в signed session cookie, а в БД хранится только `token_hash`. Buyer PII в cookie не кладется. Заявка создается со статусом `new`; остатки автоматически не списываются, чтобы фейковые заявки не блокировали товар.
+
+## Кабинет owner/admin
+
+После логина доступны:
+
+- `Dashboard` / витрины;
+- заявки `/requests`;
+- детали заявки и смена статуса;
+- закупочный список `/procurement`.
+
+Owner видит только заявки своих storefronts. Admin видит все заявки.
 
 ## Production checklist
 
@@ -153,6 +189,7 @@ http://localhost/s/knigi
 
 ```bash
 python -m pip install -r requirements-dev.txt
+python -m compileall app migrations tests
 python -m pytest
 docker compose config -q
 docker compose up -d --build
@@ -170,11 +207,11 @@ python -m pytest
 
 Старый доменно-специфичный bot runtime не переносится. Для нового проекта допустимо добавить отдельный notification adapter позже: например уведомления owner/admin о новых заявках и смене статуса.
 
-## Ограничения текущего scaffold
+## Ограничения текущего MVP
 
-- Корзина и checkout-заявки еще не влиты в ветку.
+- CSRF protection еще не реализован; для production-релиза это следующий security gate.
+- Нет durable login/checkout rate limit.
+- Нет audit log.
 - Нет многофайловой галереи лота.
 - Нет отдельной пользовательской админки управления владельцами.
 - Нет внешнего object storage/S3.
-- Нет rate limit на login.
-- Нет CSRF middleware; для production-релиза это следующий security gate.
