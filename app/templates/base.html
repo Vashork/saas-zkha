@@ -11,7 +11,9 @@
   <a class="brand" href="/dashboard">Storefront Builder</a>
   <nav>
     {% if user %}
-      <a href="/dashboard">Dashboard</a>
+      <a href="/dashboard">Витрины</a>
+      <a href="/requests">Заявки</a>
+      <a href="/procurement">Закупка</a>
       {% if user.role == 'admin' %}<a href="/settings">Настройки</a>{% endif %}
       <form method="post" action="/logout" class="inline"><button type="submit">Выйти</button></form>
     {% else %}
