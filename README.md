@@ -1,6 +1,8 @@
 # Storefront Builder MVP
 
-MVP конструктора страниц/витрин на L3-поддоменах. Проект сделан как отдельный scaffold на базе production-подходов `saas-zkha`: FastAPI, SQLite, SQLAlchemy async, Alembic, Jinja2, Docker Compose, Angie reverse proxy, авторизация, роли, тесты и release-gate без секретов в репозитории.
+Standalone MVP конструктора страниц/витрин на L3-поддоменах. Проект запускается из корня репозитория и подготовлен к переносу в отдельный чистый GitHub repo.
+
+Стек: FastAPI, SQLite, SQLAlchemy async, Alembic, Jinja2, Docker Compose и Angie-compatible reverse proxy.
 
 ## Архитектурное решение
 
@@ -23,21 +25,9 @@ FastAPI:
   DB lookup: storefronts.subdomain = 'knigi'
 ```
 
-Создание `knigi.guru.com` не меняет Angie config и не требует reload reverse proxy. Приложение создает строку в БД, а публичный рендер выбирается по `Host` header. Это снижает операционный риск, исключает runtime sed/template mutation, гонки при reload и ошибки генерации конфигов.
+Создание `knigi.guru.com` не меняет Angie config и не требует reload reverse proxy. Приложение создает строку в БД, а публичный рендер выбирается по `Host` header. Runtime `sed`/template mutation, reload reverse proxy на каждый L3 и fake TLS production-заглушки не используются.
 
-### Почему не генерировать Angie config на каждый L3
-
-Не выбран вариант «создал страницу -> переписал конфиг Angie -> reload», потому что он хуже для MVP и production:
-
-- требует прав на запись в конфиги reverse proxy из web-приложения;
-- создает риск повреждения конфига одним пользовательским вводом;
-- требует синхронизации reload при конкурентных изменениях;
-- усложняет rollback;
-- увеличивает blast radius: ошибка одной витрины может повлиять на весь proxy.
-
-Wildcard DNS + Host routing оставляет proxy статичным, а tenant mapping хранит в БД.
-
-## MVP scope
+## MVP scope сейчас
 
 Закрыто scaffold-реализацией:
 
@@ -65,30 +55,28 @@ Wildcard DNS + Host routing оставляет proxy статичным, а tena
 ## Структура
 
 ```text
-storefront_mvp/
-  app/
-    main.py                 # settings, models, auth, routes, upload validation
-    static/app.css
-    templates/
-  docker/
-    Dockerfile.web
-    angie.conf
-  migrations/
-    env.py
-    versions/20260701_0001_initial.py
-  tests/test_mvp.py
-  .env.example
-  docker-compose.yml
-  requirements.txt
-  requirements-dev.txt
-  ROADMAP.md
-  HANDOFF_LOCAL_AI.md
+app/
+  main.py
+  static/app.css
+  templates/
+docker/
+  Dockerfile.web
+  angie.conf
+migrations/
+  env.py
+  versions/20260701_0001_initial.py
+tests/test_mvp.py
+.env.example
+docker-compose.yml
+requirements.txt
+requirements-dev.txt
+ROADMAP.md
+HANDOFF_LOCAL_AI.md
 ```
 
 ## Локальный запуск
 
 ```bash
-cd storefront_mvp
 cp .env.example .env
 ```
 
@@ -171,9 +159,20 @@ docker compose up -d --build
 curl -f http://localhost/health
 ```
 
-## Ограничения MVP
+Если Docker недоступен:
 
-- Нет платежей/заказов/корзины.
+```bash
+python -m compileall app migrations tests
+python -m pytest
+```
+
+## Уведомления
+
+Старый доменно-специфичный bot runtime не переносится. Для нового проекта допустимо добавить отдельный notification adapter позже: например уведомления owner/admin о новых заявках и смене статуса.
+
+## Ограничения текущего scaffold
+
+- Корзина и checkout-заявки еще не влиты в ветку.
 - Нет многофайловой галереи лота.
 - Нет отдельной пользовательской админки управления владельцами.
 - Нет внешнего object storage/S3.
