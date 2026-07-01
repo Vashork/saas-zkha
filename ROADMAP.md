@@ -31,18 +31,34 @@ curl -f http://localhost/health
 
 ## P0/P1 — Cart, checkout and request workflow
 
-- [ ] Public cart bound to storefront.
-- [ ] Prevent adding unpublished lots.
-- [ ] Prevent mixing lots from another storefront.
-- [ ] Quantity validation for finite and infinite stock.
-- [ ] Checkout without payment creates purchase request.
-- [ ] Snapshot lot title and price on checkout.
-- [ ] Owner request list/detail.
-- [ ] Admin can see all requests.
-- [ ] Owner can see only own storefront requests.
-- [ ] Request status update for owner/admin.
-- [ ] Procurement list aggregation for `new`/`confirmed` requests.
-- [ ] Public cannot read request list/detail.
+- [x] Public cart bound to storefront.
+- [x] Prevent adding unpublished lots.
+- [x] Prevent mixing lots from another storefront.
+- [x] Quantity validation for finite and infinite stock.
+- [x] Checkout without payment creates purchase request.
+- [x] Snapshot lot title and price on checkout.
+- [x] Owner request list/detail.
+- [x] Admin can see all requests.
+- [x] Owner can see only own storefront requests.
+- [x] Request status update for owner/admin.
+- [x] Procurement list aggregation for `new`/`confirmed` requests.
+- [x] Public cannot read request list/detail.
+
+Evidence for this milestone:
+
+```bash
+python -m compileall app tests
+python -m pytest -q
+# sandbox result: 18 passed
+```
+
+Docker smoke must still be run in the target environment:
+
+```bash
+docker compose config -q
+docker compose up -d --build
+curl -f http://localhost/health
+```
 
 ## P1 — Security hardening before public production
 
