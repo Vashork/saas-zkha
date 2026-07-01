@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="hero"><h1>Закупочный список</h1><a href="/requests">К заявкам</a></section>
+<section class="stack">
+{% for row in rows %}
+  <article class="card">
+    <h2>{{ row.lot_title }}</h2>
+    <p>Витрина: {{ row.storefront.title }}</p>
+    <p>Нужно: <strong>{{ row.quantity }}</strong></p>
+    <p>Доступно сейчас: {% if row.available_quantity is none %}∞ / не ограничено{% else %}{{ row.available_quantity }}{% endif %}</p>
+    <p>Оценочная сумма: {{ '%.2f'|format(row.estimated_total) }}</p>
+    <p>Заявки: {% for request_id in row.request_ids %}<a href="/requests/{{ request_id }}">#{{ request_id }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>
+  </article>
+{% else %}
+  <article class="card"><p>Нет заявок в статусах new/confirmed.</p></article>
+{% endfor %}
+</section>
+{% endblock %}
