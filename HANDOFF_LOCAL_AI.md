@@ -1,11 +1,22 @@
 # Handoff for local AI / release reviewer
 
 Branch: `feature/storefront-mvp-guru-20260701`
-Folder: `storefront_mvp/`
+Project state: standalone storefront/page-builder from repository root.
 
 ## Mission
 
-Review and validate the MVP scaffold for a subdomain-based storefront/page builder. Treat it as a new project seed based on `saas-zkha` production approaches, not as a replacement for the existing ZhKH app.
+Review and validate the MVP scaffold for a subdomain-based storefront/page builder. Treat it as a new project seed that will move into a separate clean repository.
+
+## Removed from runtime
+
+The legacy billing/domain-specific runtime must not be present in the standalone tree:
+
+- old payment/contractor/receipt logic;
+- old scheduler;
+- old domain-specific bot runtime;
+- old containers/networks/docs unrelated to storefront builder.
+
+Notifications may be added later as a new clean adapter for purchase requests, not by carrying over old domain-specific code.
 
 ## Do not do
 
@@ -19,7 +30,6 @@ Review and validate the MVP scaffold for a subdomain-based storefront/page build
 ## Required local validation
 
 ```bash
-cd storefront_mvp
 python -m pip install -r requirements-dev.txt
 python -m pytest
 docker compose config -q
@@ -66,10 +76,11 @@ python -m pytest
 - `APP_ENV=production` blocks unsafe secret/default password combinations.
 - Angie preserves original `Host` header.
 
-## Known gaps intentionally not closed in MVP
+## Known gaps intentionally not closed yet
 
+- Public cart and checkout request workflow is not merged into the branch yet.
 - CSRF protection is not implemented yet.
-- Login rate limit is not implemented yet.
+- Login/checkout rate limit is not implemented yet.
 - Audit log is not implemented yet.
 - User-management UI is not implemented yet.
 - Real TLS termination is deployment-level and not faked in this scaffold.
